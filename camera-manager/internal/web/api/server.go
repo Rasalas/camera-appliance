@@ -11,6 +11,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	neturl "net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -20,6 +21,7 @@ import (
 	"camera-appliance/camera-manager/internal/app"
 	"camera-appliance/camera-manager/internal/backup"
 	"camera-appliance/camera-manager/internal/redaction"
+	"camera-appliance/camera-manager/internal/secrets"
 	"camera-appliance/camera-manager/internal/state"
 	"camera-appliance/camera-manager/internal/system"
 )
@@ -45,8 +47,9 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /api/discovery/runs", s.getScanRuns)
 	s.mux.HandleFunc("GET /api/discovery/runs/", s.getScanRun)
 	s.mux.HandleFunc("GET /api/devices", s.getDevices)
-	s.mux.HandleFunc("POST /api/devices/", s.deviceAction)
-	s.mux.HandleFunc("GET /api/devices/", s.getDevice)
+	s.mux.HandleFunc("POST /api/devices/manual", s.addManualDevice)
+	s.mux.HandleFunc("POST /api/devices/{rest...}", s.deviceAction)
+	s.mux.HandleFunc("GET /api/devices/{rest...}", s.getDevice)
 	s.mux.HandleFunc("GET /api/slots", s.getSlots)
 	s.mux.HandleFunc("GET /api/bindings", s.getBindings)
 	s.mux.HandleFunc("POST /api/bindings", s.postBinding)
@@ -57,6 +60,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST /api/system/restart-stack", s.restartStack)
 	s.mux.HandleFunc("GET /api/settings", s.getSettings)
 	s.mux.HandleFunc("PUT /api/settings", s.putSettings)
+	s.mux.HandleFunc("POST /api/secrets/camera-password", s.setCameraPassword)
 	s.mux.HandleFunc("GET /api/events", s.getEvents)
 	s.mux.HandleFunc("POST /api/backup", s.createBackup)
 	s.mux.HandleFunc("POST /api/restore", s.restoreBackup)
@@ -101,10 +105,62 @@ func (s *Server) getDevices(w http.ResponseWriter, r *http.Request) {
 	writeResult(w, devices, err)
 }
 
+func (s *Server) addManualDevice(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		IP       string `json:"ip"`
+		Username string `json:"username"`
+		Password string `json:"password"`
+		Stream   string `json:"stream"`
+		Label    string `json:"label"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, err, http.StatusBadRequest)
+		return
+	}
+	result, err := s.app.AddManualDevice(r.Context(), app.ManualDeviceInput{
+		IP:       req.IP,
+		Username: req.Username,
+		Stream:   req.Stream,
+		Label:    req.Label,
+	})
+	if err != nil {
+		writeError(w, err, http.StatusBadRequest)
+		return
+	}
+	if strings.TrimSpace(req.Username) != "" || strings.TrimSpace(req.Password) != "" || strings.TrimSpace(req.Stream) != "" {
+		if req.Stream == "" {
+			req.Stream = "stream2"
+		}
+		values := map[string]string{
+			"camera.credentials." + result.Device.ID + ".username": strings.TrimSpace(req.Username),
+			"camera.credentials." + result.Device.ID + ".stream":   strings.TrimSpace(req.Stream),
+		}
+		if err := s.app.Store.PutSettings(r.Context(), values); err != nil {
+			writeError(w, err, http.StatusInternalServerError)
+			return
+		}
+		if strings.TrimSpace(req.Password) != "" {
+			if _, err := secrets.SaveCamera(s.app.Config.ConfigDir, result.Device.ID, req.Password); err != nil {
+				writeError(w, err, http.StatusInternalServerError)
+				return
+			}
+		}
+	}
+	writeJSON(w, result, http.StatusOK)
+}
+
 func (s *Server) getDevice(w http.ResponseWriter, r *http.Request) {
 	path := strings.TrimPrefix(r.URL.Path, "/api/devices/")
 	if strings.HasSuffix(path, "/preview") {
 		writeJSON(w, map[string]string{"message": "Vorschau ist im MVP über AgentDVR/go2rtc manuell vorgesehen."}, http.StatusOK)
+		return
+	}
+	if strings.HasSuffix(path, "/credentials") {
+		s.getDeviceCredentials(w, r, strings.TrimSuffix(path, "/credentials"))
+		return
+	}
+	if strings.HasSuffix(path, "/reference-image") {
+		s.deviceReferenceImage(w, r, strings.TrimSuffix(path, "/reference-image"))
 		return
 	}
 	if strings.HasSuffix(path, "/probe") {
@@ -129,6 +185,10 @@ func (s *Server) deviceAction(w http.ResponseWriter, r *http.Request) {
 		s.deviceFrame(w, r, strings.TrimSuffix(path, "/frame"))
 		return
 	}
+	if strings.HasSuffix(path, "/credentials") {
+		s.setDeviceCredentials(w, r, strings.TrimSuffix(path, "/credentials"))
+		return
+	}
 	writeError(w, errors.New("not found"), http.StatusNotFound)
 }
 
@@ -148,10 +208,11 @@ func (s *Server) probeDevice(w http.ResponseWriter, r *http.Request, deviceID st
 		Stream   string `json:"stream"`
 	}
 	_ = json.NewDecoder(r.Body).Decode(&req)
+	applySavedCredentials(r.Context(), s, deviceID, &req.Username, &req.Password, &req.Stream)
 	if req.Stream == "" {
 		req.Stream = "stream2"
 	}
-	rawURL := fmt.Sprintf("rtsp://%s:%s@%s:554/%s", req.Username, req.Password, device.LastIP, req.Stream)
+	rawURL := cameraRTSPURL(req.Username, req.Password, device.LastIP, req.Stream)
 	ctx, cancel := context.WithTimeout(r.Context(), 1500*time.Millisecond)
 	defer cancel()
 	conn, dialErr := (&net.Dialer{}).DialContext(ctx, "tcp", device.LastIP+":554")
@@ -172,6 +233,19 @@ func probeMessage(err error) string {
 	return "RTSP-Port nicht erreichbar. Prüfe Netzwerk, Stromversorgung oder ob RTSP/ONVIF aktiv ist."
 }
 
+func applySavedCredentials(ctx context.Context, s *Server, deviceID string, username, password, stream *string) {
+	settings, _ := s.app.Store.Settings(ctx)
+	if strings.TrimSpace(*username) == "" {
+		*username = settings["camera.credentials."+deviceID+".username"]
+	}
+	if strings.TrimSpace(*stream) == "" {
+		*stream = settings["camera.credentials."+deviceID+".stream"]
+	}
+	if strings.TrimSpace(*password) == "" {
+		*password = secrets.LoadCamera(s.app.Config.ConfigDir, deviceID).Value
+	}
+}
+
 func (s *Server) deviceFrame(w http.ResponseWriter, r *http.Request, deviceID string) {
 	if r.Method != http.MethodPost {
 		writeError(w, errors.New("method not allowed"), http.StatusMethodNotAllowed)
@@ -189,6 +263,7 @@ func (s *Server) deviceFrame(w http.ResponseWriter, r *http.Request, deviceID st
 		Save     bool   `json:"save"`
 	}
 	_ = json.NewDecoder(r.Body).Decode(&req)
+	applySavedCredentials(r.Context(), s, deviceID, &req.Username, &req.Password, &req.Stream)
 	if req.Stream == "" {
 		req.Stream = "stream2"
 	}
@@ -201,13 +276,13 @@ func (s *Server) deviceFrame(w http.ResponseWriter, r *http.Request, deviceID st
 		writeError(w, errors.New("ffmpeg ist nicht installiert; Vorschaubild kann nicht erzeugt werden"), http.StatusServiceUnavailable)
 		return
 	}
-	rawURL := fmt.Sprintf("rtsp://%s:%s@%s:554/%s", req.Username, req.Password, device.LastIP, req.Stream)
+	rawURL := cameraRTSPURL(req.Username, req.Password, device.LastIP, req.Stream)
 	ctx, cancel := context.WithTimeout(r.Context(), 8*time.Second)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, ffmpeg, "-hide_banner", "-loglevel", "error", "-rtsp_transport", "tcp", "-i", rawURL, "-frames:v", "1", "-f", "image2", "-vcodec", "mjpeg", "pipe:1")
 	image, err := cmd.Output()
 	if err != nil {
-		writeError(w, errors.New("Vorschaubild konnte nicht gezogen werden. Prüfe Benutzername, Passwort, Stream und RTSP-Freigabe."), http.StatusBadGateway)
+		writeError(w, frameCaptureError(ctx, err), http.StatusBadGateway)
 		return
 	}
 	sum := sha256.Sum256(image)
@@ -230,6 +305,122 @@ func (s *Server) deviceFrame(w http.ResponseWriter, r *http.Request, deviceID st
 		"sha256":       hex.EncodeToString(sum[:]),
 		"url_redacted": redaction.URL(rawURL),
 		"saved_path":   imagePath,
+	}, http.StatusOK)
+}
+
+func cameraRTSPURL(username, password, host, stream string) string {
+	u := neturl.URL{
+		Scheme: "rtsp",
+		User:   neturl.UserPassword(username, password),
+		Host:   net.JoinHostPort(host, "554"),
+		Path:   "/" + strings.TrimLeft(stream, "/"),
+	}
+	return u.String()
+}
+
+func frameCaptureError(ctx context.Context, err error) error {
+	if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+		return errors.New("Vorschaubild konnte nicht gezogen werden: Zeitlimit nach 8 Sekunden. Kamera antwortet zu langsam, Stream ist blockiert oder RTSP ist nicht freigegeben.")
+	}
+	message := "Vorschaubild konnte nicht gezogen werden. Prüfe Benutzername, Passwort, Stream und RTSP-Freigabe."
+	var exitErr *exec.ExitError
+	if errors.As(err, &exitErr) && len(exitErr.Stderr) > 0 {
+		detail := redaction.Text(string(exitErr.Stderr))
+		if detail != "" {
+			message += " ffmpeg: " + truncate(detail, 360)
+		}
+	}
+	return errors.New(message)
+}
+
+func truncate(value string, max int) string {
+	value = strings.Join(strings.Fields(value), " ")
+	if len(value) <= max {
+		return value
+	}
+	return value[:max] + "..."
+}
+
+func (s *Server) deviceReferenceImage(w http.ResponseWriter, r *http.Request, deviceID string) {
+	settings, err := s.app.Store.Settings(r.Context())
+	if err != nil {
+		writeError(w, err, http.StatusInternalServerError)
+		return
+	}
+	imagePath := settings["camera.reference_image."+deviceID]
+	if imagePath == "" {
+		writeError(w, errors.New("reference image not found"), http.StatusNotFound)
+		return
+	}
+	cleanPath := filepath.Clean(imagePath)
+	referenceDir := filepath.Clean(s.app.Config.ReferenceImageDir())
+	if cleanPath != filepath.Join(referenceDir, filepath.Base(cleanPath)) {
+		writeError(w, errors.New("invalid reference image path"), http.StatusBadRequest)
+		return
+	}
+	info, err := os.Stat(cleanPath)
+	if err != nil || info.IsDir() {
+		writeError(w, errors.New("reference image not found"), http.StatusNotFound)
+		return
+	}
+	w.Header().Set("Content-Type", "image/jpeg")
+	w.Header().Set("Cache-Control", "private, max-age=30")
+	http.ServeFile(w, r, cleanPath)
+}
+
+func (s *Server) getDeviceCredentials(w http.ResponseWriter, r *http.Request, deviceID string) {
+	settings, err := s.app.Store.Settings(r.Context())
+	if err != nil {
+		writeError(w, err, http.StatusInternalServerError)
+		return
+	}
+	secret := secrets.LoadCamera(s.app.Config.ConfigDir, deviceID)
+	writeJSON(w, map[string]any{
+		"username":        settings["camera.credentials."+deviceID+".username"],
+		"stream":          settings["camera.credentials."+deviceID+".stream"],
+		"password_set":    secret.Value != "",
+		"password_source": secret.Source,
+	}, http.StatusOK)
+}
+
+func (s *Server) setDeviceCredentials(w http.ResponseWriter, r *http.Request, deviceID string) {
+	var req struct {
+		Username string `json:"username"`
+		Password string `json:"password"`
+		Stream   string `json:"stream"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, err, http.StatusBadRequest)
+		return
+	}
+	if req.Stream == "" {
+		req.Stream = "stream2"
+	}
+	values := map[string]string{
+		"camera.credentials." + deviceID + ".username": strings.TrimSpace(req.Username),
+		"camera.credentials." + deviceID + ".stream":   strings.TrimSpace(req.Stream),
+	}
+	if err := s.app.Store.PutSettings(r.Context(), values); err != nil {
+		writeError(w, err, http.StatusInternalServerError)
+		return
+	}
+	source := ""
+	if strings.TrimSpace(req.Password) != "" {
+		var err error
+		source, err = secrets.SaveCamera(s.app.Config.ConfigDir, deviceID, req.Password)
+		if err != nil {
+			writeError(w, err, http.StatusInternalServerError)
+			return
+		}
+	}
+	_ = s.app.Store.AddEvent(r.Context(), "info", "camera.credentials.updated", "Kamera-Zugangsdaten wurden gespeichert", map[string]string{"device_id": deviceID, "password_source": source})
+	secret := secrets.LoadCamera(s.app.Config.ConfigDir, deviceID)
+	writeJSON(w, map[string]any{
+		"status":          "ok",
+		"username":        values["camera.credentials."+deviceID+".username"],
+		"stream":          values["camera.credentials."+deviceID+".stream"],
+		"password_set":    secret.Value != "",
+		"password_source": secret.Source,
 	}, http.StatusOK)
 }
 
@@ -301,6 +492,7 @@ func (s *Server) getSettings(w http.ResponseWriter, r *http.Request) {
 	settings["go2rtc_url"] = s.app.Config.Go2RTCURL
 	settings["bind_addr"] = s.app.Config.BindAddr
 	settings["camera_password_set"] = fmt.Sprintf("%t", s.app.Config.TapoPassword != "")
+	settings["camera_password_source"] = s.app.Config.TapoPasswordSource
 	writeResult(w, settings, err)
 }
 
@@ -313,6 +505,25 @@ func (s *Server) putSettings(w http.ResponseWriter, r *http.Request) {
 	delete(settings, "camera_password")
 	err := s.app.Store.PutSettings(r.Context(), settings)
 	writeResult(w, map[string]string{"status": "ok"}, err)
+}
+
+func (s *Server) setCameraPassword(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Password string `json:"password"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, err, http.StatusBadRequest)
+		return
+	}
+	source, err := secrets.Save(s.app.Config.ConfigDir, req.Password)
+	if err != nil {
+		writeError(w, err, http.StatusInternalServerError)
+		return
+	}
+	s.app.Config.TapoPassword = req.Password
+	s.app.Config.TapoPasswordSource = source
+	_ = s.app.Store.AddEvent(r.Context(), "info", "settings.secret.updated", "Kamera-Passwort wurde gespeichert", map[string]string{"source": source})
+	writeJSON(w, map[string]string{"status": "ok", "source": source}, http.StatusOK)
 }
 
 func (s *Server) getEvents(w http.ResponseWriter, r *http.Request) {

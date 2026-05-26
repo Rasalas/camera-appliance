@@ -5,7 +5,7 @@
       <h1 class="headline">Geräte <em>zu Plätzen</em> zuordnen.</h1>
     </div>
     <div class="meta">
-      <div>Gefunden · <b>{{ devices.length }}</b></div>
+      <div>Gefunden · <b>{{ assignableDevices.length }}</b></div>
       <div>Zugeordnet · <b>{{ boundCount }}/{{ slots.length }}</b></div>
     </div>
   </header>
@@ -16,6 +16,9 @@
     <button class="btn primary" :disabled="busy === 'scan'" @click="runDiscovery">
       {{ busy === 'scan' ? 'Suche läuft…' : 'Netzwerk durchsuchen' }}
     </button>
+    <button class="btn" :disabled="!!busy || boundCount === 0" @click="refreshFrames">
+      {{ busy === 'frames' ? 'Bilder werden gezogen…' : 'Bilder aktualisieren' }}
+    </button>
     <button class="btn" :disabled="busy === 'render'" @click="render">go2rtc erzeugen</button>
     <button class="btn ghost" :disabled="busy === 'restart'" @click="restartGo2rtc">go2rtc neu starten</button>
     <div class="spacer" />
@@ -23,22 +26,51 @@
   </div>
   <div v-if="busy === 'scan'" class="progress" />
 
+  <section v-if="frameResults.length" class="panel">
+    <div class="panel-head">
+      <h2>Bildprüfung</h2>
+      <div class="right">{{ frameResults.filter((r) => r.success).length }}/{{ frameResults.length }} erfolgreich</div>
+    </div>
+    <div class="result-list">
+      <div v-for="result in frameResults" :key="result.slot_id" class="result-row" :class="{ ok: result.success, err: !result.success }">
+        <span class="slot">{{ result.slot_id }}</span>
+        <span class="name">{{ result.label }}</span>
+        <span class="ip">{{ result.ip || 'ohne IP' }}</span>
+        <span class="stream">{{ result.stream || '—' }}</span>
+        <RouterLink v-if="!result.success" class="action" :to="`/kamera/${result.device_id}`">Diagnose</RouterLink>
+        <span v-else class="action">OK</span>
+        <span class="message">{{ result.message }}</span>
+      </div>
+    </div>
+  </section>
+
   <div class="workbench">
     <!-- LEFT: device pool -->
     <section class="panel">
       <div class="panel-head">
         <h2>Gefundene Geräte</h2>
-        <div class="right">{{ devices.length }} insgesamt</div>
+        <div class="device-head-actions">
+          <div class="right">{{ assignableDevices.length }} Kameras</div>
+          <button class="btn icon sm" type="button" title="Kamera per RTSP hinzufügen" @click="showManualModal = true">+</button>
+        </div>
       </div>
-      <div v-if="!devices.length" class="empty">Noch keine Geräte. Starte die Suche oben.</div>
+      <div v-if="!assignableDevices.length" class="empty">Noch keine Kameras. Starte die Suche oben oder füge eine RTSP-Kamera hinzu.</div>
       <div v-else class="device-list">
         <button
-          v-for="(device, ix) in devices"
+          v-for="(device, ix) in assignableDevices"
           :key="device.id"
           class="device-card"
           :class="{ active: form.device_id === device.id }"
           @click="pickDevice(device.id)"
         >
+          <img
+            v-if="referenceVisible(device.id)"
+            class="device-thumb"
+            :src="referenceImageUrl(device.id)"
+            alt=""
+            @error="markReferenceMissing(device.id)"
+          />
+          <div v-else class="device-thumb empty" aria-label="Kein Bild gespeichert"></div>
           <div>
             <div class="title">
               <span class="ix">{{ String(ix + 1).padStart(2, '0') }}</span>
@@ -73,6 +105,13 @@
             }"
             @click="pickSlot(slot.id)"
           >
+            <img
+              v-if="referenceVisible(bindingFor(slot.id)?.device_id)"
+              class="bay-reference"
+              :src="referenceImageUrl(bindingFor(slot.id)?.device_id)"
+              alt=""
+              @error="markReferenceMissing(bindingFor(slot.id)?.device_id)"
+            />
             <div class="bay-id">{{ slot.id }}</div>
             <div>
               <div class="bay-name">{{ bindingFor(slot.id)?.label || slot.label }}</div>
@@ -96,7 +135,7 @@
               <span class="lbl">Gerät</span>
               <select v-model="form.device_id">
                 <option value="">— kein Gerät —</option>
-                <option v-for="d in devices" :key="d.id" :value="d.id">
+                <option v-for="d in assignableDevices" :key="d.id" :value="d.id">
                   {{ deviceTitle(d) }} · {{ d.last_ip || 'ohne IP' }}
                 </option>
               </select>
@@ -136,6 +175,48 @@
     <pre class="code">{{ rendered }}</pre>
   </section>
 
+  <div v-if="showManualModal" class="modal-backdrop" @click.self="closeManualModal">
+    <form class="modal" @submit.prevent="addManual">
+      <div class="modal-head">
+        <div>
+          <div class="eyebrow">Gefundene Geräte</div>
+          <h2>Kamera per RTSP hinzufügen</h2>
+        </div>
+        <button class="btn icon sm ghost" type="button" title="Schließen" @click="closeManualModal">×</button>
+      </div>
+      <div class="split manual-add">
+        <div class="field">
+          <span class="lbl">IP-Adresse</span>
+          <input v-model="manual.ip" placeholder="192.168.178.172" inputmode="numeric" autofocus />
+        </div>
+        <div class="field">
+          <span class="lbl">Benutzername</span>
+          <input v-model="manual.username" placeholder="Kamera-Benutzer" />
+        </div>
+        <div class="field">
+          <span class="lbl">Passwort</span>
+          <input v-model="manual.password" type="password" placeholder="Kamera-Passwort" />
+        </div>
+        <div class="field">
+          <span class="lbl">Stream</span>
+          <select v-model="manual.stream">
+            <option value="stream2">stream2 · Live</option>
+            <option value="stream1">stream1 · HD</option>
+          </select>
+        </div>
+      </div>
+      <div class="modal-foot">
+        <span class="mono-mute">rtsp://IP:554/stream2 oder stream1</span>
+        <div class="btn-row">
+          <button class="btn ghost" type="button" @click="closeManualModal">Abbrechen</button>
+          <button class="btn primary" type="submit" :disabled="busy === 'manual' || !manual.ip">
+            {{ busy === 'manual' ? 'Wird geprüft…' : 'Hinzufügen' }}
+          </button>
+        </div>
+      </div>
+    </form>
+  </div>
+
   <div class="toast-host">
     <transition name="page"><div v-if="toast" class="toast" :key="toast">{{ toast }}</div></transition>
   </div>
@@ -147,6 +228,16 @@ import { useRoute } from 'vue-router'
 import { api } from '../api/client'
 import type { Binding, Device, Slot } from '../types'
 
+interface FrameRefreshResult {
+  slot_id: string
+  device_id: string
+  label: string
+  ip: string
+  stream: string
+  success: boolean
+  message: string
+}
+
 const route = useRoute()
 const slots = ref<Slot[]>([])
 const devices = ref<Device[]>([])
@@ -157,15 +248,31 @@ const renderInfo = ref('')
 const toast = ref('')
 const error = ref('')
 const saving = ref(false)
-const busy = ref<'' | 'scan' | 'render' | 'restart'>('')
+const busy = ref<'' | 'scan' | 'render' | 'restart' | 'manual' | 'frames'>('')
+const frameRevision = ref(Date.now())
+const missingReferences = ref<Record<string, boolean>>({})
+const showManualModal = ref(false)
+const frameResults = ref<FrameRefreshResult[]>([])
 
 const form = reactive({ device_id: '', label: '', username: '', stream_name: 'stream2' })
+const manual = reactive({ ip: '', username: '', password: '', stream: 'stream2' })
 const slotLabel = computed(() => slots.value.find((s) => s.id === selectedSlot.value)?.label || 'Kamera')
 const selectedDevice = computed(() => devices.value.find((d) => d.id === form.device_id))
 const boundCount = computed(() => slots.value.filter((s) => bindings.value.some((b) => b.slot_id === s.id)).length)
+const assignableDevices = computed(() => devices.value.filter((device) => isAssignableCamera(device)))
 
 function bindingFor(slotId: string) {
   return bindings.value.find((b) => b.slot_id === slotId)
+}
+function referenceVisible(deviceId?: string) {
+  return Boolean(deviceId && !missingReferences.value[deviceId])
+}
+function referenceImageUrl(deviceId?: string) {
+  return deviceId ? api.referenceImageUrl(deviceId, frameRevision.value) : ''
+}
+function markReferenceMissing(deviceId?: string) {
+  if (!deviceId) return
+  missingReferences.value = { ...missingReferences.value, [deviceId]: true }
 }
 function deviceTitle(d: Device) {
   return `${d.manufacturer || 'Unbekannt'} ${d.model || 'Kamera'}`.trim()
@@ -173,6 +280,11 @@ function deviceTitle(d: Device) {
 function sig(d: Device, key: string): boolean {
   const r = typeof d.raw_json === 'string' ? safeParse(d.raw_json) : (d.raw_json || {})
   return Boolean(r[key])
+}
+function isAssignableCamera(d: Device): boolean {
+  if (bindings.value.some((binding) => binding.device_id === d.id)) return true
+  const raw = typeof d.raw_json === 'string' ? safeParse(d.raw_json) : (d.raw_json || {})
+  return Boolean(raw.manual || raw.rtsp_port_open || raw.onvif_port_open)
 }
 function safeParse(v: string): Record<string, unknown> {
   try { return JSON.parse(v) as Record<string, unknown> } catch { return {} }
@@ -188,9 +300,20 @@ function pickSlot(slotId: string) {
 }
 function pickDevice(id: string) {
   form.device_id = id
+  void loadDeviceCredentials(id)
   if (!selectedSlot.value) {
     const firstEmpty = slots.value.find((s) => !bindingFor(s.id))
     if (firstEmpty) pickSlot(firstEmpty.id)
+  }
+}
+
+async function loadDeviceCredentials(id: string) {
+  try {
+    const credentials = await api.deviceCredentials(id)
+    if (!form.username) form.username = credentials.username || ''
+    if (credentials.stream) form.stream_name = credentials.stream
+  } catch {
+    // credentials are optional; keep the assignment flow usable.
   }
 }
 
@@ -227,10 +350,160 @@ async function runDiscovery() {
   }
 }
 
+async function addManual() {
+  busy.value = 'manual'
+  error.value = ''
+  try {
+    const result = await api.addManualDevice({
+      ip: manual.ip,
+      username: manual.username,
+      password: manual.password,
+      stream: manual.stream
+    })
+    await load()
+    form.device_id = result.device.id
+    form.username = manual.username
+    form.stream_name = manual.stream
+    if (!form.label) form.label = selectedSlot.value ? slotLabel.value : 'Kamera'
+    await loadDeviceCredentials(result.device.id)
+    let frameNote = ''
+    if (manual.username && manual.password) {
+      try {
+        await api.captureFrame(result.device.id, {
+          username: manual.username,
+          password: manual.password,
+          stream: manual.stream,
+          save: true
+        })
+        const next = { ...missingReferences.value }
+        delete next[result.device.id]
+        missingReferences.value = next
+        frameRevision.value = Date.now()
+        frameNote = ' Referenzbild gespeichert.'
+      } catch (err) {
+        frameNote = ` Bild noch nicht verfügbar: ${err instanceof Error ? err.message : 'Frame fehlgeschlagen'}`
+      }
+    }
+    toast.value = `${result.message}${frameNote}`
+    setTimeout(() => (toast.value = ''), 4200)
+    manual.password = ''
+    showManualModal.value = false
+  } catch (err) {
+    error.value = err instanceof Error ? err.message : 'Kamera konnte nicht hinzugefügt werden.'
+  } finally {
+    busy.value = ''
+  }
+}
+
+async function refreshFrames() {
+  const targets = bindings.value.filter((b) => b.device_id && b.device?.last_ip)
+  if (!targets.length) return
+  busy.value = 'frames'
+  error.value = ''
+  frameResults.value = []
+  let ok = 0
+  let failed = 0
+  try {
+    for (const binding of targets) {
+      const result = await refreshFrame(binding)
+      frameResults.value = [...frameResults.value, result]
+      if (result.success) {
+        ok += 1
+        const next = { ...missingReferences.value }
+        delete next[binding.device_id]
+        missingReferences.value = next
+      } else {
+        failed += 1
+        missingReferences.value = { ...missingReferences.value, [binding.device_id]: true }
+      }
+    }
+    frameRevision.value = Date.now()
+    toast.value = failed ? `${ok} Bild(er) aktualisiert, ${failed} fehlgeschlagen` : `${ok} Bild(er) aktualisiert`
+    setTimeout(() => (toast.value = ''), 2800)
+    if (!ok && failed) error.value = 'Keine Bilder konnten gezogen werden. Prüfe Zugangsdaten und RTSP-Freigabe je Kamera.'
+  } finally {
+    busy.value = ''
+  }
+}
+
+async function refreshFrame(binding: Binding): Promise<FrameRefreshResult> {
+  const credentials = await api.deviceCredentials(binding.device_id).catch(() => undefined)
+  const username = credentials?.username || binding.username || ''
+  const preferred = credentials?.stream || binding.stream_name || 'stream2'
+  const streams = uniqueStreams([preferred, preferred === 'stream1' ? 'stream2' : 'stream1'])
+  const messages: string[] = []
+
+  for (const streamName of streams) {
+    try {
+      await api.captureFrame(binding.device_id, {
+        username,
+        password: '',
+        stream: streamName,
+        save: true
+      })
+      if (streamName !== preferred) {
+        await persistWorkingStream(binding, username, streamName)
+      }
+      return frameResult(binding, streamName, true, streamName === preferred ? 'Bild gespeichert' : `Bild gespeichert, ${streamName} übernommen`)
+    } catch (err) {
+      messages.push(`${streamName}: ${err instanceof Error ? err.message : 'fehlgeschlagen'}`)
+    }
+  }
+
+  return frameResult(binding, preferred, false, messages.join(' · ') || 'Kein Frame erhalten')
+}
+
+function frameResult(binding: Binding, streamName: string, success: boolean, message: string): FrameRefreshResult {
+  const duplicates = duplicateSlotsForIP(binding)
+  const conflict = duplicates.length ? `Doppelte IP mit ${duplicates.join(', ')}. ` : ''
+  return {
+    slot_id: binding.slot_id,
+    device_id: binding.device_id,
+    label: binding.label || binding.slot?.label || binding.device?.hostname || 'Kamera',
+    ip: binding.device?.last_ip || '',
+    stream: streamName,
+    success,
+    message: conflict + message
+  }
+}
+
+function duplicateSlotsForIP(binding: Binding) {
+  const ip = binding.device?.last_ip
+  if (!ip) return []
+  return bindings.value
+    .filter((other) => other.slot_id !== binding.slot_id && other.device?.last_ip === ip)
+    .map((other) => other.slot_id)
+}
+
+async function persistWorkingStream(binding: Binding, username: string, streamName: string) {
+  if (username) {
+    await api.saveDeviceCredentials(binding.device_id, { username, stream: streamName }).catch(() => undefined)
+  }
+  await api.saveBinding({
+    slot_id: binding.slot_id,
+    device_id: binding.device_id,
+    label: binding.label,
+    username: binding.username || username,
+    stream_name: streamName,
+    enabled: binding.enabled
+  }).catch(() => undefined)
+}
+
+function uniqueStreams(values: string[]) {
+  return Array.from(new Set(values.filter(Boolean)))
+}
+
+function closeManualModal() {
+  if (busy.value !== 'manual') showManualModal.value = false
+}
+
 async function save() {
   if (!selectedSlot.value || !form.device_id) return
   saving.value = true
   try {
+    if (form.username || form.stream_name) {
+      await api.saveDeviceCredentials(form.device_id, { username: form.username, stream: form.stream_name })
+    }
     await api.saveBinding({
       slot_id: selectedSlot.value,
       device_id: form.device_id,

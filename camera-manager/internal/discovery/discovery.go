@@ -147,7 +147,7 @@ func (s *Scanner) probeHost(ctx context.Context, ip, mac string) (Result, bool) 
 	rtspOpen, rtspLatency := tcpOpen(ctx, ip, "554", s.options.Timeout)
 	onvifOpen, _ := tcpOpen(ctx, ip, "2020", s.options.Timeout)
 	httpSig := httpSignature(ctx, ip, s.options.Timeout)
-	if !rtspOpen && !onvifOpen && !isCameraLikeHTTPSignature(httpSig) {
+	if !isDiscoverableCamera(rtspOpen, onvifOpen) {
 		return Result{}, false
 	}
 	hostname := reverseName(ip)
@@ -247,6 +247,10 @@ func httpSignature(ctx context.Context, ip string, timeout time.Duration) string
 	return strings.TrimSpace(string(data))
 }
 
+func isDiscoverableCamera(rtspOpen, onvifOpen bool) bool {
+	return rtspOpen || onvifOpen
+}
+
 func isCameraLikeHTTPSignature(signature string) bool {
 	lower := strings.ToLower(signature)
 	return strings.Contains(lower, "tapo") ||
@@ -311,6 +315,10 @@ func readARP() map[string]string {
 		}
 	}
 	return out
+}
+
+func MACForIP(ip string) string {
+	return readARP()[ip]
 }
 
 func reverseName(ip string) string {

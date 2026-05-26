@@ -2,13 +2,18 @@ package app
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"net"
 	"strings"
+	"time"
 
 	"camera-appliance/camera-manager/internal/config"
 	"camera-appliance/camera-manager/internal/discovery"
+	"camera-appliance/camera-manager/internal/fingerprint"
 	go2rtcrender "camera-appliance/camera-manager/internal/go2rtc"
 	"camera-appliance/camera-manager/internal/redaction"
+	"camera-appliance/camera-manager/internal/secrets"
 	"camera-appliance/camera-manager/internal/state"
 	"camera-appliance/camera-manager/internal/system"
 )
@@ -33,6 +38,21 @@ type DiscoverySummary struct {
 	Subnets  []discovery.Subnet `json:"subnets"`
 	Devices  []state.Device     `json:"devices"`
 	Warnings []string           `json:"warnings"`
+}
+
+type ManualDeviceInput struct {
+	IP           string `json:"ip"`
+	Username     string `json:"username"`
+	Stream       string `json:"stream"`
+	Label        string `json:"label"`
+	Manufacturer string `json:"manufacturer"`
+	Model        string `json:"model"`
+}
+
+type ManualDeviceResult struct {
+	Device       state.Device `json:"device"`
+	RTSPPortOpen bool         `json:"rtsp_port_open"`
+	Message      string       `json:"message"`
 }
 
 func Open(ctx context.Context) (*App, error) {
@@ -158,6 +178,72 @@ func (a *App) Assign(ctx context.Context, binding state.Binding) error {
 	return a.Store.AddEvent(ctx, "info", "binding.updated", fmt.Sprintf("%s wurde zugeordnet", binding.SlotID), map[string]string{"slot_id": binding.SlotID, "device_id": binding.DeviceID})
 }
 
+func (a *App) AddManualDevice(ctx context.Context, input ManualDeviceInput) (ManualDeviceResult, error) {
+	ip := strings.TrimSpace(input.IP)
+	parsed := net.ParseIP(ip)
+	if parsed == nil || parsed.To4() == nil {
+		return ManualDeviceResult{}, fmt.Errorf("gültige IPv4-Adresse ist erforderlich")
+	}
+	stream := strings.TrimSpace(input.Stream)
+	if stream == "" {
+		stream = "stream2"
+	}
+	rtspOpen := false
+	conn, err := (&net.Dialer{Timeout: 1500 * time.Millisecond}).DialContext(ctx, "tcp", net.JoinHostPort(ip, "554"))
+	if err == nil {
+		rtspOpen = true
+		_ = conn.Close()
+	}
+	mac := discovery.MACForIP(ip)
+	hostname := ""
+	if names, lookupErr := net.LookupAddr(ip); lookupErr == nil && len(names) > 0 {
+		hostname = strings.TrimSuffix(names[0], ".")
+	}
+	manufacturer := strings.TrimSpace(input.Manufacturer)
+	if manufacturer == "" {
+		manufacturer = "RTSP"
+	}
+	model := strings.TrimSpace(input.Model)
+	if model == "" {
+		model = "Manuell hinzugefügt"
+	}
+	fp := fingerprint.Normalize(fingerprint.Fingerprint{
+		MACAddress:   mac,
+		Manufacturer: manufacturer,
+		Model:        model,
+		Hostname:     hostname,
+		LastIP:       ip,
+	})
+	raw := map[string]any{
+		"ip":              ip,
+		"manual":          true,
+		"mac_address":     fp.MACAddress,
+		"rtsp_port_open":  rtspOpen,
+		"onvif_port_open": false,
+		"stream":          stream,
+	}
+	rawJSON, _ := json.Marshal(raw)
+	device := state.Device{
+		ID:           fingerprint.DeviceID(fp),
+		LastSeenAt:   time.Now().UTC(),
+		LastIP:       ip,
+		MACAddress:   fp.MACAddress,
+		Manufacturer: fp.Manufacturer,
+		Model:        fp.Model,
+		Hostname:     fp.Hostname,
+		RawJSON:      rawJSON,
+	}
+	if err := a.Store.UpsertDevice(ctx, device); err != nil {
+		return ManualDeviceResult{}, err
+	}
+	message := "Kamera wurde hinzugefügt."
+	if !rtspOpen {
+		message = "Kamera wurde hinzugefügt, aber RTSP-Port 554 war von diesem Rechner nicht erreichbar."
+	}
+	_ = a.Store.AddEvent(ctx, "info", "device.manual_added", message, map[string]any{"ip": ip, "device_id": device.ID, "rtsp_port_open": rtspOpen})
+	return ManualDeviceResult{Device: device, RTSPPortOpen: rtspOpen, Message: message}, nil
+}
+
 func (a *App) RemoveBinding(ctx context.Context, slotID string) error {
 	if err := a.Store.DeleteBinding(ctx, slotID); err != nil {
 		return err
@@ -170,11 +256,24 @@ func (a *App) RenderGo2RTC(ctx context.Context) (go2rtcrender.RenderResult, erro
 	if err != nil {
 		return go2rtcrender.RenderResult{}, err
 	}
+	settings, _ := a.Store.Settings(ctx)
+	passwords := map[string]string{}
+	for i := range bindings {
+		deviceID := bindings[i].DeviceID
+		if strings.TrimSpace(bindings[i].Username) == "" {
+			bindings[i].Username = settings["camera.credentials."+deviceID+".username"]
+		}
+		secret := secrets.LoadCamera(a.Config.ConfigDir, deviceID)
+		if secret.Value != "" {
+			passwords[deviceID] = secret.Value
+		}
+	}
 	result, err := go2rtcrender.Render(ctx, go2rtcrender.RenderInput{
-		Slots:    a.Slots,
-		Bindings: bindings,
-		Password: a.Config.TapoPassword,
-		Output:   a.Config.Go2RTCConfigPath(),
+		Slots:     a.Slots,
+		Bindings:  bindings,
+		Password:  a.Config.TapoPassword,
+		Passwords: passwords,
+		Output:    a.Config.Go2RTCConfigPath(),
 	})
 	if err != nil {
 		return result, err

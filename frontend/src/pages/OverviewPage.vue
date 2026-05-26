@@ -100,6 +100,13 @@
             empty: stateFor(slot.id) === 'empty'
           }"
         >
+          <img
+            v-if="referenceVisible(deviceIdFor(slot.id))"
+            class="slot-reference"
+            :src="referenceImageUrl(deviceIdFor(slot.id))"
+            alt=""
+            @error="markReferenceMissing(deviceIdFor(slot.id))"
+          />
           <div class="scan-overlay" />
           <div class="slot-tag">
             <span>{{ slot.id }}</span>
@@ -146,6 +153,8 @@ const loading = ref(true)
 const busy = ref<'' | 'scan' | 'restart'>('')
 const error = ref('')
 const toast = ref('')
+const frameRevision = ref(Date.now())
+const missingReferences = ref<Record<string, boolean>>({})
 
 const slots = computed(() => status.value?.slots ?? [])
 const slotsCount = computed(() => slots.value.length)
@@ -168,6 +177,19 @@ const lastScanRel = computed(() => {
 
 function bindingFor(slotId: string) {
   return status.value?.bindings.find((b) => b.slot_id === slotId)
+}
+function deviceIdFor(slotId: string) {
+  return bindingFor(slotId)?.device_id
+}
+function referenceVisible(deviceId?: string) {
+  return Boolean(deviceId && !missingReferences.value[deviceId])
+}
+function referenceImageUrl(deviceId?: string) {
+  return deviceId ? api.referenceImageUrl(deviceId, frameRevision.value) : ''
+}
+function markReferenceMissing(deviceId?: string) {
+  if (!deviceId) return
+  missingReferences.value = { ...missingReferences.value, [deviceId]: true }
 }
 function stateFor(slotId: string): 'on' | 'off' | 'empty' {
   const b = bindingFor(slotId)

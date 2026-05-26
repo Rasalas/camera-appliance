@@ -1,4 +1,4 @@
-import type { Binding, Device, EventItem, FrameResult, ProbeResult, ScanRun, Slot, StatusResponse } from '../types'
+import type { Binding, Device, DeviceCredentials, EventItem, FrameResult, ManualDeviceResult, ProbeResult, ScanRun, Slot, StatusResponse } from '../types'
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(path, {
@@ -21,10 +21,16 @@ export const api = {
   runs: () => request<ScanRun[]>('/api/discovery/runs'),
   devices: () => request<Device[]>('/api/devices'),
   device: (id: string) => request<Device>(`/api/devices/${id}`),
+  addManualDevice: (body: { ip: string; username: string; password?: string; stream: string; label?: string }) =>
+    request<ManualDeviceResult>('/api/devices/manual', { method: 'POST', body: JSON.stringify(body) }),
   probeDevice: (id: string, body: { username: string; password: string; stream: string }) =>
     request<ProbeResult>(`/api/devices/${id}/probe`, { method: 'POST', body: JSON.stringify(body) }),
   captureFrame: (id: string, body: { username: string; password: string; stream: string; save?: boolean }) =>
     request<FrameResult>(`/api/devices/${id}/frame`, { method: 'POST', body: JSON.stringify(body) }),
+  referenceImageUrl: (id: string, revision = 0) => `/api/devices/${encodeURIComponent(id)}/reference-image?v=${revision}`,
+  deviceCredentials: (id: string) => request<DeviceCredentials>(`/api/devices/${id}/credentials`),
+  saveDeviceCredentials: (id: string, body: { username: string; password?: string; stream: string }) =>
+    request<DeviceCredentials>(`/api/devices/${id}/credentials`, { method: 'POST', body: JSON.stringify(body) }),
   slots: () => request<Slot[]>('/api/slots'),
   bindings: () => request<Binding[]>('/api/bindings'),
   saveBinding: (binding: Partial<Binding>) => request('/api/bindings', { method: 'POST', body: JSON.stringify(binding) }),
@@ -34,6 +40,7 @@ export const api = {
   restartStack: () => request('/api/system/restart-stack', { method: 'POST' }),
   settings: () => request<Record<string, string>>('/api/settings'),
   saveSettings: (settings: Record<string, string>) => request('/api/settings', { method: 'PUT', body: JSON.stringify(settings) }),
+  saveCameraPassword: (password: string) => request<{ status: string; source: string }>('/api/secrets/camera-password', { method: 'POST', body: JSON.stringify({ password }) }),
   events: () => request<EventItem[]>('/api/events'),
   backup: () => request<{ path: string; files: string[]; warning: string }>('/api/backup', { method: 'POST', body: JSON.stringify({}) }),
   restore: (path: string) => request<{ path: string; files: string[]; warning: string }>('/api/restore', { method: 'POST', body: JSON.stringify({ in: path }) })

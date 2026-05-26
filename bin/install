@@ -37,6 +37,9 @@ need() {
 need go
 need npm
 need docker
+if ! command -v secret-tool >/dev/null 2>&1; then
+  echo "Hinweis: secret-tool fehlt. Passwortspeicherung fällt auf /etc/camera-appliance/local.env zurück."
+fi
 
 if ! docker compose version >/dev/null 2>&1; then
   echo "Docker Compose plugin is required." >&2

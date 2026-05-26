@@ -22,7 +22,15 @@
     <div class="split">
       <div class="field">
         <span class="lbl">Kamera-Passwort</span>
-        <input :value="settings.camera_password_set === 'true' ? '••••••••••••' : 'nicht gesetzt'" disabled />
+        <div class="btn-row" style="align-items: stretch;">
+          <input v-model="cameraPassword" type="password" :placeholder="settings.camera_password_set === 'true' ? '••••••••••••' : 'Passwort setzen'" style="flex: 1;" />
+          <button class="btn" :disabled="!cameraPassword || savingPassword" @click="saveCameraPassword">
+            {{ savingPassword ? 'Speichert…' : 'Passwort speichern' }}
+          </button>
+        </div>
+        <div class="mono-mute" style="margin-top: 6px;">
+          {{ settings.camera_password_set === 'true' ? `Gespeichert über ${passwordSource}` : 'Noch kein Kamera-Passwort gespeichert.' }}
+        </div>
       </div>
       <div class="field">
         <span class="lbl">AgentDVR-URL</span>
@@ -127,6 +135,9 @@ const restorePath = ref('')
 const backupResult = ref<{ path: string; warning: string }>()
 const error = ref('')
 const toast = ref('')
+const cameraPassword = ref('')
+const savingPassword = ref(false)
+const passwordSource = ref('unbekannt')
 
 function setBool(key: string, e: Event) {
   const target = e.target as HTMLInputElement
@@ -157,6 +168,24 @@ async function saveSettings() {
   }
 }
 
+async function saveCameraPassword() {
+  savingPassword.value = true
+  error.value = ''
+  try {
+    const result = await api.saveCameraPassword(cameraPassword.value)
+    settings.camera_password_set = 'true'
+    settings.camera_password_source = result.source
+    passwordSource.value = result.source === 'keyring' ? 'Betriebssystem-Keyring' : result.source
+    cameraPassword.value = ''
+    toast.value = 'Kamera-Passwort gespeichert'
+    setTimeout(() => (toast.value = ''), 2200)
+  } catch (err) {
+    error.value = err instanceof Error ? err.message : 'Passwort konnte nicht gespeichert werden.'
+  } finally {
+    savingPassword.value = false
+  }
+}
+
 async function createBackup() {
   try {
     backupResult.value = await api.backup()
@@ -180,6 +209,7 @@ async function restoreBackup() {
 onMounted(async () => {
   try {
     Object.assign(settings, await api.settings())
+    passwordSource.value = settings.camera_password_source === 'keyring' ? 'Betriebssystem-Keyring' : (settings.camera_password_source || 'unbekannt')
     events.value = await api.events()
   } catch (err) {
     error.value = err instanceof Error ? err.message : 'Konnte nicht geladen werden.'

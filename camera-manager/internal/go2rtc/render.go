@@ -5,6 +5,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
+	neturl "net/url"
 	"os"
 	"path/filepath"
 	"sort"
@@ -18,10 +20,11 @@ import (
 )
 
 type RenderInput struct {
-	Slots    []config.Slot
-	Bindings []state.Binding
-	Password string
-	Output   string
+	Slots     []config.Slot
+	Bindings  []state.Binding
+	Password  string
+	Passwords map[string]string
+	Output    string
 }
 
 type RenderResult struct {
@@ -68,7 +71,11 @@ func Render(ctx context.Context, input RenderInput) (RenderResult, error) {
 			warnings = append(warnings, fmt.Sprintf("%s (%s) hat keinen Benutzernamen", slot.ID, displayLabel(slot, binding)))
 			continue
 		}
-		if input.Password == "" {
+		password := input.Password
+		if input.Passwords != nil && binding.DeviceID != "" && input.Passwords[binding.DeviceID] != "" {
+			password = input.Passwords[binding.DeviceID]
+		}
+		if password == "" {
 			warnings = append(warnings, fmt.Sprintf("%s (%s) wurde übersprungen: Kamera-Passwort fehlt", slot.ID, displayLabel(slot, binding)))
 			continue
 		}
@@ -76,7 +83,7 @@ func Render(ctx context.Context, input RenderInput) (RenderResult, error) {
 		if stream == "" {
 			stream = slot.DefaultStream
 		}
-		doc.Streams[slot.ID] = []string{fmt.Sprintf("rtsp://%s:%s@%s:554/%s", binding.Username, input.Password, binding.Device.LastIP, stream)}
+		doc.Streams[slot.ID] = []string{cameraRTSPURL(binding.Username, password, binding.Device.LastIP, stream)}
 	}
 	data, err := yaml.Marshal(doc)
 	if err != nil {
@@ -98,6 +105,16 @@ func Render(ctx context.Context, input RenderInput) (RenderResult, error) {
 	}
 	redacted := redactYAML(data)
 	return RenderResult{Path: input.Output, RenderedStreams: len(doc.Streams), Warnings: warnings, RedactedYAML: redacted}, nil
+}
+
+func cameraRTSPURL(username, password, host, stream string) string {
+	u := neturl.URL{
+		Scheme: "rtsp",
+		User:   neturl.UserPassword(username, password),
+		Host:   net.JoinHostPort(host, "554"),
+		Path:   "/" + strings.TrimLeft(stream, "/"),
+	}
+	return u.String()
 }
 
 func displayLabel(slot config.Slot, binding state.Binding) string {

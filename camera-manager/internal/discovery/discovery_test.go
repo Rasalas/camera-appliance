@@ -20,3 +20,12 @@ func TestClassifyTapoCandidate(t *testing.T) {
 		t.Fatalf("unexpected classification: %s %s", manufacturer, model)
 	}
 }
+
+func TestHTTPOnlyCandidateIsNotDiscoverableCamera(t *testing.T) {
+	if isDiscoverableCamera(false, false) {
+		t.Fatal("HTTP-only network devices should not be offered as cameras")
+	}
+	if !isDiscoverableCamera(true, false) || !isDiscoverableCamera(false, true) {
+		t.Fatal("RTSP or ONVIF devices should be discoverable")
+	}
+}

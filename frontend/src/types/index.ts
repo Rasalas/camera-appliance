@@ -42,6 +42,19 @@ export interface FrameResult {
   saved_path?: string
 }
 
+export interface DeviceCredentials {
+  username: string
+  stream: string
+  password_set: boolean
+  password_source?: string
+}
+
+export interface ManualDeviceResult {
+  device: Device
+  rtsp_port_open: boolean
+  message: string
+}
+
 export interface Binding {
   slot_id: string
   device_id: string

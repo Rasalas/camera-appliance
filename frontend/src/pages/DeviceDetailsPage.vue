@@ -42,8 +42,8 @@
       <section class="panel">
         <div class="panel-head">
           <h2>Zugang testen</h2>
-          <div v-if="probeResult" class="right" :style="{ color: probeResult.success ? 'var(--live)' : 'var(--danger)' }">
-            {{ probeResult.success ? 'OK' : 'fehlgeschlagen' }}
+          <div class="right">
+            {{ credentials?.password_set ? 'Passwort gespeichert' : 'kein Passwort' }}
           </div>
         </div>
         <div class="field">
@@ -52,7 +52,7 @@
         </div>
         <div class="field">
           <span class="lbl">Passwort</span>
-          <input v-model="password" type="password" placeholder="Kamera-Passwort" />
+          <input v-model="password" type="password" :placeholder="credentials?.password_set ? '••••••••••••' : 'Kamera-Passwort'" />
         </div>
         <div class="field">
           <span class="lbl">Stream</span>
@@ -62,8 +62,9 @@
           </select>
         </div>
         <div class="btn-row">
+          <button class="btn primary" :disabled="busy || !username" @click="saveCredentials">Zugang speichern</button>
           <button class="btn" :disabled="busy" @click="probe">RTSP prüfen</button>
-          <button class="btn primary" :disabled="busy || !username || !password" @click="capture(false)">Frame ziehen</button>
+          <button class="btn" :disabled="busy || !username || (!password && !credentials?.password_set)" @click="capture(false)">Bild testen</button>
         </div>
         <div v-if="probeResult" class="notice" :class="probeResult.success ? 'ok' : 'err'">
           <span class="tag">{{ probeResult.success ? 'OK' : 'ERR' }}</span>
@@ -81,8 +82,8 @@
         <div class="right">Hilft beim späteren Wiedererkennen</div>
       </div>
       <div class="btn-row">
-        <button class="btn primary" :disabled="busy || !username || !password" @click="capture(true)">Frame ziehen und hinterlegen</button>
-        <button class="btn" :disabled="busy || !username || !password" @click="capture(false)">Nur anzeigen</button>
+        <button class="btn primary" :disabled="busy || !username || (!password && !credentials?.password_set)" @click="capture(true)">Bild aktualisieren</button>
+        <button class="btn" :disabled="busy || !username || (!password && !credentials?.password_set)" @click="capture(false)">Nur anzeigen</button>
       </div>
       <div v-if="frame" style="display: grid; gap: 10px;">
         <img
@@ -95,6 +96,17 @@
           Frame-ID · {{ frame.sha256.slice(0, 24) }}<span v-if="frame.saved_path"> · gespeichert unter {{ frame.saved_path }}</span>
         </div>
       </div>
+      <div v-else-if="device && !referenceMissing" style="display: grid; gap: 10px;">
+        <img
+          class="preview-frame"
+          :src="referenceImageUrl"
+          alt="Gespeichertes Kamera-Referenzbild"
+          style="display: block; max-width: 720px; width: 100%; border: 1px solid var(--hairline); border-radius: 4px;"
+          @error="referenceMissing = true"
+        />
+        <div class="mono-mute" style="font-size: 11px;">Gespeichertes Referenzbild</div>
+      </div>
+      <div v-else class="empty">Noch kein Referenzbild hinterlegt.</div>
     </section>
 
     <section class="panel">
@@ -110,7 +122,7 @@
 import { computed, onMounted, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import { api } from '../api/client'
-import type { Device, FrameResult, ProbeResult } from '../types'
+import type { Device, DeviceCredentials, FrameResult, ProbeResult } from '../types'
 
 const route = useRoute()
 const device = ref<Device>()
@@ -122,8 +134,12 @@ const password = ref('')
 const stream = ref('stream2')
 const probeResult = ref<ProbeResult>()
 const frame = ref<FrameResult>()
+const credentials = ref<DeviceCredentials>()
+const referenceRevision = ref(Date.now())
+const referenceMissing = ref(false)
 
 const title = computed(() => `${device.value?.manufacturer || 'Unbekannte'} ${device.value?.model || 'Kamera'}`.trim())
+const referenceImageUrl = computed(() => device.value ? api.referenceImageUrl(device.value.id, referenceRevision.value) : '')
 const raw = computed(() => {
   const v = device.value?.raw_json
   if (!v) return {} as Record<string, unknown>
@@ -146,12 +162,30 @@ async function probe() {
   }
 }
 
+async function saveCredentials() {
+  if (!device.value) return
+  busy.value = true
+  error.value = ''
+  try {
+    credentials.value = await api.saveDeviceCredentials(device.value.id, { username: username.value, password: password.value, stream: stream.value })
+    password.value = ''
+  } catch (err) {
+    error.value = err instanceof Error ? err.message : 'Zugangsdaten konnten nicht gespeichert werden.'
+  } finally {
+    busy.value = false
+  }
+}
+
 async function capture(save: boolean) {
   if (!device.value) return
   busy.value = true
   error.value = ''
   try {
     frame.value = await api.captureFrame(device.value.id, { username: username.value, password: password.value, stream: stream.value, save })
+    if (save) {
+      referenceMissing.value = false
+      referenceRevision.value = Date.now()
+    }
   } catch (err) {
     error.value = err instanceof Error ? err.message : 'Bild konnte nicht gezogen werden.'
   } finally {
@@ -162,6 +196,9 @@ async function capture(save: boolean) {
 onMounted(async () => {
   try {
     device.value = await api.device(String(route.params.id))
+    credentials.value = await api.deviceCredentials(device.value.id)
+    username.value = credentials.value.username || ''
+    stream.value = credentials.value.stream || 'stream2'
   } catch (err) {
     error.value = err instanceof Error ? err.message : 'Kamera konnte nicht geladen werden.'
   } finally {
