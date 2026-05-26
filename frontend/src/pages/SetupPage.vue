@@ -435,7 +435,7 @@ async function refreshFrame(binding: Binding): Promise<FrameRefreshResult> {
 
   for (const streamName of streams) {
     try {
-      await api.captureFrame(binding.device_id, {
+      const frame = await api.captureFrame(binding.device_id, {
         username,
         password: '',
         stream: streamName,
@@ -444,7 +444,8 @@ async function refreshFrame(binding: Binding): Promise<FrameRefreshResult> {
       if (streamName !== preferred) {
         await persistWorkingStream(binding, username, streamName)
       }
-      return frameResult(binding, streamName, true, streamName === preferred ? 'Bild gespeichert' : `Bild gespeichert, ${streamName} übernommen`)
+      const source = frame.credential_source ? ` über ${frame.credential_source}` : ''
+      return frameResult(binding, streamName, true, streamName === preferred ? `Bild gespeichert${source}` : `Bild gespeichert${source}, ${streamName} übernommen`)
     } catch (err) {
       messages.push(`${streamName}: ${err instanceof Error ? err.message : 'fehlgeschlagen'}`)
     }

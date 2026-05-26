@@ -31,6 +31,24 @@ type Server struct {
 	mux *http.ServeMux
 }
 
+type credentialIdentity struct {
+	ID             string `json:"id"`
+	Name           string `json:"name"`
+	Username       string `json:"username"`
+	PasswordSet    bool   `json:"password_set"`
+	PasswordSource string `json:"password_source,omitempty"`
+}
+
+type credentialCandidate struct {
+	Source     string
+	IdentityID string
+	Username   string
+	Password   string
+	Stream     string
+}
+
+const credentialIdentityIDsKey = "camera.identity.ids"
+
 func New(a *app.App) *Server {
 	s := &Server{app: a, mux: http.NewServeMux()}
 	s.routes()
@@ -58,6 +76,9 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST /api/go2rtc/render", s.renderGo2RTC)
 	s.mux.HandleFunc("POST /api/go2rtc/restart", s.restartGo2RTC)
 	s.mux.HandleFunc("POST /api/system/restart-stack", s.restartStack)
+	s.mux.HandleFunc("GET /api/credential-identities", s.getCredentialIdentities)
+	s.mux.HandleFunc("POST /api/credential-identities", s.saveCredentialIdentity)
+	s.mux.HandleFunc("DELETE /api/credential-identities/{id}", s.deleteCredentialIdentity)
 	s.mux.HandleFunc("GET /api/settings", s.getSettings)
 	s.mux.HandleFunc("PUT /api/settings", s.putSettings)
 	s.mux.HandleFunc("POST /api/secrets/camera-password", s.setCameraPassword)
@@ -263,26 +284,37 @@ func (s *Server) deviceFrame(w http.ResponseWriter, r *http.Request, deviceID st
 		Save     bool   `json:"save"`
 	}
 	_ = json.NewDecoder(r.Body).Decode(&req)
-	applySavedCredentials(r.Context(), s, deviceID, &req.Username, &req.Password, &req.Stream)
-	if req.Stream == "" {
-		req.Stream = "stream2"
-	}
-	if req.Username == "" || req.Password == "" {
-		writeError(w, errors.New("username and password are required for frame capture"), http.StatusBadRequest)
-		return
-	}
-	ffmpeg, err := exec.LookPath("ffmpeg")
+	candidates, err := s.frameCredentialCandidates(r.Context(), device, req.Username, req.Password, req.Stream)
 	if err != nil {
-		writeError(w, errors.New("ffmpeg ist nicht installiert; Vorschaubild kann nicht erzeugt werden"), http.StatusServiceUnavailable)
+		writeError(w, err, http.StatusBadRequest)
 		return
 	}
-	rawURL := cameraRTSPURL(req.Username, req.Password, device.LastIP, req.Stream)
 	ctx, cancel := context.WithTimeout(r.Context(), 8*time.Second)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, ffmpeg, "-hide_banner", "-loglevel", "error", "-rtsp_transport", "tcp", "-i", rawURL, "-frames:v", "1", "-f", "image2", "-vcodec", "mjpeg", "pipe:1")
-	image, err := cmd.Output()
-	if err != nil {
-		writeError(w, frameCaptureError(ctx, err), http.StatusBadGateway)
+	settings, _ := s.app.Store.Settings(r.Context())
+	captureHost := strings.TrimSpace(settings["capture_ssh_host"])
+	if captureHost == "" {
+		captureHost = strings.TrimSpace(s.app.Config.CaptureSSHHost)
+	}
+	var image []byte
+	var rawURL string
+	var used credentialCandidate
+	var failures []string
+	for _, candidate := range candidates {
+		rawURL = cameraRTSPURL(candidate.Username, candidate.Password, device.LastIP, candidate.Stream)
+		image, err = captureFrame(ctx, rawURL, captureHost)
+		if err == nil {
+			used = candidate
+			break
+		}
+		failures = append(failures, candidate.Source+": "+frameCaptureError(ctx, err).Error())
+	}
+	if len(image) == 0 {
+		if len(failures) > 0 {
+			writeError(w, errors.New(strings.Join(failures, " · ")), http.StatusBadGateway)
+			return
+		}
+		writeError(w, errors.New("username and password are required for frame capture"), http.StatusBadRequest)
 		return
 	}
 	sum := sha256.Sum256(image)
@@ -299,13 +331,291 @@ func (s *Server) deviceFrame(w http.ResponseWriter, r *http.Request, deviceID st
 		}
 		_ = s.app.Store.PutSettings(r.Context(), map[string]string{"camera.reference_image." + device.ID: imagePath, "camera.reference_hash." + device.ID: hex.EncodeToString(sum[:])})
 	}
+	if used.IdentityID != "" {
+		_ = s.rememberIdentityForDevice(r.Context(), device.ID, used)
+	}
 	writeJSON(w, map[string]any{
-		"content_type": "image/jpeg",
-		"image_base64": base64.StdEncoding.EncodeToString(image),
-		"sha256":       hex.EncodeToString(sum[:]),
-		"url_redacted": redaction.URL(rawURL),
-		"saved_path":   imagePath,
+		"content_type":      "image/jpeg",
+		"image_base64":      base64.StdEncoding.EncodeToString(image),
+		"sha256":            hex.EncodeToString(sum[:]),
+		"url_redacted":      redaction.URL(rawURL),
+		"saved_path":        imagePath,
+		"credential_source": used.Source,
+		"identity_id":       used.IdentityID,
 	}, http.StatusOK)
+}
+
+func captureFrame(ctx context.Context, rawURL, sshHost string) ([]byte, error) {
+	args := []string{"-hide_banner", "-loglevel", "error", "-rtsp_transport", "tcp", "-i", rawURL, "-frames:v", "1", "-f", "image2", "-vcodec", "mjpeg", "pipe:1"}
+	if sshHost != "" {
+		if _, err := exec.LookPath("ssh"); err != nil {
+			return nil, errors.New("SSH ist nicht installiert; Remote-Capture kann nicht ausgeführt werden")
+		}
+		sshArgs := append([]string{"-o", "BatchMode=yes", "-o", "ConnectTimeout=3", sshHost, "ffmpeg"}, args...)
+		return exec.CommandContext(ctx, "ssh", sshArgs...).Output()
+	}
+	ffmpeg, err := exec.LookPath("ffmpeg")
+	if err != nil {
+		return nil, errors.New("ffmpeg ist nicht installiert; Vorschaubild kann nicht erzeugt werden")
+	}
+	return exec.CommandContext(ctx, ffmpeg, args...).Output()
+}
+
+func (s *Server) frameCredentialCandidates(ctx context.Context, device state.Device, username, password, stream string) ([]credentialCandidate, error) {
+	settings, _ := s.app.Store.Settings(ctx)
+	stream = strings.TrimSpace(stream)
+	if stream == "" {
+		stream = settings["camera.credentials."+device.ID+".stream"]
+	}
+	if stream == "" {
+		stream = "stream2"
+	}
+	username = strings.TrimSpace(username)
+	password = strings.TrimSpace(password)
+	if username == "" {
+		username = strings.TrimSpace(settings["camera.credentials."+device.ID+".username"])
+	}
+	if password == "" {
+		password = secrets.LoadCamera(s.app.Config.ConfigDir, device.ID).Value
+	}
+	var candidates []credentialCandidate
+	if username != "" && password != "" {
+		candidates = append(candidates, credentialCandidate{Source: "kamera", Username: username, Password: password, Stream: stream})
+	}
+	if shouldTryCredentialIdentities(device, settings) {
+		for _, identity := range s.credentialIdentitiesFromSettings(settings) {
+			secret := secrets.LoadIdentity(s.app.Config.ConfigDir, identity.ID)
+			if identity.Username == "" || secret.Value == "" {
+				continue
+			}
+			candidate := credentialCandidate{Source: "identität " + identity.Name, IdentityID: identity.ID, Username: identity.Username, Password: secret.Value, Stream: stream}
+			if !sameCredentialCandidate(candidates, candidate) {
+				candidates = append(candidates, candidate)
+			}
+		}
+	}
+	if len(candidates) == 0 {
+		return nil, errors.New("username and password are required for frame capture")
+	}
+	if len(candidates) > 8 {
+		candidates = candidates[:8]
+	}
+	return candidates, nil
+}
+
+func sameCredentialCandidate(candidates []credentialCandidate, candidate credentialCandidate) bool {
+	for _, existing := range candidates {
+		if existing.Username == candidate.Username && existing.Password == candidate.Password && existing.Stream == candidate.Stream {
+			return true
+		}
+	}
+	return false
+}
+
+func shouldTryCredentialIdentities(device state.Device, settings map[string]string) bool {
+	if settings["camera.disable_identity_probe"] == "true" {
+		return false
+	}
+	if device.MACAddress != "" || device.ONVIFEndpointRef != "" || device.SerialNumber != "" || device.HardwareID != "" || device.Hostname != "" {
+		return true
+	}
+	var raw map[string]any
+	if len(device.RawJSON) > 0 && json.Unmarshal(device.RawJSON, &raw) == nil {
+		if raw["manual"] == true || raw["rtsp_port_open"] == true || raw["onvif_port_open"] == true {
+			return true
+		}
+	}
+	return false
+}
+
+func (s *Server) rememberIdentityForDevice(ctx context.Context, deviceID string, candidate credentialCandidate) error {
+	if candidate.IdentityID == "" {
+		return nil
+	}
+	values := map[string]string{
+		"camera.credentials." + deviceID + ".username":    candidate.Username,
+		"camera.credentials." + deviceID + ".stream":      candidate.Stream,
+		"camera.credentials." + deviceID + ".identity_id": candidate.IdentityID,
+	}
+	if err := s.app.Store.PutSettings(ctx, values); err != nil {
+		return err
+	}
+	_, err := secrets.SaveCamera(s.app.Config.ConfigDir, deviceID, candidate.Password)
+	return err
+}
+
+func (s *Server) getCredentialIdentities(w http.ResponseWriter, r *http.Request) {
+	settings, err := s.app.Store.Settings(r.Context())
+	if err != nil {
+		writeError(w, err, http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, s.credentialIdentitiesFromSettings(settings), http.StatusOK)
+}
+
+func (s *Server) saveCredentialIdentity(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		ID       string `json:"id"`
+		Name     string `json:"name"`
+		Username string `json:"username"`
+		Password string `json:"password"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, err, http.StatusBadRequest)
+		return
+	}
+	req.ID = strings.TrimSpace(req.ID)
+	req.Name = strings.TrimSpace(req.Name)
+	req.Username = strings.TrimSpace(req.Username)
+	if req.Name == "" {
+		writeError(w, errors.New("name is required"), http.StatusBadRequest)
+		return
+	}
+	if req.Username == "" {
+		writeError(w, errors.New("username is required"), http.StatusBadRequest)
+		return
+	}
+	if req.ID == "" {
+		req.ID = newCredentialIdentityID(req.Name)
+	}
+	settings, err := s.app.Store.Settings(r.Context())
+	if err != nil {
+		writeError(w, err, http.StatusInternalServerError)
+		return
+	}
+	ids := appendCredentialIdentityID(credentialIdentityIDs(settings), req.ID)
+	values := map[string]string{
+		credentialIdentityIDsKey:                  strings.Join(ids, ","),
+		credentialIdentityKey(req.ID, "name"):     req.Name,
+		credentialIdentityKey(req.ID, "username"): req.Username,
+	}
+	if err := s.app.Store.PutSettings(r.Context(), values); err != nil {
+		writeError(w, err, http.StatusInternalServerError)
+		return
+	}
+	source := ""
+	if strings.TrimSpace(req.Password) != "" {
+		source, err = secrets.SaveIdentity(s.app.Config.ConfigDir, req.ID, req.Password)
+		if err != nil {
+			writeError(w, err, http.StatusInternalServerError)
+			return
+		}
+	}
+	_ = s.app.Store.AddEvent(r.Context(), "info", "credentials.identity.updated", "Kamera-Identität wurde gespeichert", map[string]string{"identity_id": req.ID, "password_source": source})
+	settings, _ = s.app.Store.Settings(r.Context())
+	for _, identity := range s.credentialIdentitiesFromSettings(settings) {
+		if identity.ID == req.ID {
+			writeJSON(w, identity, http.StatusOK)
+			return
+		}
+	}
+	writeJSON(w, credentialIdentity{ID: req.ID, Name: req.Name, Username: req.Username}, http.StatusOK)
+}
+
+func (s *Server) deleteCredentialIdentity(w http.ResponseWriter, r *http.Request) {
+	id := strings.TrimSpace(r.PathValue("id"))
+	if id == "" {
+		writeError(w, errors.New("identity id is required"), http.StatusBadRequest)
+		return
+	}
+	settings, err := s.app.Store.Settings(r.Context())
+	if err != nil {
+		writeError(w, err, http.StatusInternalServerError)
+		return
+	}
+	ids := removeCredentialIdentityID(credentialIdentityIDs(settings), id)
+	if err := s.app.Store.PutSettings(r.Context(), map[string]string{credentialIdentityIDsKey: strings.Join(ids, ",")}); err != nil {
+		writeError(w, err, http.StatusInternalServerError)
+		return
+	}
+	_ = s.app.Store.AddEvent(r.Context(), "info", "credentials.identity.deleted", "Kamera-Identität wurde entfernt", map[string]string{"identity_id": id})
+	writeJSON(w, map[string]string{"status": "ok"}, http.StatusOK)
+}
+
+func (s *Server) credentialIdentitiesFromSettings(settings map[string]string) []credentialIdentity {
+	ids := credentialIdentityIDs(settings)
+	identities := make([]credentialIdentity, 0, len(ids))
+	for _, id := range ids {
+		identity := credentialIdentity{
+			ID:       id,
+			Name:     strings.TrimSpace(settings[credentialIdentityKey(id, "name")]),
+			Username: strings.TrimSpace(settings[credentialIdentityKey(id, "username")]),
+		}
+		if identity.Name == "" {
+			identity.Name = id
+		}
+		secret := secrets.LoadIdentity(s.app.Config.ConfigDir, id)
+		identity.PasswordSet = secret.Value != ""
+		identity.PasswordSource = secret.Source
+		identities = append(identities, identity)
+	}
+	return identities
+}
+
+func credentialIdentityIDs(settings map[string]string) []string {
+	raw := settings[credentialIdentityIDsKey]
+	if raw == "" {
+		return nil
+	}
+	seen := map[string]bool{}
+	ids := []string{}
+	for _, part := range strings.Split(raw, ",") {
+		id := strings.TrimSpace(part)
+		if id == "" || seen[id] {
+			continue
+		}
+		seen[id] = true
+		ids = append(ids, id)
+	}
+	return ids
+}
+
+func appendCredentialIdentityID(ids []string, id string) []string {
+	for _, existing := range ids {
+		if existing == id {
+			return ids
+		}
+	}
+	return append(ids, id)
+}
+
+func removeCredentialIdentityID(ids []string, id string) []string {
+	out := ids[:0]
+	for _, existing := range ids {
+		if existing != id {
+			out = append(out, existing)
+		}
+	}
+	return out
+}
+
+func credentialIdentityKey(id, field string) string {
+	return "camera.identity." + sanitizeCredentialIdentityID(id) + "." + field
+}
+
+func newCredentialIdentityID(name string) string {
+	base := sanitizeCredentialIdentityID(strings.ToLower(strings.TrimSpace(name)))
+	if base == "" {
+		base = "identity"
+	}
+	return fmt.Sprintf("%s_%d", base, time.Now().UTC().UnixNano())
+}
+
+func sanitizeCredentialIdentityID(value string) string {
+	var b strings.Builder
+	for _, r := range value {
+		switch {
+		case r >= 'a' && r <= 'z':
+			b.WriteRune(r)
+		case r >= 'A' && r <= 'Z':
+			b.WriteRune(r)
+		case r >= '0' && r <= '9':
+			b.WriteRune(r)
+		default:
+			b.WriteRune('_')
+		}
+	}
+	return strings.Trim(b.String(), "_")
 }
 
 func cameraRTSPURL(username, password, host, stream string) string {
@@ -491,6 +801,9 @@ func (s *Server) getSettings(w http.ResponseWriter, r *http.Request) {
 	settings["agentdvr_url"] = s.app.Config.AgentDVRURL
 	settings["go2rtc_url"] = s.app.Config.Go2RTCURL
 	settings["bind_addr"] = s.app.Config.BindAddr
+	if settings["capture_ssh_host"] == "" {
+		settings["capture_ssh_host"] = s.app.Config.CaptureSSHHost
+	}
 	settings["camera_password_set"] = fmt.Sprintf("%t", s.app.Config.TapoPassword != "")
 	settings["camera_password_source"] = s.app.Config.TapoPasswordSource
 	writeResult(w, settings, err)

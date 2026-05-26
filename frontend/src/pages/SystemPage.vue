@@ -44,6 +44,13 @@
         <span class="lbl">Admin-Adresse</span>
         <input v-model="settings.bind_addr" placeholder="127.0.0.1:8091" />
       </div>
+      <div class="field">
+        <span class="lbl">Capture-Hop per SSH</span>
+        <input v-model="settings.capture_ssh_host" placeholder="leer oder nas" />
+        <div class="mono-mute" style="margin-top: 6px;">
+          Optional. Wenn gesetzt, zieht die App Referenzbilder per ffmpeg auf diesem SSH-Host.
+        </div>
+      </div>
     </div>
 
     <div style="display: grid; gap: 8px;">
@@ -68,6 +75,46 @@
           <div class="lbl-sub">Streams stehen sofort am Player bereit.</div>
         </div>
       </label>
+    </div>
+  </section>
+
+  <!-- Section: Credential identities -->
+  <section class="panel">
+    <div class="panel-head">
+      <h2>Kamera-Identitäten</h2>
+      <div class="right">{{ credentialIdentities.length }} gespeichert</div>
+    </div>
+
+    <div class="split">
+      <form class="field" style="gap: 12px;" @submit.prevent="saveCredentialIdentity">
+        <span class="lbl">{{ identityForm.id ? 'Identität bearbeiten' : 'Neue Identität' }}</span>
+        <input v-model="identityForm.name" placeholder="Tapo Außenkameras" />
+        <input v-model="identityForm.username" placeholder="Benutzername" />
+        <input v-model="identityForm.password" type="password" :placeholder="identityForm.id ? 'leer lassen, um Passwort zu behalten' : 'Passwort'" />
+        <div class="btn-row">
+          <button class="btn primary" type="submit" :disabled="savingIdentity || !identityForm.name || !identityForm.username">
+            {{ savingIdentity ? 'Speichert…' : 'Identität speichern' }}
+          </button>
+          <button v-if="identityForm.id" class="btn ghost" type="button" @click="resetIdentityForm">Neu</button>
+        </div>
+        <div class="mono-mute">
+          Diese Zugangsdaten werden beim Vorschaubild automatisch auf passende Kameras ausprobiert und bei Erfolg an der Kamera gemerkt.
+        </div>
+      </form>
+
+      <div>
+        <div v-if="!credentialIdentities.length" class="empty">Noch keine Identitäten gespeichert.</div>
+        <div v-else class="result-list">
+          <div v-for="identity in credentialIdentities" :key="identity.id" class="result-row ok identity-row">
+            <span class="slot">Login</span>
+            <span class="name">{{ identity.name }}</span>
+            <span class="ip">{{ identity.username }}</span>
+            <span class="stream">{{ identity.password_set ? passwordSourceLabel(identity.password_source) : 'kein Passwort' }}</span>
+            <button class="btn sm ghost" type="button" @click="editCredentialIdentity(identity)">Bearbeiten</button>
+            <button class="btn sm danger" type="button" @click="deleteCredentialIdentity(identity.id)">Entfernen</button>
+          </div>
+        </div>
+      </div>
     </div>
   </section>
 
@@ -127,17 +174,20 @@
 <script setup lang="ts">
 import { onMounted, reactive, ref } from 'vue'
 import { api } from '../api/client'
-import type { EventItem } from '../types'
+import type { CredentialIdentity, EventItem } from '../types'
 
 const settings = reactive<Record<string, string>>({})
 const events = ref<EventItem[]>([])
+const credentialIdentities = ref<CredentialIdentity[]>([])
 const restorePath = ref('')
 const backupResult = ref<{ path: string; warning: string }>()
 const error = ref('')
 const toast = ref('')
 const cameraPassword = ref('')
 const savingPassword = ref(false)
+const savingIdentity = ref(false)
 const passwordSource = ref('unbekannt')
+const identityForm = reactive({ id: '', name: '', username: '', password: '' })
 
 function setBool(key: string, e: Event) {
   const target = e.target as HTMLInputElement
@@ -156,6 +206,12 @@ function levelClass(l: string) {
   if (lower.includes('warn')) return 'warn'
   if (lower.includes('ok') || lower.includes('info')) return 'ok'
   return ''
+}
+function passwordSourceLabel(source?: string) {
+  if (!source) return 'Passwort gespeichert'
+  if (source === 'keyring') return 'Keyring'
+  if (source === 'local.env') return 'Secret-Datei'
+  return source
 }
 
 async function saveSettings() {
@@ -186,6 +242,57 @@ async function saveCameraPassword() {
   }
 }
 
+function resetIdentityForm() {
+  identityForm.id = ''
+  identityForm.name = ''
+  identityForm.username = ''
+  identityForm.password = ''
+}
+
+function editCredentialIdentity(identity: CredentialIdentity) {
+  identityForm.id = identity.id
+  identityForm.name = identity.name
+  identityForm.username = identity.username
+  identityForm.password = ''
+}
+
+async function loadCredentialIdentities() {
+  credentialIdentities.value = await api.credentialIdentities()
+}
+
+async function saveCredentialIdentity() {
+  savingIdentity.value = true
+  error.value = ''
+  try {
+    await api.saveCredentialIdentity({
+      id: identityForm.id || undefined,
+      name: identityForm.name,
+      username: identityForm.username,
+      password: identityForm.password || undefined
+    })
+    await loadCredentialIdentities()
+    resetIdentityForm()
+    toast.value = 'Identität gespeichert'
+    setTimeout(() => (toast.value = ''), 2200)
+  } catch (err) {
+    error.value = err instanceof Error ? err.message : 'Identität konnte nicht gespeichert werden.'
+  } finally {
+    savingIdentity.value = false
+  }
+}
+
+async function deleteCredentialIdentity(id: string) {
+  try {
+    await api.deleteCredentialIdentity(id)
+    await loadCredentialIdentities()
+    if (identityForm.id === id) resetIdentityForm()
+    toast.value = 'Identität entfernt'
+    setTimeout(() => (toast.value = ''), 2200)
+  } catch (err) {
+    error.value = err instanceof Error ? err.message : 'Identität konnte nicht entfernt werden.'
+  }
+}
+
 async function createBackup() {
   try {
     backupResult.value = await api.backup()
@@ -210,6 +317,7 @@ onMounted(async () => {
   try {
     Object.assign(settings, await api.settings())
     passwordSource.value = settings.camera_password_source === 'keyring' ? 'Betriebssystem-Keyring' : (settings.camera_password_source || 'unbekannt')
+    await loadCredentialIdentities()
     events.value = await api.events()
   } catch (err) {
     error.value = err instanceof Error ? err.message : 'Konnte nicht geladen werden.'

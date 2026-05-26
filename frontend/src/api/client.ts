@@ -1,4 +1,4 @@
-import type { Binding, Device, DeviceCredentials, EventItem, FrameResult, ManualDeviceResult, ProbeResult, ScanRun, Slot, StatusResponse } from '../types'
+import type { Binding, CredentialIdentity, Device, DeviceCredentials, EventItem, FrameResult, ManualDeviceResult, ProbeResult, ScanRun, Slot, StatusResponse } from '../types'
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(path, {
@@ -38,6 +38,10 @@ export const api = {
   renderGo2RTC: () => request<{ rendered_streams: number; warnings: string[]; redacted_yaml: string }>('/api/go2rtc/render', { method: 'POST' }),
   restartGo2RTC: () => request('/api/go2rtc/restart', { method: 'POST' }),
   restartStack: () => request('/api/system/restart-stack', { method: 'POST' }),
+  credentialIdentities: () => request<CredentialIdentity[]>('/api/credential-identities'),
+  saveCredentialIdentity: (body: { id?: string; name: string; username: string; password?: string }) =>
+    request<CredentialIdentity>('/api/credential-identities', { method: 'POST', body: JSON.stringify(body) }),
+  deleteCredentialIdentity: (id: string) => request(`/api/credential-identities/${encodeURIComponent(id)}`, { method: 'DELETE' }),
   settings: () => request<Record<string, string>>('/api/settings'),
   saveSettings: (settings: Record<string, string>) => request('/api/settings', { method: 'PUT', body: JSON.stringify(settings) }),
   saveCameraPassword: (password: string) => request<{ status: string; source: string }>('/api/secrets/camera-password', { method: 'POST', body: JSON.stringify({ password }) }),

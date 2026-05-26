@@ -40,11 +40,21 @@ export interface FrameResult {
   sha256: string
   url_redacted: string
   saved_path?: string
+  credential_source?: string
+  identity_id?: string
 }
 
 export interface DeviceCredentials {
   username: string
   stream: string
+  password_set: boolean
+  password_source?: string
+}
+
+export interface CredentialIdentity {
+  id: string
+  name: string
+  username: string
   password_set: boolean
   password_source?: string
 }

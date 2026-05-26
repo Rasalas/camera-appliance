@@ -43,7 +43,7 @@
         <div class="panel-head">
           <h2>Zugang testen</h2>
           <div class="right">
-            {{ credentials?.password_set ? 'Passwort gespeichert' : 'kein Passwort' }}
+            {{ credentials?.password_set ? 'Kamera-Passwort' : identitySummary }}
           </div>
         </div>
         <div class="field">
@@ -64,7 +64,10 @@
         <div class="btn-row">
           <button class="btn primary" :disabled="busy || !username" @click="saveCredentials">Zugang speichern</button>
           <button class="btn" :disabled="busy" @click="probe">RTSP prüfen</button>
-          <button class="btn" :disabled="busy || !username || (!password && !credentials?.password_set)" @click="capture(false)">Bild testen</button>
+          <button class="btn" :disabled="busy || !canCapture" @click="capture(false)">Bild testen</button>
+        </div>
+        <div v-if="!credentials?.password_set && credentialIdentities.length" class="mono-mute" style="font-size: 11px;">
+          Kein Kamera-Passwort gesetzt. Beim Bildtest werden {{ credentialIdentities.length }} gespeicherte Identität(en) ausprobiert.
         </div>
         <div v-if="probeResult" class="notice" :class="probeResult.success ? 'ok' : 'err'">
           <span class="tag">{{ probeResult.success ? 'OK' : 'ERR' }}</span>
@@ -82,8 +85,8 @@
         <div class="right">Hilft beim späteren Wiedererkennen</div>
       </div>
       <div class="btn-row">
-        <button class="btn primary" :disabled="busy || !username || (!password && !credentials?.password_set)" @click="capture(true)">Bild aktualisieren</button>
-        <button class="btn" :disabled="busy || !username || (!password && !credentials?.password_set)" @click="capture(false)">Nur anzeigen</button>
+        <button class="btn primary" :disabled="busy || !canCapture" @click="capture(true)">Bild aktualisieren</button>
+        <button class="btn" :disabled="busy || !canCapture" @click="capture(false)">Nur anzeigen</button>
       </div>
       <div v-if="frame" style="display: grid; gap: 10px;">
         <img
@@ -93,7 +96,7 @@
           style="display: block; max-width: 720px; width: 100%; border: 1px solid var(--hairline); border-radius: 4px;"
         />
         <div class="mono-mute" style="font-size: 11px;">
-          Frame-ID · {{ frame.sha256.slice(0, 24) }}<span v-if="frame.saved_path"> · gespeichert unter {{ frame.saved_path }}</span>
+          Frame-ID · {{ frame.sha256.slice(0, 24) }}<span v-if="frame.credential_source"> · Zugang: {{ frame.credential_source }}</span><span v-if="frame.saved_path"> · gespeichert unter {{ frame.saved_path }}</span>
         </div>
       </div>
       <div v-else-if="device && !referenceMissing" style="display: grid; gap: 10px;">
@@ -122,7 +125,7 @@
 import { computed, onMounted, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import { api } from '../api/client'
-import type { Device, DeviceCredentials, FrameResult, ProbeResult } from '../types'
+import type { CredentialIdentity, Device, DeviceCredentials, FrameResult, ProbeResult } from '../types'
 
 const route = useRoute()
 const device = ref<Device>()
@@ -135,11 +138,14 @@ const stream = ref('stream2')
 const probeResult = ref<ProbeResult>()
 const frame = ref<FrameResult>()
 const credentials = ref<DeviceCredentials>()
+const credentialIdentities = ref<CredentialIdentity[]>([])
 const referenceRevision = ref(Date.now())
 const referenceMissing = ref(false)
 
 const title = computed(() => `${device.value?.manufacturer || 'Unbekannte'} ${device.value?.model || 'Kamera'}`.trim())
 const referenceImageUrl = computed(() => device.value ? api.referenceImageUrl(device.value.id, referenceRevision.value) : '')
+const canCapture = computed(() => Boolean((username.value && (password.value || credentials.value?.password_set)) || credentialIdentities.value.length))
+const identitySummary = computed(() => credentialIdentities.value.length ? `${credentialIdentities.value.length} Identität(en)` : 'kein Passwort')
 const raw = computed(() => {
   const v = device.value?.raw_json
   if (!v) return {} as Record<string, unknown>
@@ -182,6 +188,9 @@ async function capture(save: boolean) {
   error.value = ''
   try {
     frame.value = await api.captureFrame(device.value.id, { username: username.value, password: password.value, stream: stream.value, save })
+    credentials.value = await api.deviceCredentials(device.value.id)
+    if (!username.value && credentials.value.username) username.value = credentials.value.username
+    if (credentials.value.stream) stream.value = credentials.value.stream
     if (save) {
       referenceMissing.value = false
       referenceRevision.value = Date.now()
@@ -197,6 +206,7 @@ onMounted(async () => {
   try {
     device.value = await api.device(String(route.params.id))
     credentials.value = await api.deviceCredentials(device.value.id)
+    credentialIdentities.value = await api.credentialIdentities()
     username.value = credentials.value.username || ''
     stream.value = credentials.value.stream || 'stream2'
   } catch (err) {

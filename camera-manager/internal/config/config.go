@@ -39,6 +39,7 @@ type Config struct {
 	ComposeFile        string
 	SlotsFile          string
 	FrontendDist       string
+	CaptureSSHHost     string
 	ScanLimit          int
 	RequestTimeout     time.Duration
 }
@@ -57,6 +58,7 @@ type slotFile struct {
 }
 
 func Load() (Config, error) {
+	loadEnvFile(".env")
 	cfg := Config{
 		BindAddr:       getenv("CAMERA_APPLIANCE_BIND_ADDR", DefaultBindAddr),
 		ConfigDir:      getenv("CAMERA_APPLIANCE_CONFIG_DIR", DefaultConfigDir),
@@ -67,12 +69,12 @@ func Load() (Config, error) {
 		ComposeFile:    getenv("CAMERA_APPLIANCE_COMPOSE_FILE", DefaultComposeFile),
 		SlotsFile:      getenv("CAMERA_APPLIANCE_SLOTS_FILE", DefaultSlotsRelPath),
 		FrontendDist:   getenv("CAMERA_APPLIANCE_FRONTEND_DIST", "../frontend/dist"),
+		CaptureSSHHost: getenv("CAMERA_APPLIANCE_CAPTURE_SSH_HOST", ""),
 		ScanLimit:      getenvInt("CAMERA_APPLIANCE_SCAN_LIMIT", 254),
 		RequestTimeout: time.Duration(getenvInt("CAMERA_APPLIANCE_TIMEOUT_MS", 800)) * time.Millisecond,
 	}
 	loadEnvFile(filepath.Join(cfg.ConfigDir, "secrets.env"))
 	loadEnvFile(filepath.Join(cfg.ConfigDir, "local.env"))
-	loadEnvFile(".env")
 	secret := secrets.Load(cfg.ConfigDir)
 	cfg.TapoPassword = secret.Value
 	cfg.TapoPasswordSource = secret.Source
