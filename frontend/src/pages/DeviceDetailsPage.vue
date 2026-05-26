@@ -1,64 +1,108 @@
 <template>
-  <PageHeader title="Kamera" subtitle="Details und Bearbeitung dieser Kamera-Ressource">
-    <RouterLink v-if="device" class="button-link secondary" :to="`/display?camera=${device.id}`">In Anzeige verwenden</RouterLink>
-  </PageHeader>
-  <ErrorMessage :message="error" />
-  <LoadingState v-if="loading" />
-  <template v-else-if="device">
-    <div class="resource-sections">
-      <Card>
-        <h2>Identität</h2>
-        <p>{{ title }}</p>
-        <dl class="detail-list">
-          <div><dt>IP</dt><dd>{{ device.last_ip || 'unbekannt' }}</dd></div>
-          <div><dt>MAC</dt><dd>{{ device.mac_address || 'unbekannt' }}</dd></div>
-          <div><dt>Hersteller</dt><dd>{{ device.manufacturer || 'unbekannt' }}</dd></div>
-          <div><dt>Modell</dt><dd>{{ device.model || 'unbekannt' }}</dd></div>
-          <div><dt>Hostname</dt><dd>{{ device.hostname || 'unbekannt' }}</dd></div>
-          <div><dt>Geräte-ID</dt><dd class="mono">{{ device.id }}</dd></div>
-        </dl>
-        <div class="signal-grid">
-          <span :class="raw.rtsp_port_open ? 'signal ok' : 'signal muted'">RTSP 554</span>
-          <span :class="raw.onvif_port_open ? 'signal ok' : 'signal muted'">ONVIF 2020</span>
-          <span :class="raw.http_signature ? 'signal ok' : 'signal muted'">HTTP-Signal</span>
-        </div>
-      </Card>
+  <header class="topline">
+    <div>
+      <div class="eyebrow">
+        <RouterLink to="/einrichtung" style="border-bottom: 1px solid var(--hairline-strong);">← Einrichtung</RouterLink>
+        &nbsp;·&nbsp; Kamera-Diagnose
+      </div>
+      <h1 class="headline">{{ title }}</h1>
+    </div>
+    <div class="meta">
+      <div>IP · <b>{{ device?.last_ip || '—' }}</b></div>
+      <div>MAC · <b>{{ device?.mac_address || '—' }}</b></div>
+    </div>
+  </header>
 
-      <Card>
-        <h2>Zugang und Stream</h2>
-        <label>Benutzername<input v-model="username" placeholder="tapo_hof" /></label>
-        <label>Passwort<input v-model="password" type="password" placeholder="Kamera-Passwort" /></label>
-        <label>Stream
+  <div v-if="error" class="notice err"><span class="tag">FEHLER</span>{{ error }}</div>
+
+  <div v-if="loading" class="empty">Wird geladen…</div>
+
+  <template v-else-if="device">
+    <div class="split">
+      <section class="panel">
+        <div class="panel-head">
+          <h2>Identität</h2>
+          <div class="right">
+            <span class="sig" :class="{ on: raw.rtsp_port_open }">RTSP</span>
+            <span class="sig" :class="{ on: raw.onvif_port_open }" style="margin-left: 4px;">ONVIF</span>
+            <span class="sig" :class="{ on: raw.http_signature }" style="margin-left: 4px;">HTTP</span>
+          </div>
+        </div>
+        <dl class="spec">
+          <div><dt>IP</dt><dd>{{ device.last_ip || '—' }}</dd></div>
+          <div><dt>MAC</dt><dd>{{ device.mac_address || '—' }}</dd></div>
+          <div><dt>Hersteller</dt><dd>{{ device.manufacturer || '—' }}</dd></div>
+          <div><dt>Modell</dt><dd>{{ device.model || '—' }}</dd></div>
+          <div><dt>Seriennummer</dt><dd>{{ device.serial_number || '—' }}</dd></div>
+          <div><dt>Hostname</dt><dd>{{ device.hostname || '—' }}</dd></div>
+          <div><dt>Geräte-ID</dt><dd style="font-size: 11px; color: var(--ink-mute);">{{ device.id }}</dd></div>
+        </dl>
+      </section>
+
+      <section class="panel">
+        <div class="panel-head">
+          <h2>Zugang testen</h2>
+          <div v-if="probeResult" class="right" :style="{ color: probeResult.success ? 'var(--live)' : 'var(--danger)' }">
+            {{ probeResult.success ? 'OK' : 'fehlgeschlagen' }}
+          </div>
+        </div>
+        <div class="field">
+          <span class="lbl">Benutzername</span>
+          <input v-model="username" placeholder="tapo_hof" />
+        </div>
+        <div class="field">
+          <span class="lbl">Passwort</span>
+          <input v-model="password" type="password" placeholder="Kamera-Passwort" />
+        </div>
+        <div class="field">
+          <span class="lbl">Stream</span>
           <select v-model="stream">
-            <option value="stream2">stream2</option>
+            <option value="stream2">stream2 · empfohlen</option>
             <option value="stream1">stream1</option>
           </select>
-        </label>
-        <div class="button-row">
-          <button class="action-button secondary" :disabled="busy" @click="probe">Zugang prüfen</button>
-          <button class="action-button primary" :disabled="busy || !username || !password" @click="capture(false)">Frame testen</button>
         </div>
-        <p v-if="probeResult">{{ probeResult.message }}</p>
-        <p v-if="probeResult" class="mono">{{ probeResult.url_redacted }}</p>
-      </Card>
+        <div class="btn-row">
+          <button class="btn" :disabled="busy" @click="probe">RTSP prüfen</button>
+          <button class="btn primary" :disabled="busy || !username || !password" @click="capture(false)">Frame ziehen</button>
+        </div>
+        <div v-if="probeResult" class="notice" :class="probeResult.success ? 'ok' : 'err'">
+          <span class="tag">{{ probeResult.success ? 'OK' : 'ERR' }}</span>
+          <div>
+            <div>{{ probeResult.message }}</div>
+            <div class="mono-mute" style="margin-top: 4px; font-size: 11px;">{{ probeResult.url_redacted }}</div>
+          </div>
+        </div>
+      </section>
     </div>
 
-    <Card>
-      <h2>Referenzbild</h2>
-      <p>Ein gespeichertes Bild gehört zur Kamera-Ressource und hilft später bei der visuellen Identifikation.</p>
-      <div class="button-row">
-        <button class="action-button primary" :disabled="busy || !username || !password" @click="capture(true)">Frame ziehen und hinterlegen</button>
-        <button class="action-button secondary" :disabled="busy || !username || !password" @click="capture(false)">Nur anzeigen</button>
+    <section class="panel">
+      <div class="panel-head">
+        <h2>Referenzbild</h2>
+        <div class="right">Hilft beim späteren Wiedererkennen</div>
       </div>
-      <img v-if="frame" class="preview-frame" :src="`data:${frame.content_type};base64,${frame.image_base64}`" alt="Kamera-Referenzbild" />
-      <p v-if="frame" class="mono">Frame-ID: {{ frame.sha256.slice(0, 24) }}</p>
-      <p v-if="frame?.saved_path">Gespeichert unter {{ frame.saved_path }}</p>
-    </Card>
+      <div class="btn-row">
+        <button class="btn primary" :disabled="busy || !username || !password" @click="capture(true)">Frame ziehen und hinterlegen</button>
+        <button class="btn" :disabled="busy || !username || !password" @click="capture(false)">Nur anzeigen</button>
+      </div>
+      <div v-if="frame" style="display: grid; gap: 10px;">
+        <img
+          class="preview-frame"
+          :src="`data:${frame.content_type};base64,${frame.image_base64}`"
+          alt="Kamera-Referenzbild"
+          style="display: block; max-width: 720px; width: 100%; border: 1px solid var(--hairline); border-radius: 4px;"
+        />
+        <div class="mono-mute" style="font-size: 11px;">
+          Frame-ID · {{ frame.sha256.slice(0, 24) }}<span v-if="frame.saved_path"> · gespeichert unter {{ frame.saved_path }}</span>
+        </div>
+      </div>
+    </section>
 
-    <Card>
-      <h2>Diagnose</h2>
-      <pre>{{ JSON.stringify(raw, null, 2) }}</pre>
-    </Card>
+    <section class="panel">
+      <div class="panel-head">
+        <h2>Rohdaten · Diagnose</h2>
+      </div>
+      <pre class="code">{{ JSON.stringify(raw, null, 2) }}</pre>
+    </section>
   </template>
 </template>
 
@@ -67,10 +111,6 @@ import { computed, onMounted, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import { api } from '../api/client'
 import type { Device, FrameResult, ProbeResult } from '../types'
-import PageHeader from '../components/PageHeader.vue'
-import Card from '../components/Card.vue'
-import ErrorMessage from '../components/ErrorMessage.vue'
-import LoadingState from '../components/LoadingState.vue'
 
 const route = useRoute()
 const device = ref<Device>()
@@ -82,14 +122,15 @@ const password = ref('')
 const stream = ref('stream2')
 const probeResult = ref<ProbeResult>()
 const frame = ref<FrameResult>()
+
 const title = computed(() => `${device.value?.manufacturer || 'Unbekannte'} ${device.value?.model || 'Kamera'}`.trim())
 const raw = computed(() => {
-  const value = device.value?.raw_json
-  if (!value) return {} as Record<string, unknown>
-  if (typeof value === 'string') {
-    try { return JSON.parse(value) as Record<string, unknown> } catch { return {} as Record<string, unknown> }
+  const v = device.value?.raw_json
+  if (!v) return {} as Record<string, unknown>
+  if (typeof v === 'string') {
+    try { return JSON.parse(v) as Record<string, unknown> } catch { return {} as Record<string, unknown> }
   }
-  return value
+  return v
 })
 
 async function probe() {
@@ -112,7 +153,7 @@ async function capture(save: boolean) {
   try {
     frame.value = await api.captureFrame(device.value.id, { username: username.value, password: password.value, stream: stream.value, save })
   } catch (err) {
-    error.value = err instanceof Error ? err.message : 'Vorschaubild konnte nicht gezogen werden.'
+    error.value = err instanceof Error ? err.message : 'Bild konnte nicht gezogen werden.'
   } finally {
     busy.value = false
   }

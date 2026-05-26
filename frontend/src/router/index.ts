@@ -1,28 +1,28 @@
 import { createRouter, createWebHistory } from 'vue-router'
-import DashboardPage from '../pages/DashboardPage.vue'
+import OverviewPage from '../pages/OverviewPage.vue'
 import SetupPage from '../pages/SetupPage.vue'
-import CamerasPage from '../pages/CamerasPage.vue'
+import SystemPage from '../pages/SystemPage.vue'
 import DeviceDetailsPage from '../pages/DeviceDetailsPage.vue'
-import AssignPage from '../pages/AssignPage.vue'
-import DisplayPage from '../pages/DisplayPage.vue'
-import SettingsPage from '../pages/SettingsPage.vue'
-import EventsPage from '../pages/EventsPage.vue'
-import BackupPage from '../pages/BackupPage.vue'
 
 export default createRouter({
   history: createWebHistory(),
   routes: [
-    { path: '/', name: 'dashboard', component: DashboardPage },
-    { path: '/setup', name: 'setup', component: SetupPage },
-    { path: '/cameras', name: 'cameras', component: CamerasPage },
-    { path: '/cameras/:id', name: 'camera-details', component: DeviceDetailsPage },
-    { path: '/display', name: 'display', component: DisplayPage },
-    { path: '/discovery', redirect: '/cameras' },
-    { path: '/devices/:id', redirect: (to) => `/cameras/${to.params.id}` },
-    { path: '/assign/:deviceId?', name: 'assign', component: AssignPage },
-    { path: '/bindings', redirect: '/display' },
-    { path: '/settings', name: 'settings', component: SettingsPage },
-    { path: '/events', name: 'events', component: EventsPage },
-    { path: '/backup', name: 'backup', component: BackupPage }
+    { path: '/', name: 'overview', component: OverviewPage },
+    { path: '/einrichtung', name: 'setup', component: SetupPage },
+    { path: '/system', name: 'system', component: SystemPage },
+    { path: '/kamera/:id', name: 'device', component: DeviceDetailsPage },
+
+    // legacy redirects from the previous IA
+    { path: '/setup', redirect: '/einrichtung' },
+    { path: '/cameras', redirect: '/einrichtung' },
+    { path: '/cameras/:id', redirect: (to) => `/kamera/${to.params.id}` },
+    { path: '/display', redirect: '/einrichtung' },
+    { path: '/discovery', redirect: '/einrichtung' },
+    { path: '/assign/:deviceId?', redirect: '/einrichtung' },
+    { path: '/bindings', redirect: '/einrichtung' },
+    { path: '/devices/:id', redirect: (to) => `/kamera/${to.params.id}` },
+    { path: '/settings', redirect: '/system' },
+    { path: '/events', redirect: '/system' },
+    { path: '/backup', redirect: '/system' }
   ]
 })
