@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+cd /opt/camera-appliance
+/usr/bin/docker compose restart agentdvr go2rtc camera-manager

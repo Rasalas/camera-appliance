@@ -1,0 +1,39 @@
+services:
+  agentdvr:
+    image: mekayelanik/ispyagentdvr:stable
+    container_name: agentdvr
+    restart: unless-stopped
+    ports:
+      - "8090:8090"
+    volumes:
+      - /var/lib/camera-appliance/agentdvr/xml:/AgentDVR/Media/XML
+      - /var/lib/camera-appliance/agentdvr/media:/AgentDVR/Media/WebServerRoot/Media
+    depends_on:
+      - go2rtc
+
+  go2rtc:
+    image: alexxit/go2rtc:latest
+    container_name: go2rtc
+    restart: unless-stopped
+    volumes:
+      - /var/lib/camera-appliance/generated/go2rtc.yaml:/config/go2rtc.yaml:ro
+    ports:
+      - "127.0.0.1:1984:1984"
+      - "127.0.0.1:8554:8554"
+
+  camera-manager:
+    build:
+      context: .
+      dockerfile: camera-manager/Dockerfile
+    container_name: camera-manager
+    restart: unless-stopped
+    network_mode: host
+    environment:
+      CAMERA_APPLIANCE_BIND_ADDR: 127.0.0.1:8091
+      CAMERA_APPLIANCE_CONFIG_DIR: /etc/camera-appliance
+      CAMERA_APPLIANCE_STATE_DIR: /var/lib/camera-appliance
+      CAMERA_APPLIANCE_FRONTEND_DIST: /opt/camera-appliance/frontend/dist
+    volumes:
+      - /etc/camera-appliance:/etc/camera-appliance:ro
+      - /var/lib/camera-appliance:/var/lib/camera-appliance
+      - /var/run/docker.sock:/var/run/docker.sock

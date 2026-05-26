@@ -1,0 +1,5 @@
+streams:
+{{- range .Streams }}
+  {{ .Name }}:
+    - {{ .URL }}
+{{- end }}

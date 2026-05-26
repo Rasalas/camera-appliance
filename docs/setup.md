@@ -1,0 +1,11 @@
+# Setup
+
+1. Install Linux Mint updates.
+2. Install Docker, Docker Compose plugin, Go, and Node.js/npm.
+3. Clone or copy the repository to `/opt/camera-appliance`.
+4. Run `sudo bin/install --user customer --enable-systemd --install-desktop-launchers`.
+5. Edit `/etc/camera-appliance/secrets.env` and set the real Tapo camera password.
+6. Start the stack with `sudo docker compose up -d`.
+7. Open `http://127.0.0.1:8091`, start camera discovery, and assign devices to `cam1` through `cam5`.
+8. Render go2rtc config and restart go2rtc.
+9. Configure AgentDVR to use only `rtsp://go2rtc:8554/cam1` through `cam5`.

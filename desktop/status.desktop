@@ -1,0 +1,7 @@
+[Desktop Entry]
+Type=Application
+Name=Kamera-Status anzeigen
+Exec=/opt/camera-appliance/bin/status
+Icon=dialog-information
+Terminal=true
+Categories=Utility;

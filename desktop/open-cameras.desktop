@@ -1,0 +1,7 @@
+[Desktop Entry]
+Type=Application
+Name=Kameras öffnen
+Exec=/opt/camera-appliance/bin/open-cameras
+Icon=camera-video
+Terminal=false
+Categories=Utility;

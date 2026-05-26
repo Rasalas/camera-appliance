@@ -1,0 +1,43 @@
+# Local secrets
+.env
+*.env
+secrets/
+local.env
+
+# Generated files
+generated/
+*.generated.yaml
+go2rtc.yaml
+
+# Runtime state
+data/
+state.db
+*.sqlite
+*.sqlite3
+
+# AgentDVR data and backups
+agentdvr-data/
+*.backup
+*.zip
+*.tar.gz
+
+# Customer-specific files
+customer/
+local/
+
+# Build outputs
+dist/
+frontend/dist/
+camera-appliance
+bin/camera-appliance
+
+# Node
+node_modules/
+
+# Go
+coverage.out
+
+# OS/editor
+.DS_Store
+.idea/
+.vscode/

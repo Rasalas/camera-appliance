@@ -1,0 +1,89 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+TARGET_DIR="/opt/camera-appliance"
+USER_NAME=""
+ENABLE_SYSTEMD=0
+INSTALL_DESKTOP=0
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --user)
+      USER_NAME="${2:-}"
+      shift 2
+      ;;
+    --enable-systemd)
+      ENABLE_SYSTEMD=1
+      shift
+      ;;
+    --install-desktop-launchers)
+      INSTALL_DESKTOP=1
+      shift
+      ;;
+    *)
+      echo "Unknown option: $1" >&2
+      exit 2
+      ;;
+  esac
+done
+
+need() {
+  if ! command -v "$1" >/dev/null 2>&1; then
+    echo "Required command missing: $1" >&2
+    exit 1
+  fi
+}
+
+need go
+need npm
+need docker
+
+if ! docker compose version >/dev/null 2>&1; then
+  echo "Docker Compose plugin is required." >&2
+  exit 1
+fi
+
+mkdir -p /etc/camera-appliance \
+  /var/lib/camera-appliance/generated \
+  /var/lib/camera-appliance/backups \
+  /var/lib/camera-appliance/logs \
+  /var/lib/camera-appliance/agentdvr/xml \
+  /var/lib/camera-appliance/agentdvr/media \
+  /var/log/camera-appliance
+
+if [[ ! -f /etc/camera-appliance/secrets.env ]]; then
+  install -m 0600 .env.example /etc/camera-appliance/secrets.env
+  echo "Created /etc/camera-appliance/secrets.env. Replace change-me values before customer use."
+fi
+
+(cd frontend && npm ci && npm run build)
+(cd camera-manager && go build -o ../bin/camera-appliance ./cmd/camera-appliance)
+
+if [[ "$(pwd)" != "$TARGET_DIR" ]]; then
+  mkdir -p "$TARGET_DIR"
+  rsync -a --exclude node_modules --exclude frontend/dist --exclude data --exclude .git ./ "$TARGET_DIR/"
+  mkdir -p "$TARGET_DIR/frontend"
+  rsync -a frontend/dist "$TARGET_DIR/frontend/"
+  install -m 0755 bin/camera-appliance "$TARGET_DIR/bin/camera-appliance"
+fi
+
+chmod +x "$TARGET_DIR"/bin/* || true
+
+if [[ "$ENABLE_SYSTEMD" -eq 1 ]]; then
+  install -m 0644 systemd/camera-appliance.service /etc/systemd/system/camera-appliance.service
+  systemctl daemon-reload
+  systemctl enable camera-appliance.service
+fi
+
+if [[ "$INSTALL_DESKTOP" -eq 1 ]]; then
+  if [[ -z "$USER_NAME" ]]; then
+    echo "--install-desktop-launchers requires --user USER" >&2
+    exit 1
+  fi
+  DESKTOP_DIR="/home/$USER_NAME/Desktop"
+  mkdir -p "$DESKTOP_DIR"
+  install -m 0755 desktop/*.desktop "$DESKTOP_DIR/"
+  chown "$USER_NAME:$USER_NAME" "$DESKTOP_DIR"/*.desktop
+fi
+
+echo "camera-appliance installed. Configure /etc/camera-appliance/secrets.env, then run docker compose up -d."

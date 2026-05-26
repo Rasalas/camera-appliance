@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+/opt/camera-appliance/bin/camera-appliance restore "$@"

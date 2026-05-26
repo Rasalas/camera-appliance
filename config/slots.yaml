@@ -1,0 +1,31 @@
+slots:
+  - id: cam1
+    label: "Kamera 1"
+    role: "grid"
+    default_stream: "stream2"
+    required: true
+    sort_order: 1
+  - id: cam2
+    label: "Kamera 2"
+    role: "grid"
+    default_stream: "stream2"
+    required: true
+    sort_order: 2
+  - id: cam3
+    label: "Kamera 3"
+    role: "grid"
+    default_stream: "stream2"
+    required: true
+    sort_order: 3
+  - id: cam4
+    label: "Kamera 4"
+    role: "grid"
+    default_stream: "stream2"
+    required: true
+    sort_order: 4
+  - id: cam5
+    label: "Große Ansicht"
+    role: "large"
+    default_stream: "stream2"
+    required: false
+    sort_order: 5

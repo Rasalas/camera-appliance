@@ -1,0 +1,13 @@
+[Unit]
+Description=Camera Kiosk Browser
+After=graphical-session.target camera-appliance.service
+Wants=camera-appliance.service
+
+[Service]
+Type=simple
+ExecStart=/opt/camera-appliance/bin/open-cameras
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target

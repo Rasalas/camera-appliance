@@ -1,0 +1,7 @@
+[Desktop Entry]
+Type=Application
+Name=Kameras neu suchen
+Exec=/opt/camera-appliance/bin/rediscover-cameras
+Icon=system-search
+Terminal=false
+Categories=Utility;
