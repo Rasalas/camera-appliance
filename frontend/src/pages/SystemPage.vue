@@ -82,41 +82,63 @@
   <section class="panel">
     <div class="panel-head">
       <h2>Kamera-Identitäten</h2>
-      <div class="right">{{ credentialIdentities.length }} gespeichert</div>
+      <div class="device-head-actions">
+        <div class="right">{{ credentialIdentities.length }} gespeichert</div>
+        <button class="btn icon sm" type="button" title="Identität hinzufügen" @click="openNewIdentityModal">+</button>
+      </div>
     </div>
 
-    <div class="split">
-      <form class="field" style="gap: 12px;" @submit.prevent="saveCredentialIdentity">
-        <span class="lbl">{{ identityForm.id ? 'Identität bearbeiten' : 'Neue Identität' }}</span>
-        <input v-model="identityForm.name" placeholder="Tapo Außenkameras" />
-        <input v-model="identityForm.username" placeholder="Benutzername" />
-        <input v-model="identityForm.password" type="password" :placeholder="identityForm.id ? 'leer lassen, um Passwort zu behalten' : 'Passwort'" />
-        <div class="btn-row">
-          <button class="btn primary" type="submit" :disabled="savingIdentity || !identityForm.name || !identityForm.username">
-            {{ savingIdentity ? 'Speichert…' : 'Identität speichern' }}
-          </button>
-          <button v-if="identityForm.id" class="btn ghost" type="button" @click="resetIdentityForm">Neu</button>
-        </div>
-        <div class="mono-mute">
-          Diese Zugangsdaten werden beim Vorschaubild automatisch auf passende Kameras ausprobiert und bei Erfolg an der Kamera gemerkt.
-        </div>
-      </form>
+    <div class="mono-mute">
+      Identitäten sind wiederverwendbare Logins. Stream-Auswahl bleibt an Kamera, Zuordnung oder Bildtest.
+    </div>
 
-      <div>
-        <div v-if="!credentialIdentities.length" class="empty">Noch keine Identitäten gespeichert.</div>
-        <div v-else class="result-list">
-          <div v-for="identity in credentialIdentities" :key="identity.id" class="result-row ok identity-row">
-            <span class="slot">Login</span>
-            <span class="name">{{ identity.name }}</span>
-            <span class="ip">{{ identity.username }}</span>
-            <span class="stream">{{ identity.password_set ? passwordSourceLabel(identity.password_source) : 'kein Passwort' }}</span>
-            <button class="btn sm ghost" type="button" @click="editCredentialIdentity(identity)">Bearbeiten</button>
-            <button class="btn sm danger" type="button" @click="deleteCredentialIdentity(identity.id)">Entfernen</button>
-          </div>
-        </div>
+    <div v-if="!credentialIdentities.length" class="empty">Noch keine Identitäten gespeichert.</div>
+    <div v-else class="result-list">
+      <div v-for="identity in credentialIdentities" :key="identity.id" class="result-row ok identity-row">
+        <span class="slot">Login</span>
+        <span class="name">{{ identity.name }}</span>
+        <span class="ip">{{ identity.username }}</span>
+        <span class="stream">{{ identity.password_set ? passwordSourceLabel(identity.password_source) : 'kein Passwort' }}</span>
+        <button class="btn sm ghost" type="button" @click="editCredentialIdentity(identity)">Bearbeiten</button>
+        <button class="btn sm danger" type="button" @click="deleteCredentialIdentity(identity.id)">Entfernen</button>
       </div>
     </div>
   </section>
+
+  <div v-if="showIdentityModal" class="modal-backdrop" @click.self="closeIdentityModal">
+    <form class="modal" @submit.prevent="saveCredentialIdentity">
+      <div class="modal-head">
+        <div>
+          <div class="eyebrow">Kamera-Identitäten</div>
+          <h2>{{ identityForm.id ? 'Identität bearbeiten' : 'Identität hinzufügen' }}</h2>
+        </div>
+        <button class="btn icon sm ghost" type="button" title="Schließen" @click="closeIdentityModal">×</button>
+      </div>
+      <div class="split">
+        <div class="field">
+          <span class="lbl">Name</span>
+          <input v-model="identityForm.name" placeholder="Tapo Außenkameras" autofocus />
+        </div>
+        <div class="field">
+          <span class="lbl">Benutzername</span>
+          <input v-model="identityForm.username" placeholder="Kamera-Benutzer" />
+        </div>
+        <div class="field">
+          <span class="lbl">Passwort</span>
+          <input v-model="identityForm.password" type="password" :placeholder="identityForm.id ? 'leer lassen, um Passwort zu behalten' : 'Kamera-Passwort'" />
+        </div>
+      </div>
+      <div class="modal-foot">
+        <span class="mono-mute">Wird beim Bildtest auf passende Kameras ausprobiert.</span>
+        <div class="btn-row">
+          <button class="btn ghost" type="button" @click="closeIdentityModal">Abbrechen</button>
+          <button class="btn primary" type="submit" :disabled="savingIdentity || !identityForm.name || !identityForm.username">
+            {{ savingIdentity ? 'Speichert…' : 'Speichern' }}
+          </button>
+        </div>
+      </div>
+    </form>
+  </div>
 
   <!-- Section: Backup -->
   <section class="panel">
@@ -186,6 +208,7 @@ const toast = ref('')
 const cameraPassword = ref('')
 const savingPassword = ref(false)
 const savingIdentity = ref(false)
+const showIdentityModal = ref(false)
 const passwordSource = ref('unbekannt')
 const identityForm = reactive({ id: '', name: '', username: '', password: '' })
 
@@ -249,11 +272,21 @@ function resetIdentityForm() {
   identityForm.password = ''
 }
 
+function openNewIdentityModal() {
+  resetIdentityForm()
+  showIdentityModal.value = true
+}
+
+function closeIdentityModal() {
+  if (!savingIdentity.value) showIdentityModal.value = false
+}
+
 function editCredentialIdentity(identity: CredentialIdentity) {
   identityForm.id = identity.id
   identityForm.name = identity.name
   identityForm.username = identity.username
   identityForm.password = ''
+  showIdentityModal.value = true
 }
 
 async function loadCredentialIdentities() {
@@ -272,6 +305,7 @@ async function saveCredentialIdentity() {
     })
     await loadCredentialIdentities()
     resetIdentityForm()
+    showIdentityModal.value = false
     toast.value = 'Identität gespeichert'
     setTimeout(() => (toast.value = ''), 2200)
   } catch (err) {

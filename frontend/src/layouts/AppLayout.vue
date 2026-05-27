@@ -64,10 +64,10 @@ onBeforeUnmount(() => {
   display: flex;
   flex-direction: column;
   gap: var(--gutter);
-  animation: route-in .28s cubic-bezier(.2,.8,.2,1) both;
+  animation: route-in .18s ease-out both;
 }
 @keyframes route-in {
-  from { opacity: 0; transform: translateY(6px); }
-  to   { opacity: 1; transform: translateY(0); }
+  from { opacity: 0; }
+  to   { opacity: 1; }
 }
 </style>
