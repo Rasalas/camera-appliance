@@ -23,28 +23,40 @@
       <button class="btn" :disabled="!!busy" @click="runDiscovery">{{ busy === 'scan' ? 'Suche läuft…' : 'Kameras suchen' }}</button>
       <button class="btn" :disabled="!!busy" @click="render">{{ busy === 'render' ? 'Erzeugt…' : 'go2rtc erzeugen' }}</button>
       <button class="btn ghost" :disabled="!!busy" @click="restartGo2rtc">{{ busy === 'restart' ? 'Startet…' : 'go2rtc neu starten' }}</button>
+      <div class="layout-buttons">
+        <button class="btn sm" :class="{ live: layoutMode === 'auto' }" :disabled="layoutBusy" @click="setLayoutMode('auto')">Auto</button>
+        <button class="btn sm" :class="{ live: layoutMode === 'focus_left' }" :disabled="layoutBusy" @click="setLayoutMode('focus_left')">Fokus links</button>
+        <button class="btn sm" :class="{ live: layoutMode === 'focus_right' }" :disabled="layoutBusy" @click="setLayoutMode('focus_right')">Fokus rechts</button>
+      </div>
     </template>
     <div class="spacer" />
     <RouterLink v-if="canAdmin" class="btn ghost" to="/einrichtung">Einrichtung</RouterLink>
     <RouterLink v-else-if="auth?.enabled && !auth.authenticated" class="btn ghost" to="/login">Login</RouterLink>
   </div>
 
-  <section class="viewer-grid">
+  <section class="viewer-grid" :class="layoutClass" :style="layoutGridStyle">
     <article
       v-for="slot in slots"
       :key="slot.alias"
       class="viewer-tile"
-      :class="[tileClass(slot), { large: slot.slot.role === 'large' }]"
+      :class="[tileClass(slot), { large: slot.slot.role === 'large' && layoutMode === 'auto' }]"
+      :style="layoutTileStyle(slot)"
     >
       <div class="viewer-frame-wrap">
-        <iframe
+        <div
           v-if="slot.playback?.page_url && isPlayable(slot)"
-          class="viewer-frame"
-          :src="slot.playback.page_url"
-          :title="slot.label"
-          allow="autoplay; fullscreen; picture-in-picture"
-          @load="markFrameReady(slot.alias)"
-        />
+          class="viewer-frame-transform"
+          :class="displayClass(slot)"
+          :style="displayStyle(slot)"
+        >
+          <iframe
+            class="viewer-frame"
+            :src="slot.playback.page_url"
+            :title="slot.label"
+            allow="autoplay; fullscreen; picture-in-picture"
+            @load="markFrameReady(slot.alias)"
+          />
+        </div>
         <div v-else class="viewer-placeholder">
           <div class="placeholder-mark">{{ slot.alias }}</div>
           <div>{{ slot.message }}</div>
@@ -82,6 +94,14 @@
         </span>
       </div>
     </article>
+    <button
+      v-if="focusLayout && canAdmin"
+      class="viewer-layout-grabber"
+      type="button"
+      :style="grabberStyle"
+      title="Layout-Breite ziehen"
+      @pointerdown="startLayoutDrag"
+    />
   </section>
 
   <section class="panel viewer-summary">
@@ -113,12 +133,14 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { api } from '../api/client'
-import type { AuthStatus, StreamPath, ViewerResponse, ViewerSlot, ViewerSlotState } from '../types'
+import type { AuthStatus, CameraDisplay, StreamPath, ViewerLayout, ViewerResponse, ViewerSlot, ViewerSlotState } from '../types'
 
 const viewer = ref<ViewerResponse>()
 const auth = ref<AuthStatus>()
 const loading = ref(true)
 const busy = ref<'' | 'load' | 'scan' | 'render' | 'restart'>('')
+const layoutBusy = ref(false)
+const layoutDraft = ref<ViewerLayout>({ mode: 'auto', focus_slot_id: 'cam5', split_percent: 58, gap_px: 10 })
 const error = ref('')
 const toast = ref('')
 const frameReady = ref<Record<string, boolean>>({})
@@ -129,7 +151,32 @@ const slots = computed(() => viewer.value?.slots ?? [])
 const onlineCount = computed(() => slots.value.filter((slot) => effectiveState(slot) === 'online').length)
 const blockingSlots = computed(() => slots.value.filter((slot) => !['online', 'connecting'].includes(effectiveState(slot))))
 const blockingCount = computed(() => blockingSlots.value.length)
-const canAdmin = computed(() => !auth.value?.enabled || auth.value.role === 'admin')
+const canAdmin = computed(() => auth.value ? (!auth.value.enabled || auth.value.role === 'admin') : false)
+const layoutMode = computed(() => layoutDraft.value.mode)
+const focusLayout = computed(() => layoutMode.value === 'focus_left' || layoutMode.value === 'focus_right')
+const layoutClass = computed(() => ({
+  'layout-focus': focusLayout.value,
+  'layout-focus-left': layoutMode.value === 'focus_left',
+  'layout-focus-right': layoutMode.value === 'focus_right'
+}))
+const layoutGridStyle = computed(() => {
+  if (!focusLayout.value) return {}
+  const split = clamp(layoutDraft.value.split_percent || 58, 30, 76)
+  const focus = 100 - split
+  const gap = clamp(layoutDraft.value.gap_px || 10, 2, 20)
+  const columns = layoutMode.value === 'focus_right'
+    ? `${split / 2}fr ${split / 2}fr 6px ${focus}fr`
+    : `${focus}fr 6px ${split / 2}fr ${split / 2}fr`
+  return {
+    gridTemplateColumns: columns,
+    gridTemplateRows: 'minmax(220px, 1fr) minmax(220px, 1fr)',
+    gap: `${gap}px`
+  }
+})
+const grabberStyle = computed(() => ({
+  gridColumn: layoutMode.value === 'focus_right' ? '3' : '2',
+  gridRow: '1 / span 2'
+}))
 const checkedAt = computed(() => {
   if (!viewer.value?.checked_at) return '—'
   return new Date(viewer.value.checked_at).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })
@@ -217,12 +264,143 @@ async function load() {
   error.value = ''
   try {
     viewer.value = await api.viewer()
+    syncLayoutDraft()
   } catch (err) {
     error.value = err instanceof Error ? err.message : 'Viewer konnte nicht geladen werden.'
   } finally {
     loading.value = false
     if (busy.value === 'load') busy.value = ''
   }
+}
+
+function syncLayoutDraft() {
+  if (!viewer.value?.layout) return
+  layoutDraft.value = {
+    mode: viewer.value.layout.mode || 'auto',
+    focus_slot_id: viewer.value.layout.focus_slot_id || defaultFocusSlotID(),
+    split_percent: viewer.value.layout.split_percent || 58,
+    gap_px: viewer.value.layout.gap_px || 10
+  }
+}
+
+function defaultFocusSlotID() {
+  return slots.value.find((slot) => slot.slot.role === 'large')?.alias || slots.value[slots.value.length - 1]?.alias || 'cam5'
+}
+
+function focusSlotID() {
+  const configured = layoutDraft.value.focus_slot_id || defaultFocusSlotID()
+  return slots.value.some((slot) => slot.alias === configured) ? configured : defaultFocusSlotID()
+}
+
+function layoutTileStyle(slot: ViewerSlot) {
+  if (!focusLayout.value) return {}
+  const focus = focusSlotID()
+  if (slot.alias === focus) {
+    return {
+      gridColumn: layoutMode.value === 'focus_right' ? '4' : '1',
+      gridRow: '1 / span 2'
+    }
+  }
+  const rest = slots.value.filter((candidate) => candidate.alias !== focus)
+  const index = Math.max(0, rest.findIndex((candidate) => candidate.alias === slot.alias))
+  const col = index % 2
+  const row = Math.floor(index / 2) + 1
+  if (layoutMode.value === 'focus_right') {
+    return { gridColumn: String(col + 1), gridRow: String(row) }
+  }
+  return { gridColumn: String(col + 3), gridRow: String(row) }
+}
+
+function displayClass(slot: ViewerSlot) {
+  const display = normalizedDisplay(slot.display)
+  return {
+    'fit-contain': display.fit_mode === 'contain',
+    'rotated-quarter': display.rotation === 90 || display.rotation === 270
+  }
+}
+
+function displayStyle(slot: ViewerSlot) {
+  const display = normalizedDisplay(slot.display)
+  const crop = display.crop
+  const width = 10000 / crop.width
+  const height = 10000 / crop.height
+  const left = -(crop.x / crop.width) * 100
+  const top = -(crop.y / crop.height) * 100
+  const scaleX = display.mirror ? -1 : 1
+  const scaleY = display.flip ? -1 : 1
+  return {
+    left: `${left}%`,
+    top: `${top}%`,
+    width: `${width}%`,
+    height: `${height}%`,
+    transform: `rotate(${display.rotation}deg) scaleX(${scaleX}) scaleY(${scaleY})`,
+    '--display-fit': display.fit_mode
+  }
+}
+
+function normalizedDisplay(display?: CameraDisplay): CameraDisplay {
+  return {
+    rotation: ([0, 90, 180, 270].includes(display?.rotation ?? 0) ? display?.rotation : 0) ?? 0,
+    mirror: display?.mirror ?? false,
+    flip: display?.flip ?? false,
+    fit_mode: display?.fit_mode === 'contain' ? 'contain' : 'cover',
+    crop: {
+      x: clamp(display?.crop?.x ?? 0, 0, 99),
+      y: clamp(display?.crop?.y ?? 0, 0, 99),
+      width: clamp(display?.crop?.width ?? 100, 1, 100),
+      height: clamp(display?.crop?.height ?? 100, 1, 100)
+    }
+  }
+}
+
+async function setLayoutMode(mode: ViewerLayout['mode']) {
+  layoutDraft.value = { ...layoutDraft.value, mode, focus_slot_id: focusSlotID() }
+  await saveLayout()
+}
+
+async function saveLayout() {
+  if (!canAdmin.value) return
+  layoutBusy.value = true
+  error.value = ''
+  try {
+    await api.saveSettings({
+      'viewer.layout.mode': layoutDraft.value.mode,
+      'viewer.layout.focus_slot_id': focusSlotID(),
+      'viewer.layout.split_percent': String(clamp(layoutDraft.value.split_percent, 30, 76)),
+      'viewer.layout.gap_px': String(clamp(layoutDraft.value.gap_px, 2, 20))
+    })
+    await load()
+  } catch (err) {
+    error.value = err instanceof Error ? err.message : 'Layout konnte nicht gespeichert werden.'
+  } finally {
+    layoutBusy.value = false
+  }
+}
+
+function startLayoutDrag(event: PointerEvent) {
+  if (!focusLayout.value || !canAdmin.value) return
+  const grid = (event.currentTarget as HTMLElement).closest('.viewer-grid')
+  if (!(grid instanceof HTMLElement)) return
+  event.preventDefault()
+  const rect = grid.getBoundingClientRect()
+  const pointerId = event.pointerId
+  ;(event.currentTarget as HTMLElement).setPointerCapture(pointerId)
+  const move = (moveEvent: PointerEvent) => {
+    const relative = clamp(Math.round(((moveEvent.clientX - rect.left) / rect.width) * 100), 20, 80)
+    layoutDraft.value.split_percent = layoutMode.value === 'focus_right' ? clamp(relative, 30, 76) : clamp(100 - relative, 30, 76)
+  }
+  const up = async () => {
+    window.removeEventListener('pointermove', move)
+    window.removeEventListener('pointerup', up)
+    await saveLayout()
+  }
+  window.addEventListener('pointermove', move)
+  window.addEventListener('pointerup', up)
+}
+
+function clamp(value: number, min: number, max: number) {
+  if (!Number.isFinite(value)) return min
+  return Math.min(max, Math.max(min, value))
 }
 
 async function refreshAuth() {

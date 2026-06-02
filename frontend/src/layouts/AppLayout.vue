@@ -45,7 +45,7 @@ const router = useRouter()
 const clock = ref('')
 const auth = ref<AuthStatus>()
 
-const canAdmin = computed(() => !auth.value?.enabled || auth.value.role === 'admin')
+const canAdmin = computed(() => auth.value ? (!auth.value.enabled || auth.value.role === 'admin') : false)
 const roleLabel = computed(() => {
   if (!auth.value?.enabled) return 'offen'
   if (auth.value.role === 'admin') return auth.value.local_admin_bypass_now ? 'Host' : 'Admin'

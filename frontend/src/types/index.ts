@@ -170,6 +170,28 @@ export interface ViewerPlayback {
   page_url: string
 }
 
+export interface DisplayCrop {
+  x: number
+  y: number
+  width: number
+  height: number
+}
+
+export interface CameraDisplay {
+  rotation: 0 | 90 | 180 | 270 | number
+  mirror: boolean
+  flip: boolean
+  fit_mode: 'cover' | 'contain'
+  crop: DisplayCrop
+}
+
+export interface ViewerLayout {
+  mode: 'auto' | 'focus_left' | 'focus_right'
+  focus_slot_id: string
+  split_percent: number
+  gap_px: number
+}
+
 export interface StreamPath {
   id: string
   label: string
@@ -205,6 +227,7 @@ export interface ViewerSlot {
   playback?: ViewerPlayback
   path?: StreamPath
   paths?: StreamPath[]
+  display: CameraDisplay
   diagnostics?: ViewerDiagnostic[]
 }
 
@@ -213,6 +236,7 @@ export interface ViewerResponse {
   go2rtc: ServiceStatus
   generated_config?: string
   stream_count: number
+  layout: ViewerLayout
   slots: ViewerSlot[]
 }
 

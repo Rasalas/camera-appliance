@@ -31,6 +31,7 @@ type Viewer struct {
 	Go2RTC          system.ServiceStatus `json:"go2rtc"`
 	GeneratedConfig string               `json:"generated_config,omitempty"`
 	StreamCount     int                  `json:"stream_count"`
+	Layout          ViewerLayout         `json:"layout"`
 	Slots           []ViewerSlot         `json:"slots"`
 }
 
@@ -45,6 +46,7 @@ type ViewerSlot struct {
 	Playback    *ViewerPlayback    `json:"playback,omitempty"`
 	Path        *StreamPath        `json:"path,omitempty"`
 	Paths       []StreamPath       `json:"paths,omitempty"`
+	Display     CameraDisplay      `json:"display"`
 	Diagnostics []ViewerDiagnostic `json:"diagnostics,omitempty"`
 }
 
@@ -77,6 +79,7 @@ func (a *App) Viewer(ctx context.Context) (Viewer, error) {
 		Go2RTC:          go2rtcStatus,
 		GeneratedConfig: generatedPath,
 		StreamCount:     len(aliases),
+		Layout:          viewerLayoutFromSettings(settings, a.Slots),
 		Slots:           make([]ViewerSlot, 0, len(a.Slots)),
 	}
 	bindingBySlot := map[string]state.Binding{}
@@ -96,6 +99,7 @@ func (a *App) viewerSlot(ctx context.Context, slot config.Slot, binding state.Bi
 		Label:   slot.Label,
 		State:   ViewerStateUnassigned,
 		Message: "Kein Gerät zugeordnet.",
+		Display: displayFromSettings(settings, binding),
 		Diagnostics: []ViewerDiagnostic{
 			{Key: "assignment", Status: "missing", Message: "Platz ist leer."},
 		},

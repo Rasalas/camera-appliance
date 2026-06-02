@@ -210,6 +210,49 @@ func TestViewerReportsUnassignedSlotsAsUsableEmptyState(t *testing.T) {
 	}
 }
 
+func TestViewerIncludesDisplayTransformAndLayout(t *testing.T) {
+	ctx := context.Background()
+	a := newViewerTestApp(t, "http://127.0.0.1:1", "secret")
+	if err := a.Store.UpsertDevice(ctx, state.Device{ID: "dev1", LastIP: "192.168.1.20"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := a.Store.UpsertBinding(ctx, state.Binding{SlotID: "cam5", DeviceID: "dev1", Username: "user", StreamName: "stream2", Enabled: true}); err != nil {
+		t.Fatal(err)
+	}
+	if err := a.Store.PutSettings(ctx, map[string]string{
+		"camera.display.dev1.rotation":     "90",
+		"camera.display.dev1.mirror":       "true",
+		"camera.display.dev1.flip":         "true",
+		"camera.display.dev1.fit_mode":     "contain",
+		"camera.display.dev1.crop_x":       "20",
+		"camera.display.dev1.crop_y":       "10",
+		"camera.display.dev1.crop_width":   "60",
+		"camera.display.dev1.crop_height":  "80",
+		"viewer.layout.mode":               ViewerLayoutFocusRight,
+		"viewer.layout.focus_slot_id":      "cam5",
+		"viewer.layout.split_percent":      "63",
+		"viewer.layout.gap_px":             "6",
+		"camera.display.dev1.ignored_test": "kept only in settings",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	viewer, err := a.Viewer(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if viewer.Layout.Mode != ViewerLayoutFocusRight || viewer.Layout.FocusSlotID != "cam5" || viewer.Layout.SplitPercent != 63 || viewer.Layout.GapPX != 6 {
+		t.Fatalf("unexpected viewer layout: %+v", viewer.Layout)
+	}
+	slot := viewer.Slots[len(viewer.Slots)-1]
+	if slot.Display.Rotation != 90 || !slot.Display.Mirror || !slot.Display.Flip || slot.Display.FitMode != "contain" {
+		t.Fatalf("unexpected display transform: %+v", slot.Display)
+	}
+	if slot.Display.Crop != (DisplayCrop{X: 20, Y: 10, Width: 60, Height: 80}) {
+		t.Fatalf("unexpected crop: %+v", slot.Display.Crop)
+	}
+}
+
 func newViewerTestApp(t *testing.T, go2rtcURL, password string) *App {
 	t.Helper()
 	ctx := context.Background()
