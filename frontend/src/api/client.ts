@@ -1,8 +1,9 @@
-import type { Binding, CredentialIdentity, Device, DeviceCredentials, EventItem, FrameResult, ManualDeviceResult, ProbeResult, RelayStatus, ScanRun, Slot, StatusResponse, SupportBundleResult, ViewerResponse } from '../types'
+import type { AuthStatus, Binding, CredentialIdentity, Device, DeviceCredentials, EventItem, FrameResult, LoginResult, ManualDeviceResult, ProbeResult, RelayStatus, ScanRun, Slot, StatusResponse, SupportBundleResult, ViewerResponse } from '../types'
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(path, {
     ...init,
+    credentials: 'same-origin',
     headers: {
       'Content-Type': 'application/json',
       ...(init?.headers ?? {})
@@ -16,6 +17,12 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export const api = {
+  authStatus: () => request<AuthStatus>('/api/auth/status'),
+  login: (body: { username: string; password: string }) =>
+    request<LoginResult>('/api/auth/login', { method: 'POST', body: JSON.stringify(body) }),
+  logout: () => request<{ status: string }>('/api/auth/logout', { method: 'POST', body: JSON.stringify({}) }),
+  setAuthPassword: (body: { role: 'admin' | 'viewer'; password: string }) =>
+    request<{ status: string }>('/api/auth/password', { method: 'POST', body: JSON.stringify(body) }),
   status: () => request<StatusResponse>('/api/status'),
   viewer: () => request<ViewerResponse>('/api/viewer'),
   discover: () => request<{ devices: Device[]; subnets: Array<{ cidr: string; interface: string }> }>('/api/discovery/start', { method: 'POST' }),

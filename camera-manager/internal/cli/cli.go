@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"camera-appliance/camera-manager/internal/app"
+	authn "camera-appliance/camera-manager/internal/auth"
 	"camera-appliance/camera-manager/internal/backup"
 	"camera-appliance/camera-manager/internal/redaction"
 	"camera-appliance/camera-manager/internal/state"
@@ -29,7 +30,7 @@ func Execute() error {
 		SilenceUsage:  true,
 		SilenceErrors: true,
 	}
-	root.AddCommand(serveCmd(), statusCmd(), discoverCmd(), assignCmd(), renderCmd(), restartGo2RTCCmd(), restartStackCmd(), relaysCmd(), resetBindingsCmd(), backupCmd(), restoreCmd(), supportBundleCmd(), updateCmd())
+	root.AddCommand(serveCmd(), statusCmd(), discoverCmd(), assignCmd(), renderCmd(), restartGo2RTCCmd(), restartStackCmd(), relaysCmd(), adminCmd(), resetBindingsCmd(), backupCmd(), restoreCmd(), supportBundleCmd(), updateCmd())
 	if err := root.Execute(); err != nil {
 		fmt.Fprintln(os.Stderr, redaction.Text(err.Error()))
 		return err
@@ -295,6 +296,53 @@ func relayEnsureCmd() *cobra.Command {
 			return err
 		},
 	}
+}
+
+func adminCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "admin",
+		Short: "Manage local logins",
+	}
+	cmd.AddCommand(adminSetPasswordCmd())
+	return cmd
+}
+
+func adminSetPasswordCmd() *cobra.Command {
+	var role string
+	var password string
+	cmd := &cobra.Command{
+		Use:   "set-password",
+		Short: "Set the local admin or viewer password",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			role = strings.ToLower(strings.TrimSpace(role))
+			if role == "" {
+				role = authn.RoleAdmin
+			}
+			envName := "CAMERA_APPLIANCE_ADMIN_PASSWORD"
+			if role == authn.RoleViewer {
+				envName = "CAMERA_APPLIANCE_VIEWER_PASSWORD"
+			}
+			if password == "" {
+				password = os.Getenv(envName)
+			}
+			if strings.TrimSpace(password) == "" {
+				return fmt.Errorf("--password oder %s ist erforderlich", envName)
+			}
+			a, err := app.Open(cmd.Context())
+			if err != nil {
+				return err
+			}
+			defer a.Close()
+			if err := a.SetAuthPassword(cmd.Context(), role, password); err != nil {
+				return err
+			}
+			fmt.Printf("Login-Passwort für %s wurde gesetzt\n", role)
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&role, "role", authn.RoleAdmin, "admin oder viewer")
+	cmd.Flags().StringVar(&password, "password", "", "Passwort, alternativ per CAMERA_APPLIANCE_ADMIN_PASSWORD oder CAMERA_APPLIANCE_VIEWER_PASSWORD")
+	return cmd
 }
 
 func resetBindingsCmd() *cobra.Command {

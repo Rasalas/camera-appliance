@@ -19,11 +19,14 @@
 
   <div class="btn-row viewer-actions">
     <button class="btn primary" :disabled="!!busy" @click="load">{{ busy === 'load' ? 'Lädt…' : 'Neu laden' }}</button>
-    <button class="btn" :disabled="!!busy" @click="runDiscovery">{{ busy === 'scan' ? 'Suche läuft…' : 'Kameras suchen' }}</button>
-    <button class="btn" :disabled="!!busy" @click="render">{{ busy === 'render' ? 'Erzeugt…' : 'go2rtc erzeugen' }}</button>
-    <button class="btn ghost" :disabled="!!busy" @click="restartGo2rtc">{{ busy === 'restart' ? 'Startet…' : 'go2rtc neu starten' }}</button>
+    <template v-if="canAdmin">
+      <button class="btn" :disabled="!!busy" @click="runDiscovery">{{ busy === 'scan' ? 'Suche läuft…' : 'Kameras suchen' }}</button>
+      <button class="btn" :disabled="!!busy" @click="render">{{ busy === 'render' ? 'Erzeugt…' : 'go2rtc erzeugen' }}</button>
+      <button class="btn ghost" :disabled="!!busy" @click="restartGo2rtc">{{ busy === 'restart' ? 'Startet…' : 'go2rtc neu starten' }}</button>
+    </template>
     <div class="spacer" />
-    <RouterLink class="btn ghost" to="/einrichtung">Einrichtung</RouterLink>
+    <RouterLink v-if="canAdmin" class="btn ghost" to="/einrichtung">Einrichtung</RouterLink>
+    <RouterLink v-else-if="auth?.enabled && !auth.authenticated" class="btn ghost" to="/login">Login</RouterLink>
   </div>
 
   <section class="viewer-grid">
@@ -93,9 +96,10 @@
         <span class="name">{{ slot.label }}</span>
         <span class="ip">{{ slot.device?.last_ip || 'keine IP' }}</span>
         <span class="stream">{{ stateLabel(slot.state) }}</span>
-        <RouterLink class="action" :to="slot.binding?.device_id ? `/kamera/${slot.binding.device_id}` : '/einrichtung'">
+        <RouterLink v-if="canAdmin" class="action" :to="slot.binding?.device_id ? `/kamera/${slot.binding.device_id}` : '/einrichtung'">
           Öffnen
         </RouterLink>
+        <span v-else class="action muted">Viewer</span>
         <span class="message">{{ slot.message }}</span>
       </div>
     </div>
@@ -109,20 +113,23 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { api } from '../api/client'
-import type { StreamPath, ViewerResponse, ViewerSlot, ViewerSlotState } from '../types'
+import type { AuthStatus, StreamPath, ViewerResponse, ViewerSlot, ViewerSlotState } from '../types'
 
 const viewer = ref<ViewerResponse>()
+const auth = ref<AuthStatus>()
 const loading = ref(true)
 const busy = ref<'' | 'load' | 'scan' | 'render' | 'restart'>('')
 const error = ref('')
 const toast = ref('')
 const frameReady = ref<Record<string, boolean>>({})
 let refreshTimer = 0
+let onAuthChanged: (() => void) | undefined
 
 const slots = computed(() => viewer.value?.slots ?? [])
 const onlineCount = computed(() => slots.value.filter((slot) => effectiveState(slot) === 'online').length)
 const blockingSlots = computed(() => slots.value.filter((slot) => !['online', 'connecting'].includes(effectiveState(slot))))
 const blockingCount = computed(() => blockingSlots.value.length)
+const canAdmin = computed(() => !auth.value?.enabled || auth.value.role === 'admin')
 const checkedAt = computed(() => {
   if (!viewer.value?.checked_at) return '—'
   return new Date(viewer.value.checked_at).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })
@@ -218,6 +225,14 @@ async function load() {
   }
 }
 
+async function refreshAuth() {
+  try {
+    auth.value = await api.authStatus()
+  } catch {
+    auth.value = undefined
+  }
+}
+
 async function runDiscovery() {
   busy.value = 'scan'
   error.value = ''
@@ -266,6 +281,11 @@ async function restartGo2rtc() {
 }
 
 onMounted(() => {
+  void refreshAuth()
+  onAuthChanged = () => {
+    void refreshAuth()
+  }
+  window.addEventListener('auth-changed', onAuthChanged)
   void load()
   refreshTimer = window.setInterval(() => {
     if (!busy.value) void load()
@@ -274,5 +294,6 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
   window.clearInterval(refreshTimer)
+  if (onAuthChanged) window.removeEventListener('auth-changed', onAuthChanged)
 })
 </script>

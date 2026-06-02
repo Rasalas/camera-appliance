@@ -115,6 +115,26 @@ export interface CredentialIdentity {
   password_source?: string
 }
 
+export type AuthRole = 'admin' | 'viewer'
+
+export interface AuthStatus {
+  enabled: boolean
+  authenticated: boolean
+  role?: AuthRole
+  session_expires_at?: string
+  admin_password_set: boolean
+  viewer_password_set: boolean
+  viewer_public: boolean
+  local_admin_bypass: boolean
+  session_hours: number
+  local_admin_bypass_now?: boolean
+}
+
+export interface LoginResult {
+  role: AuthRole
+  expires_at: string
+}
+
 export interface ManualDeviceResult {
   device: Device
   rtsp_port_open: boolean

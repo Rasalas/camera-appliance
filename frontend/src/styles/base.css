@@ -640,6 +640,7 @@ input, select, textarea { font: inherit; color: inherit; }
 .result-row .ip,
 .result-row .stream { color: var(--ink-mute); }
 .result-row .action { color: var(--ink-soft); text-decoration: underline; text-underline-offset: 3px; }
+.result-row .action.muted { color: var(--ink-dim); text-decoration: none; }
 .result-row.ok .action { color: var(--live); text-decoration: none; }
 .result-row.err .message { color: var(--danger); }
 .compact-input {

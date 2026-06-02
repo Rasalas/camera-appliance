@@ -75,6 +75,64 @@
     </div>
   </section>
 
+  <!-- Section: Access -->
+  <section class="panel">
+    <div class="panel-head">
+      <h2>Zugriff</h2>
+      <div class="right">{{ authStatus?.enabled ? 'Login aktiv' : 'Noch offen' }}</div>
+    </div>
+
+    <div class="split">
+      <div class="field">
+        <span class="lbl">Admin-Login</span>
+        <div class="btn-row" style="align-items: stretch;">
+          <input v-model="adminPassword" type="password" :placeholder="settings.auth_admin_password_set === 'true' ? 'Neues Admin-Passwort' : 'Admin-Passwort setzen'" style="flex: 1;" />
+          <button class="btn" :disabled="!adminPassword || savingAuthPassword === 'admin'" @click="saveAuthPassword('admin')">
+            {{ savingAuthPassword === 'admin' ? 'Speichert…' : 'Speichern' }}
+          </button>
+        </div>
+        <div class="mono-mute" style="margin-top: 6px;">
+          {{ settings.auth_admin_password_set === 'true' ? 'Admin-Passwort ist gesetzt.' : 'Noch kein Admin-Passwort gesetzt.' }}
+        </div>
+      </div>
+
+      <div class="field">
+        <span class="lbl">Viewer-Login</span>
+        <div class="btn-row" style="align-items: stretch;">
+          <input v-model="viewerPassword" type="password" :placeholder="settings.auth_viewer_password_set === 'true' ? 'Neues Viewer-Passwort' : 'Viewer-Passwort setzen'" style="flex: 1;" />
+          <button class="btn" :disabled="!viewerPassword || savingAuthPassword === 'viewer'" @click="saveAuthPassword('viewer')">
+            {{ savingAuthPassword === 'viewer' ? 'Speichert…' : 'Speichern' }}
+          </button>
+        </div>
+        <div class="mono-mute" style="margin-top: 6px;">
+          {{ settings.auth_viewer_password_set === 'true' ? 'Viewer-Passwort ist gesetzt.' : 'Viewer-Login ist noch nicht eingerichtet.' }}
+        </div>
+      </div>
+
+      <div class="field">
+        <span class="lbl">Session-Dauer · Stunden</span>
+        <input v-model="settings['auth.session_hours']" type="number" min="1" max="168" />
+      </div>
+    </div>
+
+    <div style="display: grid; gap: 8px;">
+      <label class="toggle-row">
+        <input type="checkbox" :checked="settings['auth.viewer_public'] === 'true'" @change="setBool('auth.viewer_public', $event)" />
+        <div>
+          <div class="lbl-main">Viewer ohne Login erlauben</div>
+          <div class="lbl-sub">Nur die Kameraansicht bleibt ohne Anmeldung erreichbar; Admin-Funktionen bleiben geschützt.</div>
+        </div>
+      </label>
+      <label class="toggle-row">
+        <input type="checkbox" :checked="settings['auth.local_admin_bypass'] === 'true'" @change="setBool('auth.local_admin_bypass', $event)" />
+        <div>
+          <div class="lbl-main">Lokalen Host als Admin akzeptieren</div>
+          <div class="lbl-sub">Zugriffe direkt von 127.0.0.1 dürfen ohne Passwort konfigurieren.</div>
+        </div>
+      </label>
+    </div>
+  </section>
+
   <!-- Section: Watchdog -->
   <section class="panel">
     <div class="panel-head">
@@ -453,11 +511,12 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
 import { api } from '../api/client'
-import type { CredentialIdentity, EventItem, RelayStatus, StatusResponse, SupportBundleResult } from '../types'
+import type { AuthRole, AuthStatus, CredentialIdentity, EventItem, RelayStatus, StatusResponse, SupportBundleResult } from '../types'
 
 const settings = reactive<Record<string, string>>({})
 const events = ref<EventItem[]>([])
 const status = ref<StatusResponse>()
+const authStatus = ref<AuthStatus>()
 const credentialIdentities = ref<CredentialIdentity[]>([])
 const restorePath = ref('')
 const backupResult = ref<{ path: string; warning: string }>()
@@ -465,7 +524,10 @@ const supportBundleResult = ref<SupportBundleResult>()
 const error = ref('')
 const toast = ref('')
 const cameraPassword = ref('')
+const adminPassword = ref('')
+const viewerPassword = ref('')
 const savingPassword = ref(false)
+const savingAuthPassword = ref<AuthRole | ''>('')
 const creatingSupportBundle = ref(false)
 const savingIdentity = ref(false)
 const showIdentityModal = ref(false)
@@ -675,6 +737,16 @@ function ensureWatchdogDefaults() {
   if (!settings['camera.path.restart_cooldown_seconds']) settings['camera.path.restart_cooldown_seconds'] = String(watchdog.path_restart_cooldown_seconds)
 }
 
+function ensureAuthDefaults() {
+  const auth = authStatus.value
+  if (!auth) return
+  settings.auth_admin_password_set = String(auth.admin_password_set)
+  settings.auth_viewer_password_set = String(auth.viewer_password_set)
+  if (!settings['auth.viewer_public']) settings['auth.viewer_public'] = String(auth.viewer_public)
+  if (!settings['auth.local_admin_bypass']) settings['auth.local_admin_bypass'] = String(auth.local_admin_bypass)
+  if (!settings['auth.session_hours']) settings['auth.session_hours'] = String(auth.session_hours || 12)
+}
+
 function ensureRelayDefaults() {
   for (const relayId of relayIds.value) {
     if (!settings[relaySettingKey(relayId, 'type')]) settings[relaySettingKey(relayId, 'type')] = 'ssh_local_forward'
@@ -743,6 +815,39 @@ async function saveCameraPassword() {
     error.value = err instanceof Error ? err.message : 'Passwort konnte nicht gespeichert werden.'
   } finally {
     savingPassword.value = false
+  }
+}
+
+async function loadAuthStatus() {
+  authStatus.value = await api.authStatus()
+  ensureAuthDefaults()
+}
+
+async function saveAuthPassword(role: AuthRole) {
+  const password = role === 'admin' ? adminPassword.value : viewerPassword.value
+  const wasEnabled = authStatus.value?.enabled ?? false
+  savingAuthPassword.value = role
+  error.value = ''
+  try {
+    await api.setAuthPassword({ role, password })
+    if (role === 'admin' && !wasEnabled) {
+      await api.login({ username: 'admin', password })
+      window.dispatchEvent(new Event('auth-changed'))
+    }
+    if (role === 'admin') {
+      adminPassword.value = ''
+      settings.auth_admin_password_set = 'true'
+    } else {
+      viewerPassword.value = ''
+      settings.auth_viewer_password_set = 'true'
+    }
+    await loadAuthStatus()
+    toast.value = `${role === 'admin' ? 'Admin' : 'Viewer'}-Passwort gespeichert`
+    setTimeout(() => (toast.value = ''), 2200)
+  } catch (err) {
+    error.value = err instanceof Error ? err.message : 'Login-Passwort konnte nicht gespeichert werden.'
+  } finally {
+    savingAuthPassword.value = ''
   }
 }
 
@@ -846,6 +951,7 @@ onMounted(async () => {
   try {
     Object.assign(settings, await api.settings())
     passwordSource.value = settings.camera_password_source === 'keyring' ? 'Betriebssystem-Keyring' : (settings.camera_password_source || 'unbekannt')
+    await loadAuthStatus()
     await refreshStatus()
     await loadCredentialIdentities()
     events.value = await api.events()
