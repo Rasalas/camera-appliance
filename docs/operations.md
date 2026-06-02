@@ -34,6 +34,20 @@ bin/restart-cameras
 
 If systemd is not available or the current user lacks service permissions, `bin/restart-cameras` reports that path and uses `camera-appliance restart-stack` instead.
 
+## Watchdog
+
+The manager starts a background watchdog with the API server. It stores its last run, next run, last action, and last error in settings so the System page and support bundle can show them.
+
+Settings:
+
+- `watchdog.enabled`: `true` by default.
+- `watchdog.fast_interval_seconds`: go2rtc health interval, default `30`.
+- `watchdog.camera_interval_seconds`: camera path interval, default `120`.
+- `watchdog.restart_on_change`: restart go2rtc after an automatic path switch, default `true`.
+- `watchdog.restart_go2rtc_on_failure`: restart go2rtc when its API is unavailable, default `true`.
+
+On camera checks, the watchdog evaluates direct and relay paths with the same path policy used by render and viewer diagnostics. A real active-path change updates `camera.active_path.*`, renders go2rtc, restarts go2rtc when enabled, and writes a `watchdog.path_switched` event.
+
 ## Updates and Rollback
 
 Build a release archive on the development machine:

@@ -10,6 +10,18 @@ export interface VersionInfo {
   build_time: string
 }
 
+export interface WatchdogStatus {
+  enabled: boolean
+  fast_interval_seconds: number
+  camera_interval_seconds: number
+  restart_on_change: boolean
+  restart_go2rtc_on_failure: boolean
+  last_run_at?: string
+  next_run_at?: string
+  last_action?: string
+  last_error?: string
+}
+
 export interface Slot {
   id: string
   label: string
@@ -161,6 +173,7 @@ export interface StatusResponse {
     docker?: ServiceStatus[]
   }
   version: VersionInfo
+  watchdog: WatchdogStatus
   slots: Slot[]
   bindings: Binding[]
   devices: Device[]

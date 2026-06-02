@@ -20,15 +20,17 @@ import (
 )
 
 type App struct {
-	Config    config.Config
-	Store     *state.Store
-	Slots     []config.Slot
-	RTSPProbe func(ctx context.Context, host, port string) error
+	Config        config.Config
+	Store         *state.Store
+	Slots         []config.Slot
+	RTSPProbe     func(ctx context.Context, host, port string) error
+	Go2RTCRestart func(ctx context.Context) error
 }
 
 type Status struct {
 	System       system.Status   `json:"system"`
 	Version      version.Info    `json:"version"`
+	Watchdog     WatchdogStatus  `json:"watchdog"`
 	Slots        []config.Slot   `json:"slots"`
 	Bindings     []state.Binding `json:"bindings"`
 	Devices      []state.Device  `json:"devices"`
@@ -110,6 +112,7 @@ func (a *App) Status(ctx context.Context) (Status, error) {
 	return Status{
 		System:       system.Check(ctx, a.Config),
 		Version:      version.Current(),
+		Watchdog:     a.WatchdogStatus(ctx),
 		Slots:        a.Slots,
 		Bindings:     redactBindings(bindings),
 		Devices:      devices,

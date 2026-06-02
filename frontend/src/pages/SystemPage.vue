@@ -75,6 +75,68 @@
     </div>
   </section>
 
+  <!-- Section: Watchdog -->
+  <section class="panel">
+    <div class="panel-head">
+      <h2>Watchdog</h2>
+      <div class="right">{{ watchdogEnabled ? 'Aktiv' : 'Deaktiviert' }}</div>
+    </div>
+
+    <div style="display: grid; gap: 8px;">
+      <label class="toggle-row">
+        <input type="checkbox" :checked="watchdogEnabled" @change="setBool('watchdog.enabled', $event)" />
+        <div>
+          <div class="lbl-main">Watchdog aktiv</div>
+          <div class="lbl-sub">Prüft go2rtc, aktive Kamera-Pfade und Relay-Fallbacks im Hintergrund.</div>
+        </div>
+      </label>
+      <label class="toggle-row">
+        <input type="checkbox" :checked="watchdogRestartOnChange" @change="setBool('watchdog.restart_on_change', $event)" />
+        <div>
+          <div class="lbl-main">go2rtc bei Pfadwechsel neu starten</div>
+          <div class="lbl-sub">Automatische Pfadwechsel werden direkt in den Streams wirksam.</div>
+        </div>
+      </label>
+      <label class="toggle-row">
+        <input type="checkbox" :checked="watchdogRestartGo2RTC" @change="setBool('watchdog.restart_go2rtc_on_failure', $event)" />
+        <div>
+          <div class="lbl-main">go2rtc bei Ausfall neu starten</div>
+          <div class="lbl-sub">Wenn die go2rtc-API nicht erreichbar ist, versucht der Watchdog einen Neustart.</div>
+        </div>
+      </label>
+    </div>
+
+    <div class="split">
+      <div class="field">
+        <span class="lbl">Schneller Check · Sekunden</span>
+        <input v-model="settings['watchdog.fast_interval_seconds']" type="number" min="5" max="3600" />
+      </div>
+      <div class="field">
+        <span class="lbl">Kamera-Pfade · Sekunden</span>
+        <input v-model="settings['watchdog.camera_interval_seconds']" type="number" min="10" max="7200" />
+      </div>
+    </div>
+
+    <dl class="spec watchdog-spec">
+      <div>
+        <dt>Letzter Lauf</dt>
+        <dd>{{ watchdogDate(status?.watchdog?.last_run_at) }}</dd>
+      </div>
+      <div>
+        <dt>Nächster Lauf</dt>
+        <dd>{{ watchdogDate(status?.watchdog?.next_run_at) }}</dd>
+      </div>
+      <div>
+        <dt>Letzte Aktion</dt>
+        <dd>{{ status?.watchdog?.last_action || 'Noch keine Aktion.' }}</dd>
+      </div>
+      <div>
+        <dt>Letzter Fehler</dt>
+        <dd>{{ status?.watchdog?.last_error || 'Kein Fehler.' }}</dd>
+      </div>
+    </dl>
+  </section>
+
   <!-- Section: Relays and stream paths -->
   <section class="panel">
     <div class="panel-head">
@@ -326,6 +388,9 @@ const relayDraft = reactive({ id: 'nas', name: 'NAS Relay', host: 'host.docker.i
 
 const relayIds = computed(() => settingList(settings['camera.relay.ids']))
 const cameraBindings = computed(() => (status.value?.bindings ?? []).filter((binding) => binding.device_id))
+const watchdogEnabled = computed(() => boolSetting('watchdog.enabled', status.value?.watchdog?.enabled ?? true))
+const watchdogRestartOnChange = computed(() => boolSetting('watchdog.restart_on_change', status.value?.watchdog?.restart_on_change ?? true))
+const watchdogRestartGo2RTC = computed(() => boolSetting('watchdog.restart_go2rtc_on_failure', status.value?.watchdog?.restart_go2rtc_on_failure ?? true))
 const versionLabel = computed(() => {
   const info = status.value?.version
   if (!info) return 'dev'
@@ -365,6 +430,16 @@ function passwordSourceLabel(source?: string) {
   if (source === 'keyring') return 'Keyring'
   if (source === 'local.env') return 'Secret-Datei'
   return source
+}
+function boolSetting(key: string, fallback: boolean) {
+  const raw = settings[key]
+  if (raw === undefined || raw === '') return fallback
+  return raw === 'true' || raw === '1' || raw === 'yes' || raw === 'on'
+}
+
+function watchdogDate(value?: string) {
+  if (!value) return 'Noch nicht gelaufen.'
+  return formatTime(value)
 }
 
 function settingList(raw?: string) {
@@ -431,6 +506,16 @@ function ensurePathPolicyDefaults() {
     const key = pathPolicyKey(binding.device_id)
     if (!settings[key]) settings[key] = 'auto'
   }
+}
+
+function ensureWatchdogDefaults() {
+  const watchdog = status.value?.watchdog
+  if (!watchdog) return
+  if (!settings['watchdog.enabled']) settings['watchdog.enabled'] = String(watchdog.enabled)
+  if (!settings['watchdog.restart_on_change']) settings['watchdog.restart_on_change'] = String(watchdog.restart_on_change)
+  if (!settings['watchdog.restart_go2rtc_on_failure']) settings['watchdog.restart_go2rtc_on_failure'] = String(watchdog.restart_go2rtc_on_failure)
+  if (!settings['watchdog.fast_interval_seconds']) settings['watchdog.fast_interval_seconds'] = String(watchdog.fast_interval_seconds)
+  if (!settings['watchdog.camera_interval_seconds']) settings['watchdog.camera_interval_seconds'] = String(watchdog.camera_interval_seconds)
 }
 
 function removeRelay(id: string) {
@@ -569,6 +654,7 @@ onMounted(async () => {
     passwordSource.value = settings.camera_password_source === 'keyring' ? 'Betriebssystem-Keyring' : (settings.camera_password_source || 'unbekannt')
     status.value = await api.status()
     ensurePathPolicyDefaults()
+    ensureWatchdogDefaults()
     await loadCredentialIdentities()
     events.value = await api.events()
   } catch (err) {

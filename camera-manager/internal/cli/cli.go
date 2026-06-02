@@ -49,6 +49,7 @@ func serveCmd() *cobra.Command {
 				return err
 			}
 			defer a.Close()
+			go a.RunWatchdog(ctx)
 			server := &http.Server{Addr: a.Config.BindAddr, Handler: api.New(a).Handler()}
 			errCh := make(chan error, 1)
 			go func() {
