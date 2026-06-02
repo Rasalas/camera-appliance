@@ -42,6 +42,10 @@ func RestartStack(ctx context.Context, cfg config.Config) error {
 	return dockerCompose(ctx, cfg, "restart", "go2rtc", "camera-manager")
 }
 
+func ApplyStack(ctx context.Context, cfg config.Config) error {
+	return dockerCompose(ctx, cfg, "up", "-d", "--build", "--remove-orphans")
+}
+
 func httpStatus(ctx context.Context, name, rawURL string) ServiceStatus {
 	reqCtx, cancel := context.WithTimeout(ctx, 700*time.Millisecond)
 	defer cancel()

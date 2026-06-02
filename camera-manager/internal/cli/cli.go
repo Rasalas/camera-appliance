@@ -16,6 +16,7 @@ import (
 	"camera-appliance/camera-manager/internal/redaction"
 	"camera-appliance/camera-manager/internal/state"
 	"camera-appliance/camera-manager/internal/system"
+	updater "camera-appliance/camera-manager/internal/update"
 	api "camera-appliance/camera-manager/internal/web/api"
 
 	"github.com/spf13/cobra"
@@ -28,7 +29,7 @@ func Execute() error {
 		SilenceUsage:  true,
 		SilenceErrors: true,
 	}
-	root.AddCommand(serveCmd(), statusCmd(), discoverCmd(), assignCmd(), renderCmd(), restartGo2RTCCmd(), restartStackCmd(), resetBindingsCmd(), backupCmd(), restoreCmd(), supportBundleCmd())
+	root.AddCommand(serveCmd(), statusCmd(), discoverCmd(), assignCmd(), renderCmd(), restartGo2RTCCmd(), restartStackCmd(), resetBindingsCmd(), backupCmd(), restoreCmd(), supportBundleCmd(), updateCmd())
 	if err := root.Execute(); err != nil {
 		fmt.Fprintln(os.Stderr, redaction.Text(err.Error()))
 		return err
@@ -290,6 +291,86 @@ func supportBundleCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&out, "out", "", "output tar.gz path")
+	return cmd
+}
+
+func updateCmd() *cobra.Command {
+	var archivePath string
+	var releaseURL string
+	var installDir string
+	var noRestart bool
+	var noAutoRollback bool
+	cmd := &cobra.Command{
+		Use:   "update",
+		Short: "Apply a release archive with backup and rollback",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			a, err := app.Open(cmd.Context())
+			if err != nil {
+				return err
+			}
+			defer a.Close()
+			result, err := updater.Apply(cmd.Context(), updater.Options{
+				Config:       a.Config,
+				Archive:      archivePath,
+				URL:          releaseURL,
+				InstallDir:   installDir,
+				NoRestart:    noRestart,
+				AutoRollback: !noAutoRollback,
+				Restart:      updater.StackRestart(a.Config),
+				Healthcheck:  updater.HTTPHealthcheck(a.Config),
+			})
+			if result.BackupPath != "" || result.RollbackApplied || len(result.AppliedFiles) > 0 {
+				printJSON(result)
+			}
+			if err != nil {
+				_ = a.Store.AddEvent(cmd.Context(), "error", "update.failed", "Update fehlgeschlagen", map[string]any{"rollback_applied": result.RollbackApplied, "rollback_dir": result.RollbackDir})
+				return err
+			}
+			_ = a.Store.AddEvent(cmd.Context(), "info", "update.applied", "Update erfolgreich angewendet", map[string]any{"version": result.NewVersion.Version, "commit": result.NewVersion.Commit, "backup": result.BackupPath})
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&archivePath, "archive", "", "local release archive .tar.gz")
+	cmd.Flags().StringVar(&releaseURL, "url", "", "release archive URL")
+	cmd.Flags().StringVar(&installDir, "install-dir", updater.DefaultInstallDir, "installed appliance directory")
+	cmd.Flags().BoolVar(&noRestart, "no-restart", false, "copy update without restarting services")
+	cmd.Flags().BoolVar(&noAutoRollback, "no-auto-rollback", false, "do not restore previous files when healthcheck fails")
+	cmd.AddCommand(updateRollbackCmd())
+	return cmd
+}
+
+func updateRollbackCmd() *cobra.Command {
+	var installDir string
+	var noRestart bool
+	cmd := &cobra.Command{
+		Use:   "rollback",
+		Short: "Restore the previous update snapshot",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			a, err := app.Open(cmd.Context())
+			if err != nil {
+				return err
+			}
+			defer a.Close()
+			result, err := updater.Rollback(cmd.Context(), updater.RollbackOptions{
+				Config:      a.Config,
+				InstallDir:  installDir,
+				NoRestart:   noRestart,
+				Restart:     updater.StackRestart(a.Config),
+				Healthcheck: updater.HTTPHealthcheck(a.Config),
+			})
+			if result.RollbackDir != "" {
+				printJSON(result)
+			}
+			if err != nil {
+				_ = a.Store.AddEvent(cmd.Context(), "error", "update.rollback_failed", "Update-Rollback fehlgeschlagen", map[string]any{"rollback_dir": result.RollbackDir})
+				return err
+			}
+			_ = a.Store.AddEvent(cmd.Context(), "warn", "update.rollback", "Update-Rollback ausgeführt", map[string]any{"rollback_dir": result.RollbackDir})
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&installDir, "install-dir", "", "installed appliance directory; defaults to last update")
+	cmd.Flags().BoolVar(&noRestart, "no-restart", false, "restore files without restarting services")
 	return cmd
 }
 

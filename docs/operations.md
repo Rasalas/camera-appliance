@@ -34,6 +34,45 @@ bin/restart-cameras
 
 If systemd is not available or the current user lacks service permissions, `bin/restart-cameras` reports that path and uses `camera-appliance restart-stack` instead.
 
+## Updates and Rollback
+
+Build a release archive on the development machine:
+
+```bash
+make release VERSION=0.1.0
+```
+
+The archive is written to `.release/` and contains the install tree, `bin/camera-appliance`, `frontend/dist`, `compose.yaml`, `systemd/`, and `manifest.json`. The release target excludes `.private`, `.git`, `data`, `node_modules`, `.env`, `local.env`, and `secrets.env`.
+
+Apply a local archive on the customer appliance:
+
+```bash
+sudo /opt/camera-appliance/bin/camera-appliance update --archive /path/to/camera-appliance-0.1.0-COMMIT.tar.gz
+```
+
+The update command:
+
+- creates a normal configuration backup first,
+- snapshots the current installed files under `/var/lib/camera-appliance/backups/rollback-*`,
+- copies the release into `/opt/camera-appliance`,
+- runs `docker compose up -d --build --remove-orphans`,
+- checks the manager API, go2rtc API, and Viewer API,
+- automatically restores the previous files if the healthcheck fails.
+
+Apply from a URL:
+
+```bash
+sudo /opt/camera-appliance/bin/camera-appliance update --url https://example.invalid/camera-appliance-release.tar.gz
+```
+
+Manual rollback uses the last update snapshot:
+
+```bash
+sudo /opt/camera-appliance/bin/camera-appliance update rollback
+```
+
+For a dry file-copy test without service restart, add `--no-restart`. The healthcheck still runs unless the command is tested through the internal Go test helpers.
+
 ## Logs and Events
 
 The manager stores recent operational events in SQLite. The admin UI shows these under **Logs und Ereignisse**.
