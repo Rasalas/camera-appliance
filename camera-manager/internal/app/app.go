@@ -25,12 +25,15 @@ type App struct {
 	Slots         []config.Slot
 	RTSPProbe     func(ctx context.Context, host, port string) error
 	Go2RTCRestart func(ctx context.Context) error
+	RelayStart    func(ctx context.Context, relay ManagedRelay) (int, error)
+	RelayStop     func(ctx context.Context, status RelayStatus) error
 }
 
 type Status struct {
 	System       system.Status   `json:"system"`
 	Version      version.Info    `json:"version"`
 	Watchdog     WatchdogStatus  `json:"watchdog"`
+	Relays       []RelayStatus   `json:"relays"`
 	Slots        []config.Slot   `json:"slots"`
 	Bindings     []state.Binding `json:"bindings"`
 	Devices      []state.Device  `json:"devices"`
@@ -109,10 +112,12 @@ func (a *App) Status(ctx context.Context) (Status, error) {
 	if runs == nil {
 		runs = []state.ScanRun{}
 	}
+	relays, _ := a.RelayStatuses(ctx)
 	return Status{
 		System:       system.Check(ctx, a.Config),
 		Version:      version.Current(),
 		Watchdog:     a.WatchdogStatus(ctx),
+		Relays:       relays,
 		Slots:        a.Slots,
 		Bindings:     redactBindings(bindings),
 		Devices:      devices,

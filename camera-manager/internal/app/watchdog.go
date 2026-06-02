@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -109,6 +110,20 @@ func (a *App) RunWatchdogOnce(ctx context.Context, cameraCheck bool) (WatchdogRu
 		return result, nil
 	}
 
+	relayStatuses, relayErr := a.EnsureManagedRelays(ctx)
+	if relayErr != nil {
+		result.Error = relayErr.Error()
+	}
+	startedRelays := 0
+	for _, status := range relayStatuses {
+		if status.Message == "Relay-Prozess gestartet." {
+			startedRelays++
+		}
+	}
+	if startedRelays > 0 {
+		result.Action = fmt.Sprintf("%d Relay-Prozess(e) gestartet", startedRelays)
+	}
+
 	go2rtcStatus := system.Check(ctx, a.Config).Go2RTC
 	result.Go2RTCOnline = go2rtcStatus.Online
 	if !go2rtcStatus.Online && cfg.RestartGo2RTCOnFailure {
@@ -120,17 +135,17 @@ func (a *App) RunWatchdogOnce(ctx context.Context, cameraCheck bool) (WatchdogRu
 	}
 
 	if !cameraCheck {
-		return result, nil
+		return result, relayErr
 	}
 	changes, err := a.watchdogCheckCameraPaths(ctx, cfg)
 	if err != nil {
-		return result, err
+		return result, errors.Join(relayErr, err)
 	}
 	result.PathChanges = changes
 	if len(changes) > 0 {
 		result.Action = fmt.Sprintf("%d Pfadwechsel angewendet", len(changes))
 	}
-	return result, nil
+	return result, relayErr
 }
 
 func (a *App) WatchdogStatus(ctx context.Context) WatchdogStatus {

@@ -78,6 +78,12 @@ func (a *App) CreateSupportBundle(ctx context.Context, out string) (SupportBundl
 		}
 	}
 	_ = add("version.json", mustSupportJSON(version.Current()))
+	if relays, err := a.RelayStatuses(ctx); err == nil {
+		if data, marshalErr := marshalSupportJSON(relays); marshalErr == nil {
+			_ = add("relays.json", data)
+		}
+		_ = add("relays.txt", []byte(redaction.Text(relayStatusReport(relays))))
+	}
 	_ = add("docker.txt", []byte(a.dockerReport(ctx)))
 	_ = add("go2rtc-streams.redacted.json", []byte(a.go2rtcStreamsReport(ctx)))
 	if data, err := os.ReadFile(a.Config.Go2RTCConfigPath()); err == nil {

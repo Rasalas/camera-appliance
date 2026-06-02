@@ -160,16 +160,76 @@
         <span class="lbl">Host aus go2rtc-Docker</span>
         <input v-model="relayDraft.host" placeholder="host.docker.internal" />
       </div>
+      <div class="field">
+        <span class="lbl">SSH-Ziel</span>
+        <input v-model="relayDraft.sshTarget" placeholder="nas oder user@nas" />
+      </div>
     </div>
 
     <div v-if="!relayIds.length" class="empty">Noch keine Relays definiert. Legacy-Overrides werden weiter unterstützt.</div>
-    <div v-else class="result-list">
-      <div v-for="relayId in relayIds" :key="relayId" class="result-row ok relay-row">
-        <span class="slot">Relay</span>
-        <input v-model="settings[relaySettingKey(relayId, 'name')]" class="compact-input" :placeholder="relayId" />
-        <input v-model="settings[relaySettingKey(relayId, 'host')]" class="compact-input" placeholder="host.docker.internal" />
-        <span class="stream">{{ relayId }}</span>
-        <button class="btn sm danger" type="button" @click="removeRelay(relayId)">Entfernen</button>
+    <div v-else class="relay-config-list">
+      <div v-for="relayId in relayIds" :key="relayId" class="relay-config">
+        <div class="relay-config-head">
+          <div>
+            <div class="slot">Relay</div>
+            <div class="name">{{ relayName(relayId) }}</div>
+            <div class="mono-mute">{{ relayId }}</div>
+          </div>
+          <div class="btn-row">
+            <button class="btn sm" type="button" :disabled="relayActionBusy === `start:${relayId}`" @click="relayAction(relayId, 'start')">
+              {{ relayActionBusy === `start:${relayId}` ? 'Startet…' : 'Start' }}
+            </button>
+            <button class="btn sm ghost" type="button" :disabled="relayActionBusy === `stop:${relayId}`" @click="relayAction(relayId, 'stop')">
+              {{ relayActionBusy === `stop:${relayId}` ? 'Stoppt…' : 'Stop' }}
+            </button>
+            <button class="btn sm ghost" type="button" :disabled="relayActionBusy === `restart:${relayId}`" @click="relayAction(relayId, 'restart')">
+              {{ relayActionBusy === `restart:${relayId}` ? 'Startet…' : 'Restart' }}
+            </button>
+            <button class="btn sm danger" type="button" @click="removeRelay(relayId)">Entfernen</button>
+          </div>
+        </div>
+
+        <div class="relay-config-grid">
+          <div class="field">
+            <span class="lbl">Name</span>
+            <input v-model="settings[relaySettingKey(relayId, 'name')]" class="compact-input" :placeholder="relayId" />
+          </div>
+          <div class="field">
+            <span class="lbl">Typ</span>
+            <select v-model="settings[relaySettingKey(relayId, 'type')]">
+              <option value="ssh_local_forward">SSH Local Forward</option>
+            </select>
+          </div>
+          <div class="field">
+            <span class="lbl">go2rtc-Host</span>
+            <input v-model="settings[relaySettingKey(relayId, 'host')]" class="compact-input" placeholder="host.docker.internal" />
+          </div>
+          <div class="field">
+            <span class="lbl">SSH-Ziel</span>
+            <input v-model="settings[relaySettingKey(relayId, 'ssh_target')]" class="compact-input" placeholder="nas oder user@nas" />
+          </div>
+          <div class="field">
+            <span class="lbl">Bind-Adresse</span>
+            <input v-model="settings[relaySettingKey(relayId, 'bind_host')]" class="compact-input" placeholder="127.0.0.1" />
+          </div>
+          <label class="toggle-row relay-auto">
+            <input type="checkbox" :checked="relayAutoStart(relayId)" @change="setBool(relaySettingKey(relayId, 'auto_start'), $event)" />
+            <div>
+              <div class="lbl-main">Auto-Start</div>
+              <div class="lbl-sub">Watchdog startet diesen Relay bei Ausfall erneut.</div>
+            </div>
+          </label>
+        </div>
+
+        <div class="relay-runtime" :class="relayStateClass(relayId)">
+          <span class="state-dot"></span>
+          <div>
+            <div class="lbl-main">{{ relayStateLabel(relayId) }}</div>
+            <div class="lbl-sub">{{ relayStatusFor(relayId)?.message || 'Noch kein Status.' }}</div>
+            <div v-if="relayStatusFor(relayId)?.last_error" class="mono-mute">Fehler · {{ relayStatusFor(relayId)?.last_error }}</div>
+          </div>
+          <div class="mono-mute">{{ relayStatusFor(relayId)?.pid ? `PID ${relayStatusFor(relayId)?.pid}` : relayStatusFor(relayId)?.log_path || '' }}</div>
+        </div>
       </div>
     </div>
 
@@ -208,8 +268,19 @@
             />
             <input
               v-model="settings[relayEndpointKey(binding.device_id, relayId, 'port')]"
-              placeholder="Port"
+              placeholder="Lokaler Port"
             />
+            <input
+              v-model="settings[relayEndpointKey(binding.device_id, relayId, 'target_host')]"
+              :placeholder="binding.device?.last_ip || 'Ziel-IP'"
+            />
+            <input
+              v-model="settings[relayEndpointKey(binding.device_id, relayId, 'target_port')]"
+              placeholder="554"
+            />
+            <span class="endpoint-state" :class="relayEndpointStateClass(binding.device_id, relayId)">
+              {{ relayEndpointStateLabel(binding.device_id, relayId) }}
+            </span>
           </div>
         </div>
       </div>
@@ -366,7 +437,7 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
 import { api } from '../api/client'
-import type { CredentialIdentity, EventItem, StatusResponse, SupportBundleResult } from '../types'
+import type { CredentialIdentity, EventItem, RelayStatus, StatusResponse, SupportBundleResult } from '../types'
 
 const settings = reactive<Record<string, string>>({})
 const events = ref<EventItem[]>([])
@@ -384,9 +455,11 @@ const savingIdentity = ref(false)
 const showIdentityModal = ref(false)
 const passwordSource = ref('unbekannt')
 const identityForm = reactive({ id: '', name: '', username: '', password: '' })
-const relayDraft = reactive({ id: 'nas', name: 'NAS Relay', host: 'host.docker.internal' })
+const relayDraft = reactive({ id: 'nas', name: 'NAS Relay', host: 'host.docker.internal', sshTarget: 'nas' })
+const relayActionBusy = ref('')
 
 const relayIds = computed(() => settingList(settings['camera.relay.ids']))
+const relayStatuses = computed(() => status.value?.relays ?? [])
 const cameraBindings = computed(() => (status.value?.bindings ?? []).filter((binding) => binding.device_id))
 const watchdogEnabled = computed(() => boolSetting('watchdog.enabled', status.value?.watchdog?.enabled ?? true))
 const watchdogRestartOnChange = computed(() => boolSetting('watchdog.restart_on_change', status.value?.watchdog?.restart_on_change ?? true))
@@ -478,6 +551,59 @@ function relayHost(id: string) {
   return settings[relaySettingKey(id, 'host')] || ''
 }
 
+function relayAutoStart(id: string) {
+  return boolSetting(relaySettingKey(id, 'auto_start'), relayStatusFor(id)?.auto_start ?? false)
+}
+
+function relayStatusFor(id: string): RelayStatus | undefined {
+  return relayStatuses.value.find((relay) => relay.id === id)
+}
+
+function relayStateLabel(id: string) {
+  const state = relayStatusFor(id)?.process_state || 'unknown'
+  const labels: Record<string, string> = {
+    running: 'Läuft',
+    stopped: 'Gestoppt',
+    stale: 'Prozess beendet',
+    unmanaged: 'Manuell',
+    external: 'Externer Forward',
+    backoff: 'Backoff',
+    error: 'Fehler',
+    not_configured: 'Unvollständig',
+    unsupported: 'Nicht unterstützt',
+    disabled: 'Deaktiviert',
+    unknown: 'Unbekannt'
+  }
+  return labels[state] || state
+}
+
+function relayStateClass(id: string) {
+  const state = relayStatusFor(id)?.process_state
+  if (state === 'running' || state === 'external') return 'ok'
+  if (state === 'error' || state === 'stale' || state === 'not_configured') return 'err'
+  if (state === 'backoff' || state === 'stopped') return 'warn'
+  return ''
+}
+
+function relayEndpointStatus(deviceId: string, relayId: string) {
+  return relayStatusFor(relayId)?.endpoints.find((endpoint) => endpoint.device_id === deviceId)
+}
+
+function relayEndpointStateLabel(deviceId: string, relayId: string) {
+  const endpoint = relayEndpointStatus(deviceId, relayId)
+  if (!endpoint) return 'kein Status'
+  if (endpoint.state === 'ok') return 'Port ok'
+  if (endpoint.state === 'failed') return 'Port offline'
+  return 'unvollständig'
+}
+
+function relayEndpointStateClass(deviceId: string, relayId: string) {
+  const state = relayEndpointStatus(deviceId, relayId)?.state
+  if (state === 'ok') return 'ok'
+  if (state === 'failed') return 'err'
+  return 'warn'
+}
+
 function legacyRelayHost(deviceId: string) {
   return settings[`camera.rtsp_endpoint.${deviceId}.host`] || ''
 }
@@ -495,10 +621,15 @@ function addRelay() {
   const ids = relayIds.value.includes(id) ? relayIds.value : [...relayIds.value, id]
   settings['camera.relay.ids'] = ids.join(',')
   settings[relaySettingKey(id, 'name')] = relayDraft.name.trim() || id
+  settings[relaySettingKey(id, 'type')] = 'ssh_local_forward'
   settings[relaySettingKey(id, 'host')] = relayDraft.host.trim()
+  settings[relaySettingKey(id, 'bind_host')] = '127.0.0.1'
+  settings[relaySettingKey(id, 'ssh_target')] = relayDraft.sshTarget.trim()
+  settings[relaySettingKey(id, 'auto_start')] = settings[relaySettingKey(id, 'auto_start')] || 'false'
   relayDraft.id = ''
   relayDraft.name = ''
   relayDraft.host = ''
+  relayDraft.sshTarget = ''
 }
 
 function ensurePathPolicyDefaults() {
@@ -518,10 +649,22 @@ function ensureWatchdogDefaults() {
   if (!settings['watchdog.camera_interval_seconds']) settings['watchdog.camera_interval_seconds'] = String(watchdog.camera_interval_seconds)
 }
 
+function ensureRelayDefaults() {
+  for (const relayId of relayIds.value) {
+    if (!settings[relaySettingKey(relayId, 'type')]) settings[relaySettingKey(relayId, 'type')] = 'ssh_local_forward'
+    if (!settings[relaySettingKey(relayId, 'bind_host')]) settings[relaySettingKey(relayId, 'bind_host')] = relayStatusFor(relayId)?.bind_host || '127.0.0.1'
+    if (!settings[relaySettingKey(relayId, 'auto_start')]) settings[relaySettingKey(relayId, 'auto_start')] = String(relayStatusFor(relayId)?.auto_start ?? false)
+  }
+}
+
 function removeRelay(id: string) {
   settings['camera.relay.ids'] = relayIds.value.filter((relayId) => relayId !== id).join(',')
   delete settings[relaySettingKey(id, 'name')]
+  delete settings[relaySettingKey(id, 'type')]
   delete settings[relaySettingKey(id, 'host')]
+  delete settings[relaySettingKey(id, 'bind_host')]
+  delete settings[relaySettingKey(id, 'ssh_target')]
+  delete settings[relaySettingKey(id, 'auto_start')]
 }
 
 async function saveSettings() {
@@ -531,6 +674,31 @@ async function saveSettings() {
     setTimeout(() => (toast.value = ''), 2200)
   } catch (err) {
     error.value = err instanceof Error ? err.message : 'Speichern fehlgeschlagen.'
+  }
+}
+
+async function refreshStatus() {
+  status.value = await api.status()
+  ensurePathPolicyDefaults()
+  ensureWatchdogDefaults()
+  ensureRelayDefaults()
+}
+
+async function relayAction(id: string, action: 'start' | 'stop' | 'restart') {
+  relayActionBusy.value = `${action}:${id}`
+  error.value = ''
+  try {
+    await api.saveSettings(settings)
+    if (action === 'start') await api.startRelay(id)
+    if (action === 'stop') await api.stopRelay(id)
+    if (action === 'restart') await api.restartRelay(id)
+    await refreshStatus()
+    toast.value = `Relay ${action === 'restart' ? 'neu gestartet' : action === 'start' ? 'gestartet' : 'gestoppt'}`
+    setTimeout(() => (toast.value = ''), 2200)
+  } catch (err) {
+    error.value = err instanceof Error ? err.message : 'Relay-Aktion fehlgeschlagen.'
+  } finally {
+    relayActionBusy.value = ''
   }
 }
 
@@ -652,9 +820,7 @@ onMounted(async () => {
   try {
     Object.assign(settings, await api.settings())
     passwordSource.value = settings.camera_password_source === 'keyring' ? 'Betriebssystem-Keyring' : (settings.camera_password_source || 'unbekannt')
-    status.value = await api.status()
-    ensurePathPolicyDefaults()
-    ensureWatchdogDefaults()
+    await refreshStatus()
     await loadCredentialIdentities()
     events.value = await api.events()
   } catch (err) {

@@ -17,7 +17,7 @@ WORKDIR /src/camera-manager
 RUN CGO_ENABLED=0 go build -o /out/camera-appliance ./cmd/camera-appliance
 
 FROM debian:bookworm-slim
-RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates iproute2 docker.io libsecret-tools && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates iproute2 docker.io libsecret-tools openssh-client && rm -rf /var/lib/apt/lists/*
 COPY --from=backend /out/camera-appliance /usr/local/bin/camera-appliance
 COPY --from=frontend /src/frontend/dist /opt/camera-appliance/frontend/dist
 COPY compose.yaml /opt/camera-appliance/compose.yaml

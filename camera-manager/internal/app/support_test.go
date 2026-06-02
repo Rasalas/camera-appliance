@@ -56,6 +56,8 @@ func TestCreateSupportBundleIncludesDiagnosticsAndRedactsSecrets(t *testing.T) {
 		"events.json",
 		"settings.redacted.json",
 		"version.json",
+		"relays.json",
+		"relays.txt",
 		"docker.txt",
 		"go2rtc-streams.redacted.json",
 		"go2rtc.yaml.redacted",

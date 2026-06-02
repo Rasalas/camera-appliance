@@ -99,9 +99,15 @@ Relay settings:
 
 - `camera.relay.ids`
 - `camera.relay.<relay_id>.name`
+- `camera.relay.<relay_id>.type`: currently `ssh_local_forward`.
 - `camera.relay.<relay_id>.host`
+- `camera.relay.<relay_id>.bind_host`: local SSH bind address, default `127.0.0.1`.
+- `camera.relay.<relay_id>.ssh_target`: SSH target such as `nas` or `user@nas`.
+- `camera.relay.<relay_id>.auto_start`: `true` lets the watchdog start/restart the relay.
 - `camera.relay_endpoint.<device_id>.<relay_id>.host`
 - `camera.relay_endpoint.<device_id>.<relay_id>.port`
+- `camera.relay_endpoint.<device_id>.<relay_id>.target_host`: optional camera target IP; defaults to the discovered camera IP.
+- `camera.relay_endpoint.<device_id>.<relay_id>.target_port`: optional camera target port; defaults to `554`.
 - `camera.path_policy.<device_id>`
 
 Supported policies:
@@ -119,6 +125,24 @@ ssh -fN -L 15541:192.168.178.101:554 -L 15543:192.168.178.190:554 nas
 ```
 
 Then define relay `nas` with host `host.docker.internal`, set the affected camera relay ports, and regenerate/restart go2rtc. The viewer still shows the camera's discovered IP, but diagnostics and go2rtc use the selected path.
+
+For managed relays, set `camera.relay.nas.type=ssh_local_forward`, `camera.relay.nas.ssh_target=nas`, and `camera.relay.nas.auto_start=true`. The manager starts:
+
+```bash
+ssh -N -o ExitOnForwardFailure=yes -o BatchMode=yes -L 127.0.0.1:15541:192.168.178.101:554 nas
+```
+
+Useful commands:
+
+```bash
+camera-appliance relays status
+camera-appliance relays start nas
+camera-appliance relays stop nas
+camera-appliance relays restart nas
+camera-appliance relays ensure
+```
+
+The System page exposes the same actions. Auto-Start is checked by the watchdog and uses a short backoff after failures. SSH passwords are never stored by the app; use SSH keys or an SSH agent for managed relay connections.
 
 Legacy per-device overrides remain supported:
 

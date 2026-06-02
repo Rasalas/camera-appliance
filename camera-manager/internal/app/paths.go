@@ -24,10 +24,14 @@ const (
 )
 
 type RelayDefinition struct {
-	ID      string `json:"id"`
-	Name    string `json:"name"`
-	Host    string `json:"host"`
-	Enabled bool   `json:"enabled"`
+	ID        string `json:"id"`
+	Name      string `json:"name"`
+	Type      string `json:"type"`
+	Host      string `json:"host"`
+	BindHost  string `json:"bind_host,omitempty"`
+	SSHTarget string `json:"ssh_target,omitempty"`
+	AutoStart bool   `json:"auto_start"`
+	Enabled   bool   `json:"enabled"`
 }
 
 type StreamPath struct {
@@ -186,13 +190,33 @@ func relayDefinitions(settings map[string]string) []RelayDefinition {
 			name = id
 		}
 		relays = append(relays, RelayDefinition{
-			ID:      id,
-			Name:    name,
-			Host:    strings.TrimSpace(settings[prefix+"host"]),
-			Enabled: true,
+			ID:        id,
+			Name:      name,
+			Type:      relayType(settings[prefix+"type"]),
+			Host:      strings.TrimSpace(settings[prefix+"host"]),
+			BindHost:  relayBindHost(settings[prefix+"bind_host"]),
+			SSHTarget: strings.TrimSpace(settings[prefix+"ssh_target"]),
+			AutoStart: boolSetting(settings, prefix+"auto_start", false),
+			Enabled:   true,
 		})
 	}
 	return relays
+}
+
+func relayType(raw string) string {
+	value := strings.TrimSpace(raw)
+	if value == "" {
+		return RelayTypeSSHLocalForward
+	}
+	return value
+}
+
+func relayBindHost(raw string) string {
+	value := strings.TrimSpace(raw)
+	if value == "" {
+		return "127.0.0.1"
+	}
+	return value
 }
 
 func relayEndpoint(settings map[string]string, deviceID string, relay RelayDefinition) (string, string) {

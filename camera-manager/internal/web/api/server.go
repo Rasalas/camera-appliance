@@ -75,6 +75,10 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST /api/bindings/", s.replaceBinding)
 	s.mux.HandleFunc("POST /api/go2rtc/render", s.renderGo2RTC)
 	s.mux.HandleFunc("POST /api/go2rtc/restart", s.restartGo2RTC)
+	s.mux.HandleFunc("GET /api/relays/status", s.getRelayStatus)
+	s.mux.HandleFunc("POST /api/relays/{id}/start", s.startRelay)
+	s.mux.HandleFunc("POST /api/relays/{id}/stop", s.stopRelay)
+	s.mux.HandleFunc("POST /api/relays/{id}/restart", s.restartRelay)
 	s.mux.HandleFunc("GET /api/viewer", s.getViewer)
 	s.mux.HandleFunc("POST /api/system/restart-stack", s.restartStack)
 	s.mux.HandleFunc("GET /api/credential-identities", s.getCredentialIdentities)
@@ -797,6 +801,41 @@ func (s *Server) restartGo2RTC(w http.ResponseWriter, r *http.Request) {
 		_ = s.app.Store.AddEvent(r.Context(), "info", "go2rtc.restarted", "go2rtc wurde neu gestartet", nil)
 	}
 	writeResult(w, map[string]string{"status": "ok"}, err)
+}
+
+func (s *Server) getRelayStatus(w http.ResponseWriter, r *http.Request) {
+	result, err := s.app.RelayStatuses(r.Context())
+	writeResult(w, result, err)
+}
+
+func (s *Server) startRelay(w http.ResponseWriter, r *http.Request) {
+	id := strings.TrimSpace(r.PathValue("id"))
+	if id == "" {
+		writeError(w, errors.New("relay id is required"), http.StatusBadRequest)
+		return
+	}
+	result, err := s.app.StartRelay(r.Context(), id)
+	writeResult(w, result, err)
+}
+
+func (s *Server) stopRelay(w http.ResponseWriter, r *http.Request) {
+	id := strings.TrimSpace(r.PathValue("id"))
+	if id == "" {
+		writeError(w, errors.New("relay id is required"), http.StatusBadRequest)
+		return
+	}
+	result, err := s.app.StopRelay(r.Context(), id)
+	writeResult(w, result, err)
+}
+
+func (s *Server) restartRelay(w http.ResponseWriter, r *http.Request) {
+	id := strings.TrimSpace(r.PathValue("id"))
+	if id == "" {
+		writeError(w, errors.New("relay id is required"), http.StatusBadRequest)
+		return
+	}
+	result, err := s.app.RestartRelay(r.Context(), id)
+	writeResult(w, result, err)
 }
 
 func (s *Server) restartStack(w http.ResponseWriter, r *http.Request) {

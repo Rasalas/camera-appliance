@@ -29,7 +29,7 @@ func Execute() error {
 		SilenceUsage:  true,
 		SilenceErrors: true,
 	}
-	root.AddCommand(serveCmd(), statusCmd(), discoverCmd(), assignCmd(), renderCmd(), restartGo2RTCCmd(), restartStackCmd(), resetBindingsCmd(), backupCmd(), restoreCmd(), supportBundleCmd(), updateCmd())
+	root.AddCommand(serveCmd(), statusCmd(), discoverCmd(), assignCmd(), renderCmd(), restartGo2RTCCmd(), restartStackCmd(), relaysCmd(), resetBindingsCmd(), backupCmd(), restoreCmd(), supportBundleCmd(), updateCmd())
 	if err := root.Execute(); err != nil {
 		fmt.Fprintln(os.Stderr, redaction.Text(err.Error()))
 		return err
@@ -218,6 +218,81 @@ func restartStackCmd() *cobra.Command {
 			}
 			fmt.Println("Kamera-Stack wurde neu gestartet")
 			return nil
+		},
+	}
+}
+
+func relaysCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "relays",
+		Short: "Manage SSH camera relays",
+	}
+	cmd.AddCommand(relayStatusCmd(), relayActionCmd("start"), relayActionCmd("stop"), relayActionCmd("restart"), relayEnsureCmd())
+	return cmd
+}
+
+func relayStatusCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "status",
+		Short: "Show relay status",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			a, err := app.Open(cmd.Context())
+			if err != nil {
+				return err
+			}
+			defer a.Close()
+			statuses, err := a.RelayStatuses(cmd.Context())
+			if err != nil {
+				return err
+			}
+			printRelayStatuses(statuses)
+			return nil
+		},
+	}
+}
+
+func relayActionCmd(action string) *cobra.Command {
+	return &cobra.Command{
+		Use:   action + " RELAY_ID",
+		Short: strings.Title(action) + " a relay",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			a, err := app.Open(cmd.Context())
+			if err != nil {
+				return err
+			}
+			defer a.Close()
+			var status app.RelayStatus
+			switch action {
+			case "start":
+				status, err = a.StartRelay(cmd.Context(), args[0])
+			case "stop":
+				status, err = a.StopRelay(cmd.Context(), args[0])
+			case "restart":
+				status, err = a.RestartRelay(cmd.Context(), args[0])
+			}
+			if err != nil {
+				return err
+			}
+			printRelayStatuses([]app.RelayStatus{status})
+			return nil
+		},
+	}
+}
+
+func relayEnsureCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "ensure",
+		Short: "Start stopped relays with Auto-Start enabled",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			a, err := app.Open(cmd.Context())
+			if err != nil {
+				return err
+			}
+			defer a.Close()
+			statuses, err := a.EnsureManagedRelays(cmd.Context())
+			printRelayStatuses(statuses)
+			return err
 		},
 	}
 }
@@ -447,6 +522,32 @@ func printViewer(viewer app.Viewer) {
 			fmt.Printf(" (%s)", slot.Message)
 		}
 		fmt.Println()
+	}
+}
+
+func printRelayStatuses(statuses []app.RelayStatus) {
+	fmt.Println("Relays")
+	if len(statuses) == 0 {
+		fmt.Println("  Keine Relays konfiguriert")
+		return
+	}
+	for _, status := range statuses {
+		pid := ""
+		if status.PID > 0 {
+			pid = fmt.Sprintf(" pid=%d", status.PID)
+		}
+		fmt.Printf("  %s: %s%s", status.ID, status.ProcessState, pid)
+		if status.Message != "" {
+			fmt.Printf(" (%s)", status.Message)
+		}
+		fmt.Println()
+		for _, endpoint := range status.Endpoints {
+			fmt.Printf("    %s %s:%s -> %s:%s %s", endpoint.DeviceID, endpoint.HealthHost, endpoint.LocalPort, endpoint.TargetHost, endpoint.TargetPort, endpoint.State)
+			if endpoint.Message != "" {
+				fmt.Printf(" (%s)", endpoint.Message)
+			}
+			fmt.Println()
+		}
 	}
 }
 

@@ -22,6 +22,38 @@ export interface WatchdogStatus {
   last_error?: string
 }
 
+export interface RelayEndpointStatus {
+  device_id: string
+  slot_id?: string
+  label?: string
+  local_host?: string
+  local_port: string
+  bind_host: string
+  health_host: string
+  target_host: string
+  target_port: string
+  state: string
+  message: string
+}
+
+export interface RelayStatus {
+  id: string
+  name: string
+  type: string
+  host: string
+  bind_host: string
+  ssh_target?: string
+  auto_start: boolean
+  enabled: boolean
+  pid?: number
+  process_state: string
+  message: string
+  last_error?: string
+  backoff_until?: string
+  log_path?: string
+  endpoints: RelayEndpointStatus[]
+}
+
 export interface Slot {
   id: string
   label: string
@@ -174,6 +206,7 @@ export interface StatusResponse {
   }
   version: VersionInfo
   watchdog: WatchdogStatus
+  relays: RelayStatus[]
   slots: Slot[]
   bindings: Binding[]
   devices: Device[]

@@ -642,14 +642,72 @@ input, select, textarea { font: inherit; color: inherit; }
 .result-row .action { color: var(--ink-soft); text-decoration: underline; text-underline-offset: 3px; }
 .result-row.ok .action { color: var(--live); text-decoration: none; }
 .result-row.err .message { color: var(--danger); }
-.relay-row {
-  grid-template-columns: 64px minmax(130px, 1fr) minmax(170px, 1.4fr) 92px 100px;
-}
 .compact-input {
   min-height: 34px;
   padding: 7px 9px;
   font-size: 11px;
 }
+.relay-config-list {
+  display: grid;
+  gap: 12px;
+}
+.relay-config {
+  border: 1px solid var(--hairline);
+  border-radius: 4px;
+  padding: 14px;
+  display: grid;
+  gap: 12px;
+  background: rgba(255,255,255,.012);
+}
+.relay-config-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.relay-config-head .slot {
+  font-size: 10px;
+  color: var(--ink-mute);
+  text-transform: uppercase;
+  letter-spacing: .14em;
+}
+.relay-config-head .name {
+  color: var(--ink);
+  font-size: 13px;
+  margin-top: 2px;
+}
+.relay-config-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+.relay-auto {
+  min-height: 58px;
+  padding: 9px 12px;
+}
+.relay-runtime {
+  display: grid;
+  grid-template-columns: 12px minmax(0, 1fr) minmax(160px, auto);
+  gap: 10px;
+  align-items: center;
+  border: 1px solid var(--hairline);
+  border-radius: 4px;
+  padding: 10px 12px;
+  background: var(--bg);
+}
+.relay-runtime .lbl-main { color: var(--ink); font-size: 12px; }
+.relay-runtime .lbl-sub { color: var(--ink-mute); font-size: 11px; margin-top: 2px; }
+.state-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--ink-dim);
+}
+.relay-runtime.ok .state-dot,
+.endpoint-state.ok { color: var(--live); }
+.relay-runtime.ok .state-dot { background: var(--live); }
+.relay-runtime.warn .state-dot { background: var(--warn); }
+.relay-runtime.err .state-dot { background: var(--danger); }
 .relay-camera-list {
   display: grid;
   gap: 10px;
@@ -687,7 +745,7 @@ input, select, textarea { font: inherit; color: inherit; }
 }
 .relay-endpoint-row {
   display: grid;
-  grid-template-columns: minmax(100px, 140px) minmax(160px, 1fr) minmax(80px, 120px);
+  grid-template-columns: minmax(100px, 140px) minmax(140px, 1fr) minmax(96px, 120px) minmax(140px, 1fr) minmax(80px, 110px) minmax(96px, 120px);
   gap: 8px;
   align-items: center;
 }
@@ -697,6 +755,14 @@ input, select, textarea { font: inherit; color: inherit; }
   text-transform: uppercase;
   letter-spacing: .13em;
 }
+.endpoint-state {
+  font-size: 10px;
+  color: var(--ink-mute);
+  text-transform: uppercase;
+  letter-spacing: .12em;
+}
+.endpoint-state.err { color: var(--danger); }
+.endpoint-state.warn { color: var(--warn); }
 
 /* ---------- Two column generic ---------------------------------------- */
 .split { display: grid; grid-template-columns: 1fr 1fr; gap: var(--gutter); }
@@ -1029,6 +1095,7 @@ pre.code {
   .stat-row { grid-template-columns: repeat(2, 1fr); }
   .stat-row .stat:nth-child(2) { border-right: 0; }
   .stat-row .stat:nth-child(-n+2) { border-bottom: 1px solid var(--hairline); }
+  .relay-config-grid { grid-template-columns: 1fr 1fr; }
   .relay-camera-main,
   .relay-endpoint-row { grid-template-columns: 1fr; }
 }
@@ -1049,7 +1116,8 @@ pre.code {
   .result-row { grid-template-columns: 48px 1fr 72px; }
   .result-row .ip,
   .result-row .message { grid-column: 2 / -1; }
-  .relay-row { grid-template-columns: 48px 1fr; }
-  .relay-row .stream { grid-column: 2; }
+  .relay-config-head,
+  .relay-runtime { grid-template-columns: 1fr; display: grid; }
+  .relay-config-grid { grid-template-columns: 1fr; }
   .panel-subhead { display: grid; gap: 6px; }
 }

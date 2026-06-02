@@ -1,4 +1,4 @@
-import type { Binding, CredentialIdentity, Device, DeviceCredentials, EventItem, FrameResult, ManualDeviceResult, ProbeResult, ScanRun, Slot, StatusResponse, SupportBundleResult, ViewerResponse } from '../types'
+import type { Binding, CredentialIdentity, Device, DeviceCredentials, EventItem, FrameResult, ManualDeviceResult, ProbeResult, RelayStatus, ScanRun, Slot, StatusResponse, SupportBundleResult, ViewerResponse } from '../types'
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(path, {
@@ -38,6 +38,10 @@ export const api = {
   removeBinding: (slotId: string) => request(`/api/bindings/${slotId}`, { method: 'DELETE' }),
   renderGo2RTC: () => request<{ rendered_streams: number; warnings: string[]; redacted_yaml: string }>('/api/go2rtc/render', { method: 'POST' }),
   restartGo2RTC: () => request('/api/go2rtc/restart', { method: 'POST' }),
+  relayStatus: () => request<RelayStatus[]>('/api/relays/status'),
+  startRelay: (id: string) => request<RelayStatus>(`/api/relays/${encodeURIComponent(id)}/start`, { method: 'POST' }),
+  stopRelay: (id: string) => request<RelayStatus>(`/api/relays/${encodeURIComponent(id)}/stop`, { method: 'POST' }),
+  restartRelay: (id: string) => request<RelayStatus>(`/api/relays/${encodeURIComponent(id)}/restart`, { method: 'POST' }),
   restartStack: () => request('/api/system/restart-stack', { method: 'POST' }),
   credentialIdentities: () => request<CredentialIdentity[]>('/api/credential-identities'),
   saveCredentialIdentity: (body: { id?: string; name: string; username: string; password?: string }) =>
