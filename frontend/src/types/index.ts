@@ -4,6 +4,12 @@ export interface ServiceStatus {
   message?: string
 }
 
+export interface VersionInfo {
+  version: string
+  commit: string
+  build_time: string
+}
+
 export interface Slot {
   id: string
   label: string
@@ -152,9 +158,16 @@ export interface StatusResponse {
     go2rtc: ServiceStatus
     camera_appliance: ServiceStatus
   }
+  version: VersionInfo
   slots: Slot[]
   bindings: Binding[]
   devices: Device[]
   recent_events: EventItem[]
   scan_runs: ScanRun[]
+}
+
+export interface SupportBundleResult {
+  path: string
+  files: string[]
+  warning: string
 }

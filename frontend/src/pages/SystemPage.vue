@@ -5,6 +5,7 @@
       <h1 class="headline">System.</h1>
     </div>
     <div class="meta">
+      <div>Version · <b>{{ versionLabel }}</b></div>
       <div>Adresse · <b>{{ settings.bind_addr || '127.0.0.1:8091' }}</b></div>
       <div>go2rtc · <b>{{ settings.go2rtc_url || 'http://localhost:1984' }}</b></div>
     </div>
@@ -215,6 +216,38 @@
     </form>
   </div>
 
+  <!-- Section: Support bundle -->
+  <section class="panel">
+    <div class="panel-head">
+      <h2>Support-Bundle</h2>
+      <div class="right">Status · Viewer · Netzwerk · Logs</div>
+    </div>
+
+    <div class="split">
+      <div class="field">
+        <span class="lbl">Diagnosepaket</span>
+        <div class="btn-row">
+          <button class="btn primary" :disabled="creatingSupportBundle" @click="createSupportBundle">
+            {{ creatingSupportBundle ? 'Erstellt…' : 'Support-Bundle erstellen' }}
+          </button>
+        </div>
+      </div>
+      <div class="field">
+        <span class="lbl">Version</span>
+        <div class="mono-mute">{{ versionDetail }}</div>
+      </div>
+    </div>
+
+    <div v-if="supportBundleResult" class="notice ok">
+      <span class="tag">FERTIG</span>
+      <div class="support-result">
+        <div>{{ supportBundleResult.path }}</div>
+        <div class="mono-mute">{{ supportBundleResult.files.length }} Dateien · Zugangsdaten maskiert</div>
+        <div v-if="supportBundleResult.warning" class="mono-mute">{{ supportBundleResult.warning }}</div>
+      </div>
+    </div>
+  </section>
+
   <!-- Section: Backup -->
   <section class="panel">
     <div class="panel-head">
@@ -271,7 +304,7 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
 import { api } from '../api/client'
-import type { CredentialIdentity, EventItem, StatusResponse } from '../types'
+import type { CredentialIdentity, EventItem, StatusResponse, SupportBundleResult } from '../types'
 
 const settings = reactive<Record<string, string>>({})
 const events = ref<EventItem[]>([])
@@ -279,10 +312,12 @@ const status = ref<StatusResponse>()
 const credentialIdentities = ref<CredentialIdentity[]>([])
 const restorePath = ref('')
 const backupResult = ref<{ path: string; warning: string }>()
+const supportBundleResult = ref<SupportBundleResult>()
 const error = ref('')
 const toast = ref('')
 const cameraPassword = ref('')
 const savingPassword = ref(false)
+const creatingSupportBundle = ref(false)
 const savingIdentity = ref(false)
 const showIdentityModal = ref(false)
 const passwordSource = ref('unbekannt')
@@ -291,6 +326,21 @@ const relayDraft = reactive({ id: 'nas', name: 'NAS Relay', host: 'host.docker.i
 
 const relayIds = computed(() => settingList(settings['camera.relay.ids']))
 const cameraBindings = computed(() => (status.value?.bindings ?? []).filter((binding) => binding.device_id))
+const versionLabel = computed(() => {
+  const info = status.value?.version
+  if (!info) return 'dev'
+  const version = info.version || 'dev'
+  const commit = info.commit && info.commit !== 'local' ? ` (${info.commit})` : ''
+  return `${version}${commit}`
+})
+const versionDetail = computed(() => {
+  const info = status.value?.version
+  if (!info) return 'dev'
+  const parts = [info.version || 'dev']
+  if (info.commit) parts.push(`Commit ${info.commit}`)
+  if (info.build_time) parts.push(`Build ${info.build_time}`)
+  return parts.join(' · ')
+})
 
 function setBool(key: string, e: Event) {
   const target = e.target as HTMLInputElement
@@ -486,6 +536,20 @@ async function createBackup() {
     setTimeout(() => (toast.value = ''), 2200)
   } catch (err) {
     error.value = err instanceof Error ? err.message : 'Backup konnte nicht erstellt werden.'
+  }
+}
+
+async function createSupportBundle() {
+  creatingSupportBundle.value = true
+  error.value = ''
+  try {
+    supportBundleResult.value = await api.supportBundle()
+    toast.value = 'Support-Bundle erstellt'
+    setTimeout(() => (toast.value = ''), 2200)
+  } catch (err) {
+    error.value = err instanceof Error ? err.message : 'Support-Bundle konnte nicht erstellt werden.'
+  } finally {
+    creatingSupportBundle.value = false
   }
 }
 

@@ -1,4 +1,4 @@
-import type { Binding, CredentialIdentity, Device, DeviceCredentials, EventItem, FrameResult, ManualDeviceResult, ProbeResult, ScanRun, Slot, StatusResponse, ViewerResponse } from '../types'
+import type { Binding, CredentialIdentity, Device, DeviceCredentials, EventItem, FrameResult, ManualDeviceResult, ProbeResult, ScanRun, Slot, StatusResponse, SupportBundleResult, ViewerResponse } from '../types'
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(path, {
@@ -48,5 +48,6 @@ export const api = {
   saveCameraPassword: (password: string) => request<{ status: string; source: string }>('/api/secrets/camera-password', { method: 'POST', body: JSON.stringify({ password }) }),
   events: () => request<EventItem[]>('/api/events'),
   backup: () => request<{ path: string; files: string[]; warning: string }>('/api/backup', { method: 'POST', body: JSON.stringify({}) }),
+  supportBundle: () => request<SupportBundleResult>('/api/support-bundle', { method: 'POST', body: JSON.stringify({}) }),
   restore: (path: string) => request<{ path: string; files: string[]; warning: string }>('/api/restore', { method: 'POST', body: JSON.stringify({ in: path }) })
 }

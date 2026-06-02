@@ -85,6 +85,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST /api/secrets/camera-password", s.setCameraPassword)
 	s.mux.HandleFunc("GET /api/events", s.getEvents)
 	s.mux.HandleFunc("POST /api/backup", s.createBackup)
+	s.mux.HandleFunc("POST /api/support-bundle", s.createSupportBundle)
 	s.mux.HandleFunc("POST /api/restore", s.restoreBackup)
 	s.mux.HandleFunc("/", s.static)
 }
@@ -863,6 +864,15 @@ func (s *Server) createBackup(w http.ResponseWriter, r *http.Request) {
 	if err == nil {
 		_ = s.app.Store.AddEvent(r.Context(), "info", "backup.created", "Backup erstellt", map[string]string{"path": result.Path})
 	}
+	writeResult(w, result, err)
+}
+
+func (s *Server) createSupportBundle(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Out string `json:"out"`
+	}
+	_ = json.NewDecoder(r.Body).Decode(&req)
+	result, err := s.app.CreateSupportBundle(r.Context(), req.Out)
 	writeResult(w, result, err)
 }
 

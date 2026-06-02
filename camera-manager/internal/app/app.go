@@ -16,6 +16,7 @@ import (
 	"camera-appliance/camera-manager/internal/secrets"
 	"camera-appliance/camera-manager/internal/state"
 	"camera-appliance/camera-manager/internal/system"
+	"camera-appliance/camera-manager/internal/version"
 )
 
 type App struct {
@@ -27,6 +28,7 @@ type App struct {
 
 type Status struct {
 	System       system.Status   `json:"system"`
+	Version      version.Info    `json:"version"`
 	Slots        []config.Slot   `json:"slots"`
 	Bindings     []state.Binding `json:"bindings"`
 	Devices      []state.Device  `json:"devices"`
@@ -107,6 +109,7 @@ func (a *App) Status(ctx context.Context) (Status, error) {
 	}
 	return Status{
 		System:       system.Check(ctx, a.Config),
+		Version:      version.Current(),
 		Slots:        a.Slots,
 		Bindings:     redactBindings(bindings),
 		Devices:      devices,

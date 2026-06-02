@@ -7,6 +7,10 @@ BIND_ADDR ?= 127.0.0.1:8091
 FRONTEND_DIST ?= $(ROOT)/frontend/dist
 SCAN_LIMIT ?= 254
 TIMEOUT_MS ?= 500
+VERSION ?= dev
+COMMIT ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo local)
+BUILD_TIME ?= $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
+GO_LDFLAGS := -X camera-appliance/camera-manager/internal/version.Version=$(VERSION) -X camera-appliance/camera-manager/internal/version.Commit=$(COMMIT) -X camera-appliance/camera-manager/internal/version.BuildTime=$(BUILD_TIME)
 
 export CAMERA_APPLIANCE_STATE_DIR := $(STATE_DIR)
 export CAMERA_APPLIANCE_CONFIG_DIR := $(CONFIG_DIR)
@@ -48,7 +52,7 @@ frontend-dev:
 build: frontend-build backend-build
 
 backend-build:
-	cd camera-manager && go build -o ../bin/camera-appliance ./cmd/camera-appliance
+	cd camera-manager && go build -ldflags "$(GO_LDFLAGS)" -o ../bin/camera-appliance ./cmd/camera-appliance
 
 frontend-build:
 	cd frontend && npm install && npm run build

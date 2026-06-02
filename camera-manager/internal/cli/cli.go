@@ -28,7 +28,7 @@ func Execute() error {
 		SilenceUsage:  true,
 		SilenceErrors: true,
 	}
-	root.AddCommand(serveCmd(), statusCmd(), discoverCmd(), assignCmd(), renderCmd(), restartGo2RTCCmd(), restartStackCmd(), resetBindingsCmd(), backupCmd(), restoreCmd())
+	root.AddCommand(serveCmd(), statusCmd(), discoverCmd(), assignCmd(), renderCmd(), restartGo2RTCCmd(), restartStackCmd(), resetBindingsCmd(), backupCmd(), restoreCmd(), supportBundleCmd())
 	if err := root.Execute(); err != nil {
 		fmt.Fprintln(os.Stderr, redaction.Text(err.Error()))
 		return err
@@ -270,6 +270,29 @@ func backupCmd() *cobra.Command {
 	return cmd
 }
 
+func supportBundleCmd() *cobra.Command {
+	var out string
+	cmd := &cobra.Command{
+		Use:   "support-bundle",
+		Short: "Create a redacted support bundle",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			a, err := app.Open(cmd.Context())
+			if err != nil {
+				return err
+			}
+			defer a.Close()
+			result, err := a.CreateSupportBundle(cmd.Context(), out)
+			if err != nil {
+				return err
+			}
+			printJSON(result)
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&out, "out", "", "output tar.gz path")
+	return cmd
+}
+
 func restoreCmd() *cobra.Command {
 	var in string
 	cmd := &cobra.Command{
@@ -295,6 +318,15 @@ func restoreCmd() *cobra.Command {
 }
 
 func printStatus(status app.Status) {
+	fmt.Println("Version")
+	versionText := status.Version.Version
+	if status.Version.Commit != "" {
+		versionText += " (" + status.Version.Commit + ")"
+	}
+	if status.Version.BuildTime != "" {
+		versionText += " " + status.Version.BuildTime
+	}
+	fmt.Printf("  %s\n\n", versionText)
 	fmt.Println("System")
 	printService("go2rtc", status.System.Go2RTC)
 	printService("camera-appliance", status.System.CameraAppliance)
