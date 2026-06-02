@@ -1,5 +1,21 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-cd /opt/camera-appliance
-/usr/bin/docker compose restart go2rtc camera-manager
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/common"
+require_appliance_bin
+
+service_available() {
+  command -v systemctl >/dev/null 2>&1 &&
+    systemctl list-unit-files camera-appliance.service >/dev/null 2>&1
+}
+
+if service_available; then
+  echo "Restarting camera-appliance.service"
+  if systemctl restart camera-appliance.service; then
+    exec "$APPLIANCE_BIN" status
+  fi
+  echo "systemd restart failed, falling back to camera-appliance restart-stack" >&2
+fi
+
+"$APPLIANCE_BIN" restart-stack
+exec "$APPLIANCE_BIN" status

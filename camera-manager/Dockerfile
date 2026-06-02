@@ -20,6 +20,7 @@ FROM debian:bookworm-slim
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates iproute2 docker.io libsecret-tools && rm -rf /var/lib/apt/lists/*
 COPY --from=backend /out/camera-appliance /usr/local/bin/camera-appliance
 COPY --from=frontend /src/frontend/dist /opt/camera-appliance/frontend/dist
+COPY compose.yaml /opt/camera-appliance/compose.yaml
 WORKDIR /opt/camera-appliance
 EXPOSE 8091
 ENTRYPOINT ["/usr/local/bin/camera-appliance"]

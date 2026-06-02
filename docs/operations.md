@@ -4,8 +4,35 @@
 
 - `bin/open-cameras` opens the local camera-appliance viewer fullscreen.
 - `bin/rediscover-cameras` searches for cameras.
-- `bin/restart-cameras` restarts go2rtc and the manager.
-- `bin/status` prints local service and camera status.
+- `bin/restart-cameras` restarts `camera-appliance.service` when systemd is installed, then falls back to the built-in Docker Compose restart path.
+- `bin/status` prints local service status, systemd status, Docker Compose status, camera assignments, and active stream paths.
+
+The helper scripts resolve the appliance root automatically. Override with `CAMERA_APPLIANCE_HOME=/opt/camera-appliance` or `CAMERA_APPLIANCE_BIN=/path/to/camera-appliance` when testing from another checkout.
+
+## Boot Recovery
+
+The production install path is:
+
+```bash
+sudo bin/install --user customer --enable-systemd --enable-kiosk --install-desktop-launchers
+```
+
+This installs:
+
+- `camera-appliance.service`: starts the Docker Compose stack after Docker and network-online.
+- `camera-kiosk.service`: user service that waits for `http://127.0.0.1:8091/api/status` before opening the viewer.
+- Desktop launchers for manual open, status, rediscovery, and restart.
+
+Useful recovery commands:
+
+```bash
+sudo systemctl status camera-appliance.service
+sudo systemctl restart camera-appliance.service
+bin/status
+bin/restart-cameras
+```
+
+If systemd is not available or the current user lacks service permissions, `bin/restart-cameras` reports that path and uses `camera-appliance restart-stack` instead.
 
 ## Logs and Events
 

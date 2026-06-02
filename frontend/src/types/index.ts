@@ -157,6 +157,8 @@ export interface StatusResponse {
   system: {
     go2rtc: ServiceStatus
     camera_appliance: ServiceStatus
+    systemd?: ServiceStatus[]
+    docker?: ServiceStatus[]
   }
   version: VersionInfo
   slots: Slot[]

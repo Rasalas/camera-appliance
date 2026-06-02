@@ -2,12 +2,18 @@
 set -euo pipefail
 
 TARGET_DIR="/opt/camera-appliance"
-USER_NAME=""
+USER_NAME="${SUDO_USER:-}"
 ENABLE_SYSTEMD=0
+ENABLE_KIOSK=0
 INSTALL_DESKTOP=0
+START_SERVICES=1
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
+    --target-dir)
+      TARGET_DIR="${2:-}"
+      shift 2
+      ;;
     --user)
       USER_NAME="${2:-}"
       shift 2
@@ -16,8 +22,16 @@ while [[ $# -gt 0 ]]; do
       ENABLE_SYSTEMD=1
       shift
       ;;
+    --enable-kiosk)
+      ENABLE_KIOSK=1
+      shift
+      ;;
     --install-desktop-launchers)
       INSTALL_DESKTOP=1
+      shift
+      ;;
+    --no-start)
+      START_SERVICES=0
       shift
       ;;
     *)
@@ -34,9 +48,25 @@ need() {
   fi
 }
 
+if [[ "${EUID:-$(id -u)}" -ne 0 ]]; then
+  echo "Please run install with sudo/root. It writes /etc, /var/lib and systemd files." >&2
+  exit 1
+fi
+
+if [[ -z "$TARGET_DIR" ]]; then
+  echo "--target-dir must not be empty" >&2
+  exit 2
+fi
+
+if [[ ! -f compose.yaml || ! -f .env.example ]]; then
+  echo "Run bin/install from the camera-appliance repository root." >&2
+  exit 1
+fi
+
 need go
 need npm
 need docker
+need rsync
 if ! command -v secret-tool >/dev/null 2>&1; then
   echo "Hinweis: secret-tool fehlt. Passwortspeicherung fällt auf /etc/camera-appliance/local.env zurück."
 fi
@@ -63,11 +93,22 @@ if [[ ! -f /var/lib/camera-appliance/generated/go2rtc.yaml ]]; then
 fi
 
 (cd frontend && npm ci && npm run build)
-(cd camera-manager && go build -o ../bin/camera-appliance ./cmd/camera-appliance)
+VERSION="${VERSION:-dev}"
+COMMIT="${COMMIT:-$(git rev-parse --short HEAD 2>/dev/null || echo local)}"
+BUILD_TIME="${BUILD_TIME:-$(date -u +%Y-%m-%dT%H:%M:%SZ)}"
+GO_LDFLAGS="-X camera-appliance/camera-manager/internal/version.Version=$VERSION -X camera-appliance/camera-manager/internal/version.Commit=$COMMIT -X camera-appliance/camera-manager/internal/version.BuildTime=$BUILD_TIME"
+(cd camera-manager && go build -ldflags "$GO_LDFLAGS" -o ../bin/camera-appliance ./cmd/camera-appliance)
 
 if [[ "$(pwd)" != "$TARGET_DIR" ]]; then
   mkdir -p "$TARGET_DIR"
-  rsync -a --exclude node_modules --exclude frontend/dist --exclude data --exclude .git ./ "$TARGET_DIR/"
+  rsync -a --delete \
+    --exclude node_modules \
+    --exclude frontend/dist \
+    --exclude data \
+    --exclude .git \
+    --exclude .private \
+    --exclude bin/camera-appliance \
+    ./ "$TARGET_DIR/"
   mkdir -p "$TARGET_DIR/frontend"
   rsync -a frontend/dist "$TARGET_DIR/frontend/"
   install -m 0755 bin/camera-appliance "$TARGET_DIR/bin/camera-appliance"
@@ -78,7 +119,33 @@ chmod +x "$TARGET_DIR"/bin/* || true
 if [[ "$ENABLE_SYSTEMD" -eq 1 ]]; then
   install -m 0644 systemd/camera-appliance.service /etc/systemd/system/camera-appliance.service
   systemctl daemon-reload
-  systemctl enable camera-appliance.service
+  if [[ "$START_SERVICES" -eq 1 ]]; then
+    systemctl enable --now camera-appliance.service
+  else
+    systemctl enable camera-appliance.service
+  fi
+fi
+
+if [[ "$ENABLE_KIOSK" -eq 1 ]]; then
+  if [[ -z "$USER_NAME" ]]; then
+    echo "--enable-kiosk requires --user USER" >&2
+    exit 1
+  fi
+  USER_HOME="$(getent passwd "$USER_NAME" | cut -d: -f6)"
+  if [[ -z "$USER_HOME" || ! -d "$USER_HOME" ]]; then
+    echo "User home not found for $USER_NAME" >&2
+    exit 1
+  fi
+  USER_SYSTEMD_DIR="$USER_HOME/.config/systemd/user"
+  mkdir -p "$USER_SYSTEMD_DIR/default.target.wants"
+  install -m 0644 systemd/camera-kiosk.service "$USER_SYSTEMD_DIR/camera-kiosk.service"
+  ln -sfn ../camera-kiosk.service "$USER_SYSTEMD_DIR/default.target.wants/camera-kiosk.service"
+  chown -R "$USER_NAME:$USER_NAME" "$USER_HOME/.config/systemd"
+  loginctl enable-linger "$USER_NAME" >/dev/null 2>&1 || true
+  if [[ "$START_SERVICES" -eq 1 ]]; then
+    runuser -u "$USER_NAME" -- systemctl --user daemon-reload >/dev/null 2>&1 || true
+    runuser -u "$USER_NAME" -- systemctl --user restart camera-kiosk.service >/dev/null 2>&1 || true
+  fi
 fi
 
 if [[ "$INSTALL_DESKTOP" -eq 1 ]]; then
@@ -92,4 +159,10 @@ if [[ "$INSTALL_DESKTOP" -eq 1 ]]; then
   chown "$USER_NAME:$USER_NAME" "$DESKTOP_DIR"/*.desktop
 fi
 
-echo "camera-appliance installed. Configure /etc/camera-appliance/secrets.env, then run docker compose up -d."
+echo "camera-appliance installed in $TARGET_DIR."
+echo "Configure /etc/camera-appliance/secrets.env or set the camera password in the UI."
+if [[ "$ENABLE_SYSTEMD" -eq 1 ]]; then
+  echo "camera-appliance.service is enabled$([[ "$START_SERVICES" -eq 1 ]] && echo ' and started')."
+else
+  echo "Start manually with: cd $TARGET_DIR && docker compose up -d --build"
+fi

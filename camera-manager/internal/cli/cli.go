@@ -330,6 +330,8 @@ func printStatus(status app.Status) {
 	fmt.Println("System")
 	printService("go2rtc", status.System.Go2RTC)
 	printService("camera-appliance", status.System.CameraAppliance)
+	printServiceGroup("systemd", status.System.Systemd)
+	printServiceGroup("docker compose", status.System.Docker)
 	fmt.Println()
 	fmt.Println("Zuordnungen")
 	if len(status.Bindings) == 0 {
@@ -356,6 +358,9 @@ func printViewer(viewer app.Viewer) {
 	fmt.Println("Viewer")
 	for _, slot := range viewer.Slots {
 		fmt.Printf("  %s %s: %s", slot.Alias, slot.Label, viewerStateText(slot.State))
+		if slot.Path != nil {
+			fmt.Printf(" via %s %s:%s", slot.Path.ID, slot.Path.Host, slot.Path.Port)
+		}
 		if slot.Message != "" {
 			fmt.Printf(" (%s)", slot.Message)
 		}
@@ -392,6 +397,24 @@ func printService(label string, service system.ServiceStatus) {
 		fmt.Printf(" (%s)", service.Message)
 	}
 	fmt.Println()
+}
+
+func printServiceGroup(label string, services []system.ServiceStatus) {
+	if len(services) == 0 {
+		return
+	}
+	fmt.Printf("  %s:\n", label)
+	for _, service := range services {
+		state := "offline"
+		if service.Online {
+			state = "online"
+		}
+		fmt.Printf("    %s: %s", service.Name, state)
+		if service.Message != "" {
+			fmt.Printf(" (%s)", service.Message)
+		}
+		fmt.Println()
+	}
 }
 
 func printJSON(value any) {

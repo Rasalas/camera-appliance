@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+APPLIANCE_ROOT="${CAMERA_APPLIANCE_HOME:-$(cd "$script_dir/.." && pwd)}"
+APPLIANCE_BIN="${CAMERA_APPLIANCE_BIN:-$APPLIANCE_ROOT/bin/camera-appliance}"
+
+require_appliance_bin() {
+  if [[ ! -x "$APPLIANCE_BIN" ]]; then
+    echo "camera-appliance binary not found or not executable: $APPLIANCE_BIN" >&2
+    echo "Run make build locally, or reinstall the appliance." >&2
+    exit 1
+  fi
+}
