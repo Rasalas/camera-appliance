@@ -117,6 +117,7 @@ fi
 chmod +x "$TARGET_DIR"/bin/* || true
 
 if [[ "$ENABLE_SYSTEMD" -eq 1 ]]; then
+  mkdir -p /etc/systemd/system
   install -m 0644 systemd/camera-appliance.service /etc/systemd/system/camera-appliance.service
   systemctl daemon-reload
   if [[ "$START_SERVICES" -eq 1 ]]; then
