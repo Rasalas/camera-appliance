@@ -109,7 +109,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { api } from '../api/client'
-import type { ViewerResponse, ViewerSlot, ViewerSlotState } from '../types'
+import type { StreamPath, ViewerResponse, ViewerSlot, ViewerSlotState } from '../types'
 
 const viewer = ref<ViewerResponse>()
 const loading = ref(true)
@@ -189,7 +189,20 @@ function diagLabel(key: string) {
 
 function pathLabel(slot: ViewerSlot) {
   if (!slot.path) return 'kein Pfad'
-  return slot.path.kind === 'direct' ? 'direkt' : `Relay ${slot.path.label}`
+  const base = slot.path.kind === 'direct' ? 'direkt' : `Relay ${slot.path.label}`
+  const stability = pathStabilityLabel(slot.path)
+  return stability ? `${base} · ${stability}` : base
+}
+
+function pathStabilityLabel(path: StreamPath) {
+  const labels: Record<string, string> = {
+    stable: 'stabil',
+    warming: 'erholt sich',
+    failing: 'instabil',
+    unstable: 'wechselbereit',
+    failed: 'offline'
+  }
+  return labels[path.stability] || ''
 }
 
 async function load() {

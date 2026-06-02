@@ -115,6 +115,18 @@
         <span class="lbl">Kamera-Pfade · Sekunden</span>
         <input v-model="settings['watchdog.camera_interval_seconds']" type="number" min="10" max="7200" />
       </div>
+      <div class="field">
+        <span class="lbl">Fehler bis Wechsel</span>
+        <input v-model="settings['camera.path.fail_threshold']" type="number" min="1" max="20" />
+      </div>
+      <div class="field">
+        <span class="lbl">Erfolge bis Rückwechsel</span>
+        <input v-model="settings['camera.path.recovery_threshold']" type="number" min="1" max="20" />
+      </div>
+      <div class="field">
+        <span class="lbl">Restart-Cooldown · Sekunden</span>
+        <input v-model="settings['camera.path.restart_cooldown_seconds']" type="number" min="0" max="7200" />
+      </div>
     </div>
 
     <dl class="spec watchdog-spec">
@@ -133,6 +145,10 @@
       <div>
         <dt>Letzter Fehler</dt>
         <dd>{{ status?.watchdog?.last_error || 'Kein Fehler.' }}</dd>
+      </div>
+      <div>
+        <dt>Restart-Cooldown</dt>
+        <dd>{{ restartCooldownLabel }}</dd>
       </div>
     </dl>
   </section>
@@ -464,6 +480,13 @@ const cameraBindings = computed(() => (status.value?.bindings ?? []).filter((bin
 const watchdogEnabled = computed(() => boolSetting('watchdog.enabled', status.value?.watchdog?.enabled ?? true))
 const watchdogRestartOnChange = computed(() => boolSetting('watchdog.restart_on_change', status.value?.watchdog?.restart_on_change ?? true))
 const watchdogRestartGo2RTC = computed(() => boolSetting('watchdog.restart_go2rtc_on_failure', status.value?.watchdog?.restart_go2rtc_on_failure ?? true))
+const restartCooldownLabel = computed(() => {
+  const watchdog = status.value?.watchdog
+  if (!watchdog) return 'Noch kein Status.'
+  if (watchdog.path_restart_pending) return `Ausstehend bis ${watchdogDate(watchdog.path_restart_cooldown_until)}`
+  if (watchdog.path_restart_last_at) return `Letzter Restart ${watchdogDate(watchdog.path_restart_last_at)}`
+  return 'Kein Cooldown aktiv.'
+})
 const versionLabel = computed(() => {
   const info = status.value?.version
   if (!info) return 'dev'
@@ -647,6 +670,9 @@ function ensureWatchdogDefaults() {
   if (!settings['watchdog.restart_go2rtc_on_failure']) settings['watchdog.restart_go2rtc_on_failure'] = String(watchdog.restart_go2rtc_on_failure)
   if (!settings['watchdog.fast_interval_seconds']) settings['watchdog.fast_interval_seconds'] = String(watchdog.fast_interval_seconds)
   if (!settings['watchdog.camera_interval_seconds']) settings['watchdog.camera_interval_seconds'] = String(watchdog.camera_interval_seconds)
+  if (!settings['camera.path.fail_threshold']) settings['camera.path.fail_threshold'] = String(watchdog.path_fail_threshold)
+  if (!settings['camera.path.recovery_threshold']) settings['camera.path.recovery_threshold'] = String(watchdog.path_recovery_threshold)
+  if (!settings['camera.path.restart_cooldown_seconds']) settings['camera.path.restart_cooldown_seconds'] = String(watchdog.path_restart_cooldown_seconds)
 }
 
 function ensureRelayDefaults() {

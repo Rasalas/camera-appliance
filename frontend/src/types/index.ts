@@ -16,6 +16,12 @@ export interface WatchdogStatus {
   camera_interval_seconds: number
   restart_on_change: boolean
   restart_go2rtc_on_failure: boolean
+  path_fail_threshold: number
+  path_recovery_threshold: number
+  path_restart_cooldown_seconds: number
+  path_restart_last_at?: string
+  path_restart_pending: boolean
+  path_restart_cooldown_until?: string
   last_run_at?: string
   next_run_at?: string
   last_action?: string
@@ -157,6 +163,15 @@ export interface StreamPath {
   active: boolean
   selected: boolean
   last_selected: boolean
+  success_count: number
+  failure_count: number
+  last_success_at?: string
+  last_failure_at?: string
+  selected_since?: string
+  last_switch_at?: string
+  last_switch_reason?: string
+  stability: string
+  stability_message: string
 }
 
 export interface ViewerSlot {

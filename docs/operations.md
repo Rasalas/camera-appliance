@@ -45,8 +45,13 @@ Settings:
 - `watchdog.camera_interval_seconds`: camera path interval, default `120`.
 - `watchdog.restart_on_change`: restart go2rtc after an automatic path switch, default `true`.
 - `watchdog.restart_go2rtc_on_failure`: restart go2rtc when its API is unavailable, default `true`.
+- `camera.path.fail_threshold`: failed checks required before leaving the active path, default `2`.
+- `camera.path.recovery_threshold`: successful checks required before returning to a preferred non-active path, default `2`.
+- `camera.path.restart_cooldown_seconds`: minimum seconds between go2rtc restarts caused by path changes, default `120`.
 
-On camera checks, the watchdog evaluates direct and relay paths with the same path policy used by render and viewer diagnostics. A real active-path change updates `camera.active_path.*`, renders go2rtc, restarts go2rtc when enabled, and writes a `watchdog.path_switched` event.
+On camera checks, the watchdog evaluates direct and relay paths with the same path policy used by render and viewer diagnostics. It stores per-camera/path success and failure counters under `camera.path_state.*`. A single timeout does not switch away from the active path. Preferred paths are used again only after the recovery threshold is reached.
+
+A real active-path change updates `camera.active_path.*`, renders go2rtc, restarts go2rtc when enabled and outside the cooldown, and writes a `watchdog.path_switched` event with the switch reason. If a restart is inside the cooldown, the watchdog writes `watchdog.path_restart_cooldown`, marks a pending restart, and performs it after the cooldown with `watchdog.path_restart_after_cooldown`.
 
 ## Updates and Rollback
 

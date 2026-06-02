@@ -21,9 +21,14 @@ const (
 	watchdogNextRunAtKey              = "watchdog.next_run_at"
 	watchdogLastActionKey             = "watchdog.last_action"
 	watchdogLastErrorKey              = "watchdog.last_error"
+	watchdogPathRestartLastAtKey      = "watchdog.path_restart.last_at"
+	watchdogPathRestartPendingKey     = "watchdog.path_restart.pending"
+	watchdogPathRestartPendingReason  = "watchdog.path_restart.pending_reason"
+	pathRestartCooldownSecondsKey     = "camera.path.restart_cooldown_seconds"
 
 	defaultWatchdogFastIntervalSeconds   = 30
 	defaultWatchdogCameraIntervalSeconds = 120
+	defaultPathRestartCooldownSeconds    = 120
 )
 
 type WatchdogStatus struct {
@@ -32,6 +37,12 @@ type WatchdogStatus struct {
 	CameraIntervalSeconds  int    `json:"camera_interval_seconds"`
 	RestartOnChange        bool   `json:"restart_on_change"`
 	RestartGo2RTCOnFailure bool   `json:"restart_go2rtc_on_failure"`
+	PathFailThreshold      int    `json:"path_fail_threshold"`
+	PathRecoveryThreshold  int    `json:"path_recovery_threshold"`
+	PathRestartCooldownSec int    `json:"path_restart_cooldown_seconds"`
+	PathRestartLastAt      string `json:"path_restart_last_at,omitempty"`
+	PathRestartPending     bool   `json:"path_restart_pending"`
+	PathRestartCooldownTo  string `json:"path_restart_cooldown_until,omitempty"`
 	LastRunAt              string `json:"last_run_at,omitempty"`
 	NextRunAt              string `json:"next_run_at,omitempty"`
 	LastAction             string `json:"last_action,omitempty"`
@@ -54,6 +65,7 @@ type WatchdogPathChange struct {
 	From     string `json:"from"`
 	To       string `json:"to"`
 	Policy   string `json:"policy"`
+	Reason   string `json:"reason,omitempty"`
 }
 
 type watchdogConfig struct {
@@ -62,6 +74,7 @@ type watchdogConfig struct {
 	CameraInterval         time.Duration
 	RestartOnChange        bool
 	RestartGo2RTCOnFailure bool
+	PathRestartCooldown    time.Duration
 }
 
 func (a *App) RunWatchdog(ctx context.Context) {
@@ -134,6 +147,12 @@ func (a *App) RunWatchdogOnce(ctx context.Context, cameraCheck bool) (WatchdogRu
 		_ = a.Store.AddEvent(ctx, "warning", "watchdog.go2rtc_restarted", "Watchdog hat go2rtc neu gestartet", map[string]string{"reason": go2rtcStatus.Message})
 	}
 
+	if restarted, err := a.restartPendingPathChange(ctx, cfg, now); err != nil {
+		return result, err
+	} else if restarted && result.Action == "keine Aktion" {
+		result.Action = "go2rtc nach Cooldown neu gestartet"
+	}
+
 	if !cameraCheck {
 		return result, relayErr
 	}
@@ -151,12 +170,23 @@ func (a *App) RunWatchdogOnce(ctx context.Context, cameraCheck bool) (WatchdogRu
 func (a *App) WatchdogStatus(ctx context.Context) WatchdogStatus {
 	settings, _ := a.Store.Settings(ctx)
 	cfg := watchdogConfigFromSettings(settings)
+	pathCfg := pathStabilityConfigFromSettings(settings)
+	cooldownUntil := ""
+	if lastAt, ok := parseSettingTime(settings[watchdogPathRestartLastAtKey]); ok && cfg.PathRestartCooldown > 0 {
+		cooldownUntil = lastAt.Add(cfg.PathRestartCooldown).Format(time.RFC3339)
+	}
 	return WatchdogStatus{
 		Enabled:                cfg.Enabled,
 		FastIntervalSeconds:    int(cfg.FastInterval / time.Second),
 		CameraIntervalSeconds:  int(cfg.CameraInterval / time.Second),
 		RestartOnChange:        cfg.RestartOnChange,
 		RestartGo2RTCOnFailure: cfg.RestartGo2RTCOnFailure,
+		PathFailThreshold:      pathCfg.FailThreshold,
+		PathRecoveryThreshold:  pathCfg.RecoveryThreshold,
+		PathRestartCooldownSec: int(cfg.PathRestartCooldown / time.Second),
+		PathRestartLastAt:      settings[watchdogPathRestartLastAtKey],
+		PathRestartPending:     boolSetting(settings, watchdogPathRestartPendingKey, false),
+		PathRestartCooldownTo:  cooldownUntil,
 		LastRunAt:              settings[watchdogLastRunAtKey],
 		NextRunAt:              settings[watchdogNextRunAtKey],
 		LastAction:             settings[watchdogLastActionKey],
@@ -171,7 +201,13 @@ func (a *App) watchdogCheckCameraPaths(ctx context.Context, cfg watchdogConfig) 
 	}
 	bindings = attachSlots(bindings, a.Slots)
 	settings, _ := a.Store.Settings(ctx)
-	_, assessments := a.streamEndpointSelections(ctx, bindings, settings)
+	now := time.Now().UTC()
+	_, assessments, pathStateValues := a.streamEndpointSelectionsWithPathState(ctx, bindings, settings, true, now)
+	if len(pathStateValues) > 0 {
+		if err := a.Store.PutSettings(ctx, pathStateValues); err != nil {
+			return nil, err
+		}
+	}
 	var changes []WatchdogPathChange
 	for _, binding := range bindings {
 		if binding.DeviceID == "" || binding.Device == nil {
@@ -192,6 +228,7 @@ func (a *App) watchdogCheckCameraPaths(ctx context.Context, cfg watchdogConfig) 
 				From:     oldID,
 				To:       assessment.Selected.ID,
 				Policy:   assessment.Policy,
+				Reason:   assessment.SwitchReason,
 			})
 		}
 	}
@@ -204,12 +241,11 @@ func (a *App) watchdogCheckCameraPaths(ctx context.Context, cfg watchdogConfig) 
 	if _, err := a.RenderGo2RTC(ctx); err != nil {
 		return changes, err
 	}
-	if cfg.RestartOnChange {
-		if err := a.restartGo2RTC(ctx); err != nil {
-			return changes, err
-		}
+	restarted, restartMessage, err := a.restartGo2RTCForPathChange(ctx, cfg, settings, now)
+	if err != nil {
+		return changes, err
 	}
-	_ = a.Store.AddEvent(ctx, "warning", "watchdog.path_switched", "Watchdog hat aktive Kamera-Pfade gewechselt", map[string]any{"changes": changes, "restart": cfg.RestartOnChange})
+	_ = a.Store.AddEvent(ctx, "warning", "watchdog.path_switched", "Watchdog hat aktive Kamera-Pfade gewechselt", map[string]any{"changes": changes, "restart": restarted, "restart_message": restartMessage})
 	return changes, nil
 }
 
@@ -232,7 +268,73 @@ func watchdogConfigFromSettings(settings map[string]string) watchdogConfig {
 		CameraInterval:         secondsSetting(settings, watchdogCameraIntervalKey, defaultWatchdogCameraIntervalSeconds, 10, 7200),
 		RestartOnChange:        boolSetting(settings, watchdogRestartOnChangeKey, true),
 		RestartGo2RTCOnFailure: boolSetting(settings, watchdogRestartGo2RTCOnFailureKey, true),
+		PathRestartCooldown:    secondsSetting(settings, pathRestartCooldownSecondsKey, defaultPathRestartCooldownSeconds, 0, 7200),
 	}
+}
+
+func (a *App) restartGo2RTCForPathChange(ctx context.Context, cfg watchdogConfig, settings map[string]string, now time.Time) (bool, string, error) {
+	if !cfg.RestartOnChange {
+		return false, "go2rtc-Neustart nach Pfadwechsel ist deaktiviert.", nil
+	}
+	if lastAt, ok := parseSettingTime(settings[watchdogPathRestartLastAtKey]); ok && cfg.PathRestartCooldown > 0 {
+		cooldownUntil := lastAt.Add(cfg.PathRestartCooldown)
+		if now.Before(cooldownUntil) {
+			message := "go2rtc-Neustart wartet bis " + cooldownUntil.Format(time.RFC3339)
+			_ = a.Store.PutSettings(ctx, map[string]string{
+				watchdogPathRestartPendingKey:    "true",
+				watchdogPathRestartPendingReason: message,
+			})
+			_ = a.Store.AddEvent(ctx, "warning", "watchdog.path_restart_cooldown", "go2rtc-Neustart wegen Cooldown verschoben", map[string]string{"cooldown_until": cooldownUntil.Format(time.RFC3339)})
+			return false, message, nil
+		}
+	}
+	if err := a.restartGo2RTC(ctx); err != nil {
+		return false, "", err
+	}
+	_ = a.Store.PutSettings(ctx, map[string]string{
+		watchdogPathRestartLastAtKey:     now.Format(time.RFC3339),
+		watchdogPathRestartPendingKey:    "false",
+		watchdogPathRestartPendingReason: "",
+	})
+	return true, "go2rtc wurde neu gestartet.", nil
+}
+
+func (a *App) restartPendingPathChange(ctx context.Context, cfg watchdogConfig, now time.Time) (bool, error) {
+	if !cfg.RestartOnChange {
+		return false, nil
+	}
+	settings, err := a.Store.Settings(ctx)
+	if err != nil {
+		return false, err
+	}
+	if !boolSetting(settings, watchdogPathRestartPendingKey, false) {
+		return false, nil
+	}
+	if lastAt, ok := parseSettingTime(settings[watchdogPathRestartLastAtKey]); ok && cfg.PathRestartCooldown > 0 && now.Before(lastAt.Add(cfg.PathRestartCooldown)) {
+		return false, nil
+	}
+	if err := a.restartGo2RTC(ctx); err != nil {
+		return false, err
+	}
+	_ = a.Store.PutSettings(ctx, map[string]string{
+		watchdogPathRestartLastAtKey:     now.Format(time.RFC3339),
+		watchdogPathRestartPendingKey:    "false",
+		watchdogPathRestartPendingReason: "",
+	})
+	_ = a.Store.AddEvent(ctx, "info", "watchdog.path_restart_after_cooldown", "go2rtc nach Pfadwechsel-Cooldown neu gestartet", nil)
+	return true, nil
+}
+
+func parseSettingTime(raw string) (time.Time, bool) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return time.Time{}, false
+	}
+	parsed, err := time.Parse(time.RFC3339, raw)
+	if err != nil {
+		return time.Time{}, false
+	}
+	return parsed, true
 }
 
 func (a *App) saveWatchdogRun(ctx context.Context, result WatchdogRunResult) error {
@@ -263,7 +365,7 @@ func boolSetting(settings map[string]string, key string, fallback bool) bool {
 
 func secondsSetting(settings map[string]string, key string, fallback, min, max int) time.Duration {
 	value, err := strconv.Atoi(strings.TrimSpace(settings[key]))
-	if err != nil || value <= 0 {
+	if err != nil {
 		value = fallback
 	}
 	if value < min {

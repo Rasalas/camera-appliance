@@ -163,10 +163,10 @@ func networkReport(viewer Viewer) string {
 			fmt.Fprintf(&out, "device=%s ip=%s\n", slot.Device.ID, slot.Device.LastIP)
 		}
 		if slot.Path != nil {
-			fmt.Fprintf(&out, "selected=%s kind=%s host=%s port=%s state=%s\n", slot.Path.ID, slot.Path.Kind, slot.Path.Host, slot.Path.Port, slot.Path.State)
+			fmt.Fprintf(&out, "selected=%s kind=%s host=%s port=%s state=%s stability=%s success=%d failure=%d\n", slot.Path.ID, slot.Path.Kind, slot.Path.Host, slot.Path.Port, slot.Path.State, slot.Path.Stability, slot.Path.SuccessCount, slot.Path.FailureCount)
 		}
 		for _, path := range slot.Paths {
-			fmt.Fprintf(&out, "path=%s kind=%s host=%s port=%s state=%s message=%s\n", path.ID, path.Kind, path.Host, path.Port, path.State, path.Message)
+			fmt.Fprintf(&out, "path=%s kind=%s host=%s port=%s state=%s stability=%s success=%d failure=%d message=%s\n", path.ID, path.Kind, path.Host, path.Port, path.State, path.Stability, path.SuccessCount, path.FailureCount, path.Message)
 		}
 	}
 	return out.String()

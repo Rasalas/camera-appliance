@@ -222,11 +222,22 @@ func pathFailureSummary(paths []StreamPath) string {
 }
 
 func streamPathDiagnostic(path StreamPath) string {
+	if path.State != "ok" {
+		if path.StabilityMessage != "" {
+			return "Pfad " + path.Label + ": " + path.Message + " " + path.StabilityMessage
+		}
+		return "Pfad " + path.Label + ": " + path.Message
+	}
 	prefix := "Pfad " + path.Label + " ist erreichbar"
 	if path.Kind == PathKindDirect {
-		return prefix + " (direkt " + path.Host + ":" + path.Port + ")."
+		prefix += " (direkt " + path.Host + ":" + path.Port + ")."
+	} else {
+		prefix += " (Relay " + path.Host + ":" + path.Port + ")."
 	}
-	return prefix + " (Relay " + path.Host + ":" + path.Port + ")."
+	if path.StabilityMessage != "" {
+		return prefix + " " + path.StabilityMessage
+	}
+	return prefix
 }
 
 func (a *App) probeRTSP(ctx context.Context, host, port string) error {
