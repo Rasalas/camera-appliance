@@ -6,7 +6,7 @@
     </div>
     <div class="meta">
       <div>Adresse · <b>{{ settings.bind_addr || '127.0.0.1:8091' }}</b></div>
-      <div>AgentDVR · <b>{{ settings.agentdvr_url || 'http://localhost:8090' }}</b></div>
+      <div>go2rtc · <b>{{ settings.go2rtc_url || 'http://localhost:1984' }}</b></div>
     </div>
   </header>
 
@@ -31,10 +31,6 @@
         <div class="mono-mute" style="margin-top: 6px;">
           {{ settings.camera_password_set === 'true' ? `Gespeichert über ${passwordSource}` : 'Noch kein Kamera-Passwort gespeichert.' }}
         </div>
-      </div>
-      <div class="field">
-        <span class="lbl">AgentDVR-URL</span>
-        <input v-model="settings.agentdvr_url" placeholder="http://localhost:8090" />
       </div>
       <div class="field">
         <span class="lbl">go2rtc-URL</span>
@@ -75,6 +71,85 @@
           <div class="lbl-sub">Streams stehen sofort am Player bereit.</div>
         </div>
       </label>
+    </div>
+  </section>
+
+  <!-- Section: Relays and stream paths -->
+  <section class="panel">
+    <div class="panel-head">
+      <h2>Relays und Pfade</h2>
+      <div class="device-head-actions">
+        <div class="right">{{ relayIds.length }} Relay{{ relayIds.length === 1 ? '' : 's' }}</div>
+        <button class="btn sm primary" type="button" @click="addRelay">Relay hinzufügen</button>
+      </div>
+    </div>
+
+    <div class="split">
+      <div class="field">
+        <span class="lbl">Relay-ID</span>
+        <input v-model="relayDraft.id" placeholder="nas" />
+      </div>
+      <div class="field">
+        <span class="lbl">Name</span>
+        <input v-model="relayDraft.name" placeholder="NAS Relay" />
+      </div>
+      <div class="field">
+        <span class="lbl">Host aus go2rtc-Docker</span>
+        <input v-model="relayDraft.host" placeholder="host.docker.internal" />
+      </div>
+    </div>
+
+    <div v-if="!relayIds.length" class="empty">Noch keine Relays definiert. Legacy-Overrides werden weiter unterstützt.</div>
+    <div v-else class="result-list">
+      <div v-for="relayId in relayIds" :key="relayId" class="result-row ok relay-row">
+        <span class="slot">Relay</span>
+        <input v-model="settings[relaySettingKey(relayId, 'name')]" class="compact-input" :placeholder="relayId" />
+        <input v-model="settings[relaySettingKey(relayId, 'host')]" class="compact-input" placeholder="host.docker.internal" />
+        <span class="stream">{{ relayId }}</span>
+        <button class="btn sm danger" type="button" @click="removeRelay(relayId)">Entfernen</button>
+      </div>
+    </div>
+
+    <div class="panel-subhead">
+      <h3>Kamera-Pfade</h3>
+      <div class="right">Auto versucht den letzten funktionierenden Pfad, dann direkt und Relays.</div>
+    </div>
+
+    <div v-if="!cameraBindings.length" class="empty">Noch keine Kameras zugeordnet.</div>
+    <div v-else class="relay-camera-list">
+      <div v-for="binding in cameraBindings" :key="binding.device_id" class="relay-camera">
+        <div class="relay-camera-main">
+          <div>
+            <div class="name">{{ binding.label || binding.slot?.label || binding.slot_id }}</div>
+            <div class="mono-mute">{{ binding.device?.last_ip || 'keine IP' }} · {{ binding.stream_name || 'stream2' }}</div>
+          </div>
+          <select v-model="settings[pathPolicyKey(binding.device_id)]">
+            <option value="auto">Auto</option>
+            <option value="prefer_direct">Direkt bevorzugen</option>
+            <option value="prefer_relay">Relay bevorzugen</option>
+            <option value="direct_only">Nur direkt</option>
+            <option value="relay_only">Nur Relay</option>
+          </select>
+        </div>
+
+        <div v-if="legacyRelayHost(binding.device_id)" class="legacy-path">
+          Legacy-Relay aktiv · {{ legacyRelayHost(binding.device_id) }}:{{ legacyRelayPort(binding.device_id) }}
+        </div>
+
+        <div v-if="relayIds.length" class="relay-endpoints">
+          <div v-for="relayId in relayIds" :key="`${binding.device_id}-${relayId}`" class="relay-endpoint-row">
+            <span>{{ relayName(relayId) }}</span>
+            <input
+              v-model="settings[relayEndpointKey(binding.device_id, relayId, 'host')]"
+              :placeholder="relayHost(relayId) || 'Host'"
+            />
+            <input
+              v-model="settings[relayEndpointKey(binding.device_id, relayId, 'port')]"
+              placeholder="Port"
+            />
+          </div>
+        </div>
+      </div>
     </div>
   </section>
 
@@ -194,12 +269,13 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import { api } from '../api/client'
-import type { CredentialIdentity, EventItem } from '../types'
+import type { CredentialIdentity, EventItem, StatusResponse } from '../types'
 
 const settings = reactive<Record<string, string>>({})
 const events = ref<EventItem[]>([])
+const status = ref<StatusResponse>()
 const credentialIdentities = ref<CredentialIdentity[]>([])
 const restorePath = ref('')
 const backupResult = ref<{ path: string; warning: string }>()
@@ -211,6 +287,10 @@ const savingIdentity = ref(false)
 const showIdentityModal = ref(false)
 const passwordSource = ref('unbekannt')
 const identityForm = reactive({ id: '', name: '', username: '', password: '' })
+const relayDraft = reactive({ id: 'nas', name: 'NAS Relay', host: 'host.docker.internal' })
+
+const relayIds = computed(() => settingList(settings['camera.relay.ids']))
+const cameraBindings = computed(() => (status.value?.bindings ?? []).filter((binding) => binding.device_id))
 
 function setBool(key: string, e: Event) {
   const target = e.target as HTMLInputElement
@@ -235,6 +315,78 @@ function passwordSourceLabel(source?: string) {
   if (source === 'keyring') return 'Keyring'
   if (source === 'local.env') return 'Secret-Datei'
   return source
+}
+
+function settingList(raw?: string) {
+  const seen = new Set<string>()
+  return (raw || '')
+    .split(',')
+    .map((part) => part.trim())
+    .filter((part) => {
+      if (!part || seen.has(part)) return false
+      seen.add(part)
+      return true
+    })
+}
+
+function sanitizeID(value: string) {
+  return value.trim().toLowerCase().replace(/[^a-z0-9_]+/g, '_').replace(/^_+|_+$/g, '')
+}
+
+function relaySettingKey(id: string, field: string) {
+  return `camera.relay.${id}.${field}`
+}
+
+function relayEndpointKey(deviceId: string, relayId: string, field: string) {
+  return `camera.relay_endpoint.${deviceId}.${relayId}.${field}`
+}
+
+function pathPolicyKey(deviceId: string) {
+  return `camera.path_policy.${deviceId}`
+}
+
+function relayName(id: string) {
+  return settings[relaySettingKey(id, 'name')] || id
+}
+
+function relayHost(id: string) {
+  return settings[relaySettingKey(id, 'host')] || ''
+}
+
+function legacyRelayHost(deviceId: string) {
+  return settings[`camera.rtsp_endpoint.${deviceId}.host`] || ''
+}
+
+function legacyRelayPort(deviceId: string) {
+  return settings[`camera.rtsp_endpoint.${deviceId}.port`] || '554'
+}
+
+function addRelay() {
+  const id = sanitizeID(relayDraft.id)
+  if (!id) {
+    error.value = 'Relay-ID fehlt.'
+    return
+  }
+  const ids = relayIds.value.includes(id) ? relayIds.value : [...relayIds.value, id]
+  settings['camera.relay.ids'] = ids.join(',')
+  settings[relaySettingKey(id, 'name')] = relayDraft.name.trim() || id
+  settings[relaySettingKey(id, 'host')] = relayDraft.host.trim()
+  relayDraft.id = ''
+  relayDraft.name = ''
+  relayDraft.host = ''
+}
+
+function ensurePathPolicyDefaults() {
+  for (const binding of cameraBindings.value) {
+    const key = pathPolicyKey(binding.device_id)
+    if (!settings[key]) settings[key] = 'auto'
+  }
+}
+
+function removeRelay(id: string) {
+  settings['camera.relay.ids'] = relayIds.value.filter((relayId) => relayId !== id).join(',')
+  delete settings[relaySettingKey(id, 'name')]
+  delete settings[relaySettingKey(id, 'host')]
 }
 
 async function saveSettings() {
@@ -351,6 +503,8 @@ onMounted(async () => {
   try {
     Object.assign(settings, await api.settings())
     passwordSource.value = settings.camera_password_source === 'keyring' ? 'Betriebssystem-Keyring' : (settings.camera_password_source || 'unbekannt')
+    status.value = await api.status()
+    ensurePathPolicyDefaults()
     await loadCredentialIdentities()
     events.value = await api.events()
   } catch (err) {

@@ -24,7 +24,13 @@ type RenderInput struct {
 	Bindings  []state.Binding
 	Password  string
 	Passwords map[string]string
+	Endpoints map[string]StreamEndpoint
 	Output    string
+}
+
+type StreamEndpoint struct {
+	Host string
+	Port string
 }
 
 type RenderResult struct {
@@ -83,7 +89,14 @@ func Render(ctx context.Context, input RenderInput) (RenderResult, error) {
 		if stream == "" {
 			stream = slot.DefaultStream
 		}
-		doc.Streams[slot.ID] = []string{cameraRTSPURL(binding.Username, password, binding.Device.LastIP, stream)}
+		endpoint := input.Endpoints[binding.DeviceID]
+		if strings.TrimSpace(endpoint.Host) == "" {
+			endpoint.Host = binding.Device.LastIP
+		}
+		if strings.TrimSpace(endpoint.Port) == "" {
+			endpoint.Port = "554"
+		}
+		doc.Streams[slot.ID] = []string{cameraRTSPURL(binding.Username, password, endpoint.Host, endpoint.Port, stream)}
 	}
 	data, err := yaml.Marshal(doc)
 	if err != nil {
@@ -107,11 +120,11 @@ func Render(ctx context.Context, input RenderInput) (RenderResult, error) {
 	return RenderResult{Path: input.Output, RenderedStreams: len(doc.Streams), Warnings: warnings, RedactedYAML: redacted}, nil
 }
 
-func cameraRTSPURL(username, password, host, stream string) string {
+func cameraRTSPURL(username, password, host, port, stream string) string {
 	u := neturl.URL{
 		Scheme: "rtsp",
 		User:   neturl.UserPassword(username, password),
-		Host:   net.JoinHostPort(host, "554"),
+		Host:   net.JoinHostPort(host, port),
 		Path:   "/" + strings.TrimLeft(stream, "/"),
 	}
 	return u.String()

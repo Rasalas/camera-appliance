@@ -75,6 +75,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST /api/bindings/", s.replaceBinding)
 	s.mux.HandleFunc("POST /api/go2rtc/render", s.renderGo2RTC)
 	s.mux.HandleFunc("POST /api/go2rtc/restart", s.restartGo2RTC)
+	s.mux.HandleFunc("GET /api/viewer", s.getViewer)
 	s.mux.HandleFunc("POST /api/system/restart-stack", s.restartStack)
 	s.mux.HandleFunc("GET /api/credential-identities", s.getCredentialIdentities)
 	s.mux.HandleFunc("POST /api/credential-identities", s.saveCredentialIdentity)
@@ -91,6 +92,11 @@ func (s *Server) routes() {
 func (s *Server) getStatus(w http.ResponseWriter, r *http.Request) {
 	status, err := s.app.Status(r.Context())
 	writeResult(w, status, err)
+}
+
+func (s *Server) getViewer(w http.ResponseWriter, r *http.Request) {
+	viewer, err := s.app.Viewer(r.Context())
+	writeResult(w, viewer, err)
 }
 
 func (s *Server) startDiscovery(w http.ResponseWriter, r *http.Request) {
@@ -173,7 +179,7 @@ func (s *Server) addManualDevice(w http.ResponseWriter, r *http.Request) {
 func (s *Server) getDevice(w http.ResponseWriter, r *http.Request) {
 	path := strings.TrimPrefix(r.URL.Path, "/api/devices/")
 	if strings.HasSuffix(path, "/preview") {
-		writeJSON(w, map[string]string{"message": "Vorschau ist im MVP über AgentDVR/go2rtc manuell vorgesehen."}, http.StatusOK)
+		writeJSON(w, map[string]string{"message": "Vorschau läuft über den go2rtc-Viewer der lokalen Oberfläche."}, http.StatusOK)
 		return
 	}
 	if strings.HasSuffix(path, "/credentials") {
@@ -781,6 +787,10 @@ func (s *Server) renderGo2RTC(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) restartGo2RTC(w http.ResponseWriter, r *http.Request) {
+	if _, err := s.app.RenderGo2RTC(r.Context()); err != nil {
+		writeResult(w, map[string]string{"status": "render_failed"}, err)
+		return
+	}
 	err := system.RestartGo2RTC(r.Context(), s.app.Config)
 	if err == nil {
 		_ = s.app.Store.AddEvent(r.Context(), "info", "go2rtc.restarted", "go2rtc wurde neu gestartet", nil)
@@ -798,7 +808,6 @@ func (s *Server) getSettings(w http.ResponseWriter, r *http.Request) {
 	if settings == nil {
 		settings = map[string]string{}
 	}
-	settings["agentdvr_url"] = s.app.Config.AgentDVRURL
 	settings["go2rtc_url"] = s.app.Config.Go2RTCURL
 	settings["bind_addr"] = s.app.Config.BindAddr
 	if settings["capture_ssh_host"] == "" {

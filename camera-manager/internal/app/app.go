@@ -19,9 +19,10 @@ import (
 )
 
 type App struct {
-	Config config.Config
-	Store  *state.Store
-	Slots  []config.Slot
+	Config    config.Config
+	Store     *state.Store
+	Slots     []config.Slot
+	RTSPProbe func(ctx context.Context, host, port string) error
 }
 
 type Status struct {
@@ -268,14 +269,20 @@ func (a *App) RenderGo2RTC(ctx context.Context) (go2rtcrender.RenderResult, erro
 			passwords[deviceID] = secret.Value
 		}
 	}
+	endpoints, assessments := a.streamEndpointSelections(ctx, bindings, settings)
 	result, err := go2rtcrender.Render(ctx, go2rtcrender.RenderInput{
 		Slots:     a.Slots,
 		Bindings:  bindings,
 		Password:  a.Config.TapoPassword,
 		Passwords: passwords,
+		Endpoints: endpoints,
 		Output:    a.Config.Go2RTCConfigPath(),
 	})
 	if err != nil {
+		return result, err
+	}
+	result.Warnings = append(result.Warnings, pathWarnings(bindings, assessments)...)
+	if err := a.saveActiveStreamPaths(ctx, assessments); err != nil {
 		return result, err
 	}
 	_ = a.Store.AddEvent(ctx, "info", "go2rtc.rendered", fmt.Sprintf("go2rtc-Konfiguration erzeugt: %d Streams", result.RenderedStreams), map[string]any{"warnings": result.Warnings})

@@ -24,6 +24,7 @@ agentdvr-data/
 # Customer-specific files
 customer/
 local/
+.private/
 
 # Build outputs
 dist/

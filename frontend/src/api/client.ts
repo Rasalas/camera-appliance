@@ -1,4 +1,4 @@
-import type { Binding, CredentialIdentity, Device, DeviceCredentials, EventItem, FrameResult, ManualDeviceResult, ProbeResult, ScanRun, Slot, StatusResponse } from '../types'
+import type { Binding, CredentialIdentity, Device, DeviceCredentials, EventItem, FrameResult, ManualDeviceResult, ProbeResult, ScanRun, Slot, StatusResponse, ViewerResponse } from '../types'
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(path, {
@@ -17,6 +17,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
 export const api = {
   status: () => request<StatusResponse>('/api/status'),
+  viewer: () => request<ViewerResponse>('/api/viewer'),
   discover: () => request<{ devices: Device[]; subnets: Array<{ cidr: string; interface: string }> }>('/api/discovery/start', { method: 'POST' }),
   runs: () => request<ScanRun[]>('/api/discovery/runs'),
   devices: () => request<Device[]>('/api/devices'),

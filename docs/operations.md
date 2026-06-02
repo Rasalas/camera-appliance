@@ -2,14 +2,48 @@
 
 ## Daily Use
 
-- `bin/open-cameras` opens AgentDVR fullscreen.
+- `bin/open-cameras` opens the local camera-appliance viewer fullscreen.
 - `bin/rediscover-cameras` searches for cameras.
-- `bin/restart-cameras` restarts AgentDVR, go2rtc, and the manager.
+- `bin/restart-cameras` restarts go2rtc and the manager.
 - `bin/status` prints local service and camera status.
 
 ## Logs and Events
 
 The manager stores recent operational events in SQLite. The admin UI shows these under **Logs und Ereignisse**.
+
+## RTSP Relays and Path Policies
+
+If the appliance host cannot reach a camera directly, but another host in the same customer network can, define a relay and map affected cameras to relay ports. On every go2rtc render or go2rtc restart, the manager probes the last successful path first, then direct and relay paths according to the camera policy.
+
+Relay settings:
+
+- `camera.relay.ids`
+- `camera.relay.<relay_id>.name`
+- `camera.relay.<relay_id>.host`
+- `camera.relay_endpoint.<device_id>.<relay_id>.host`
+- `camera.relay_endpoint.<device_id>.<relay_id>.port`
+- `camera.path_policy.<device_id>`
+
+Supported policies:
+
+- `auto` or empty: last successful path, then direct, then relays.
+- `prefer_direct`: direct before relays.
+- `prefer_relay`: relays before direct.
+- `direct_only`: only direct camera IP.
+- `relay_only`: only configured relays.
+
+Example for a local SSH relay:
+
+```bash
+ssh -fN -L 15541:192.168.178.101:554 -L 15543:192.168.178.190:554 nas
+```
+
+Then define relay `nas` with host `host.docker.internal`, set the affected camera relay ports, and regenerate/restart go2rtc. The viewer still shows the camera's discovered IP, but diagnostics and go2rtc use the selected path.
+
+Legacy per-device overrides remain supported:
+
+- `camera.rtsp_endpoint.<device_id>.host`
+- `camera.rtsp_endpoint.<device_id>.port`
 
 ## Reset Lab State
 
@@ -19,4 +53,4 @@ Before moving from lab to customer network:
 camera-appliance reset-bindings --yes
 ```
 
-This removes discovered devices and bindings only. It does not remove secrets, code, services, or AgentDVR base configuration.
+This removes discovered devices and bindings only. It does not remove secrets, code, services, or generated backups.

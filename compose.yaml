@@ -2,6 +2,8 @@ services:
   agentdvr:
     image: mekayelanik/ispyagentdvr:stable
     container_name: agentdvr
+    profiles:
+      - agentdvr
     restart: unless-stopped
     ports:
       - "8090:8090"

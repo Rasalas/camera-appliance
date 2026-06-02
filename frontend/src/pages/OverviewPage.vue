@@ -20,7 +20,7 @@
   <!-- Primary actions -->
   <div class="panel flush" style="background: transparent; border: 0; padding: 0;">
     <div class="btn-row">
-      <a class="btn live lg" href="http://localhost:8090/" target="_blank">Kameras öffnen ↗</a>
+      <RouterLink class="btn live lg" to="/">Kameras öffnen</RouterLink>
       <button class="btn lg" :disabled="!!busy" @click="runDiscovery">{{ busy === 'scan' ? 'Suche läuft…' : 'Neu suchen' }}</button>
       <button class="btn ghost" :disabled="!!busy" @click="restart">Server neu starten</button>
       <div class="spacer" />
@@ -32,11 +32,11 @@
   <section class="service-strip fade-in">
     <div class="service">
       <div>
-        <div class="name">AgentDVR</div>
-        <div class="endpoint">localhost:8090 · Anzeige</div>
+        <div class="name">Viewer</div>
+        <div class="endpoint">localhost:8091 · Kameraansicht</div>
       </div>
-      <span class="pill" :class="status?.system.agentdvr.online ? 'live' : 'down'">
-        {{ status?.system.agentdvr.online ? 'aktiv' : 'offline' }}
+      <span class="pill" :class="status?.system.camera_appliance.online ? 'live' : 'down'">
+        {{ status?.system.camera_appliance.online ? 'aktiv' : 'offline' }}
       </span>
     </div>
     <div class="service">

@@ -2,12 +2,12 @@
 
 `camera-appliance` turns a Linux Mint laptop into a local camera viewing appliance.
 
-AgentDVR is the static viewer, go2rtc exposes stable stream aliases (`cam1` through `cam5`), and the Go manager discovers cameras, stores stable device identities, binds devices to slots, renders go2rtc config, and serves a local German admin UI on `127.0.0.1:8091`.
+The Go manager discovers cameras, stores stable device identities, binds devices to slots, renders go2rtc config, and serves a local German kiosk viewer/admin UI on `127.0.0.1:8091`. go2rtc exposes stable stream aliases (`cam1` through `cam5`) for the viewer.
 
 ## Architecture
 
 ```text
-Tapo cameras -> camera-appliance discovery/state -> go2rtc stable aliases -> AgentDVR static layout
+Tapo cameras -> camera-appliance discovery/state -> go2rtc stable aliases -> camera-appliance Vue viewer
 ```
 
 Camera identity is never bound to IP address alone. Devices store MAC, ONVIF endpoint reference, serial number, manufacturer, model, hardware ID, hostname, and last known IP.
@@ -74,9 +74,13 @@ Do not commit real credentials. Copy `.env.example` to `/etc/camera-appliance/se
 
 All CLI/API/UI output redacts credential-containing URLs. The admin UI binds to localhost by default.
 
-## AgentDVR
+## Viewer
 
-Configure AgentDVR manually with these stable streams:
+The normal camera view is the local UI at:
+
+- [http://127.0.0.1:8091](http://127.0.0.1:8091)
+
+The viewer consumes only stable go2rtc aliases:
 
 - `rtsp://go2rtc:8554/cam1`
 - `rtsp://go2rtc:8554/cam2`
@@ -84,7 +88,17 @@ Configure AgentDVR manually with these stable streams:
 - `rtsp://go2rtc:8554/cam4`
 - `rtsp://go2rtc:8554/cam5`
 
-Do not put camera DHCP IPs directly into AgentDVR.
+Do not put camera DHCP IPs into viewer configuration.
+
+## Optional AgentDVR
+
+AgentDVR is not required for normal install, startup, status, or camera display. It remains available only as an optional Docker Compose profile for NVR experiments:
+
+```bash
+sudo docker compose --profile agentdvr up -d agentdvr
+```
+
+If used, configure it manually with the same stable go2rtc aliases and never with camera DHCP IPs.
 
 ## Linux Mint Install
 
@@ -96,6 +110,7 @@ sudo docker compose up -d
 ```
 
 The install script does not overwrite an existing `/etc/camera-appliance/secrets.env`.
+Open `http://127.0.0.1:8091`, discover cameras, assign devices to `cam1` through `cam5`, render go2rtc config, and restart go2rtc.
 
 ## Recovery
 

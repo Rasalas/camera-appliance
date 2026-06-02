@@ -9,4 +9,4 @@
 6. Start the stack with `sudo docker compose up -d`.
 7. Open `http://127.0.0.1:8091`, start camera discovery, and assign devices to `cam1` through `cam5`.
 8. Render go2rtc config and restart go2rtc.
-9. Configure AgentDVR to use only `rtsp://go2rtc:8554/cam1` through `cam5`.
+9. Open the camera view at `http://127.0.0.1:8091` or use the desktop launcher **Kameras öffnen**.

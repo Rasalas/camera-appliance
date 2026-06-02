@@ -76,6 +76,61 @@ export interface Binding {
   slot?: Slot
 }
 
+export type ViewerSlotState =
+  | 'unassigned'
+  | 'connecting'
+  | 'online'
+  | 'offline'
+  | 'credentials_failed'
+  | 'stream_unavailable'
+
+export interface ViewerDiagnostic {
+  key: string
+  status: string
+  message: string
+}
+
+export interface ViewerPlayback {
+  page_url: string
+}
+
+export interface StreamPath {
+  id: string
+  label: string
+  kind: 'direct' | 'relay' | string
+  relay_id?: string
+  host: string
+  port: string
+  probe_host?: string
+  state: string
+  message: string
+  active: boolean
+  selected: boolean
+  last_selected: boolean
+}
+
+export interface ViewerSlot {
+  slot: Slot
+  alias: string
+  label: string
+  state: ViewerSlotState
+  message: string
+  binding?: Binding
+  device?: Device
+  playback?: ViewerPlayback
+  path?: StreamPath
+  paths?: StreamPath[]
+  diagnostics?: ViewerDiagnostic[]
+}
+
+export interface ViewerResponse {
+  checked_at: string
+  go2rtc: ServiceStatus
+  generated_config?: string
+  stream_count: number
+  slots: ViewerSlot[]
+}
+
 export interface EventItem {
   id: string
   created_at: string
@@ -94,7 +149,6 @@ export interface ScanRun {
 
 export interface StatusResponse {
   system: {
-    agentdvr: ServiceStatus
     go2rtc: ServiceStatus
     camera_appliance: ServiceStatus
   }

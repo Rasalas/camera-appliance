@@ -11,7 +11,6 @@ import (
 )
 
 type Status struct {
-	AgentDVR          ServiceStatus `json:"agentdvr"`
 	Go2RTC            ServiceStatus `json:"go2rtc"`
 	CameraAppliance   ServiceStatus `json:"camera_appliance"`
 	LastDiscoveryText string        `json:"last_discovery_text,omitempty"`
@@ -25,7 +24,6 @@ type ServiceStatus struct {
 
 func Check(ctx context.Context, cfg config.Config) Status {
 	return Status{
-		AgentDVR:        httpStatus(ctx, "AgentDVR", cfg.AgentDVRURL),
 		Go2RTC:          httpStatus(ctx, "go2rtc", cfg.Go2RTCURL),
 		CameraAppliance: ServiceStatus{Name: "camera-appliance", Online: true, Message: "läuft"},
 	}
@@ -36,7 +34,7 @@ func RestartGo2RTC(ctx context.Context, cfg config.Config) error {
 }
 
 func RestartStack(ctx context.Context, cfg config.Config) error {
-	return dockerCompose(ctx, cfg, "restart", "agentdvr", "go2rtc", "camera-manager")
+	return dockerCompose(ctx, cfg, "restart", "go2rtc", "camera-manager")
 }
 
 func httpStatus(ctx context.Context, name, rawURL string) ServiceStatus {

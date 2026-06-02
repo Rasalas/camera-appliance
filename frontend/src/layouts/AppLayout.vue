@@ -7,9 +7,10 @@
       </div>
 
       <nav class="nav">
-        <RouterLink to="/">Übersicht<span class="nav-key">1</span></RouterLink>
+        <RouterLink to="/">Kameras<span class="nav-key">1</span></RouterLink>
         <RouterLink to="/einrichtung">Einrichtung<span class="nav-key">2</span></RouterLink>
-        <RouterLink to="/system">System<span class="nav-key">3</span></RouterLink>
+        <RouterLink to="/uebersicht">Status<span class="nav-key">3</span></RouterLink>
+        <RouterLink to="/system">System<span class="nav-key">4</span></RouterLink>
       </nav>
 
       <div class="rail-foot">
@@ -49,7 +50,8 @@ onMounted(() => {
     if (e.target instanceof HTMLElement && ['INPUT', 'TEXTAREA', 'SELECT'].includes(e.target.tagName)) return
     if (e.key === '1') router.push('/')
     if (e.key === '2') router.push('/einrichtung')
-    if (e.key === '3') router.push('/system')
+    if (e.key === '3') router.push('/uebersicht')
+    if (e.key === '4') router.push('/system')
   }
   window.addEventListener('keydown', onKey)
 })

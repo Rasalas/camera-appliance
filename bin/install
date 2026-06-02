@@ -50,13 +50,16 @@ mkdir -p /etc/camera-appliance \
   /var/lib/camera-appliance/generated \
   /var/lib/camera-appliance/backups \
   /var/lib/camera-appliance/logs \
-  /var/lib/camera-appliance/agentdvr/xml \
-  /var/lib/camera-appliance/agentdvr/media \
   /var/log/camera-appliance
 
 if [[ ! -f /etc/camera-appliance/secrets.env ]]; then
   install -m 0600 .env.example /etc/camera-appliance/secrets.env
   echo "Created /etc/camera-appliance/secrets.env. Replace change-me values before customer use."
+fi
+
+if [[ ! -f /var/lib/camera-appliance/generated/go2rtc.yaml ]]; then
+  printf 'streams: {}\n' > /var/lib/camera-appliance/generated/go2rtc.yaml
+  chmod 0600 /var/lib/camera-appliance/generated/go2rtc.yaml
 fi
 
 (cd frontend && npm ci && npm run build)

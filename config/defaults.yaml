@@ -1,4 +1,3 @@
 bind_addr: "127.0.0.1:8091"
-agentdvr_url: "http://localhost:8090"
 go2rtc_url: "http://localhost:1984"
 go2rtc_rtsp_url: "rtsp://localhost:8554"

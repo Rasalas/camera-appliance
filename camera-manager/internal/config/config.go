@@ -20,7 +20,6 @@ const (
 	DefaultBindAddr     = "127.0.0.1:8091"
 	DefaultConfigDir    = "/etc/camera-appliance"
 	DefaultStateDir     = "/var/lib/camera-appliance"
-	DefaultAgentDVRURL  = "http://localhost:8090"
 	DefaultGo2RTCURL    = "http://localhost:1984"
 	DefaultGo2RTCRTSP   = "rtsp://localhost:8554"
 	DefaultComposeFile  = "/opt/camera-appliance/compose.yaml"
@@ -31,7 +30,6 @@ type Config struct {
 	BindAddr           string
 	ConfigDir          string
 	StateDir           string
-	AgentDVRURL        string
 	Go2RTCURL          string
 	Go2RTCRTSPURL      string
 	TapoPassword       string
@@ -63,7 +61,6 @@ func Load() (Config, error) {
 		BindAddr:       getenv("CAMERA_APPLIANCE_BIND_ADDR", DefaultBindAddr),
 		ConfigDir:      getenv("CAMERA_APPLIANCE_CONFIG_DIR", DefaultConfigDir),
 		StateDir:       getenv("CAMERA_APPLIANCE_STATE_DIR", DefaultStateDir),
-		AgentDVRURL:    getenv("CAMERA_APPLIANCE_AGENTDVR_URL", DefaultAgentDVRURL),
 		Go2RTCURL:      getenv("CAMERA_APPLIANCE_GO2RTC_URL", DefaultGo2RTCURL),
 		Go2RTCRTSPURL:  getenv("CAMERA_APPLIANCE_GO2RTC_RTSP_URL", DefaultGo2RTCRTSP),
 		ComposeFile:    getenv("CAMERA_APPLIANCE_COMPOSE_FILE", DefaultComposeFile),
@@ -83,6 +80,9 @@ func Load() (Config, error) {
 	}
 	if env := os.Getenv("CAMERA_APPLIANCE_CONFIG_DIR"); env == "" && !pathExists(cfg.ConfigDir) {
 		cfg.ConfigDir = "."
+	}
+	if env := os.Getenv("CAMERA_APPLIANCE_COMPOSE_FILE"); env == "" && !pathExists(cfg.ComposeFile) {
+		cfg.ComposeFile = localComposeFile(cfg.ComposeFile)
 	}
 	if cfg.BindAddr == "" {
 		return Config{}, errors.New("bind address is empty")
@@ -193,4 +193,13 @@ func writableStateDir(primary string) string {
 func pathExists(path string) bool {
 	_, err := os.Stat(path)
 	return err == nil
+}
+
+func localComposeFile(fallback string) string {
+	for _, candidate := range []string{"compose.yaml", filepath.Join("..", "compose.yaml")} {
+		if pathExists(candidate) {
+			return candidate
+		}
+	}
+	return fallback
 }

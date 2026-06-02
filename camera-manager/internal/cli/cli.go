@@ -84,6 +84,12 @@ func statusCmd() *cobra.Command {
 				return err
 			}
 			printStatus(status)
+			viewer, err := a.Viewer(cmd.Context())
+			if err != nil {
+				fmt.Printf("\nViewer: Diagnose konnte nicht geladen werden (%s)\n", redaction.Text(err.Error()))
+				return nil
+			}
+			printViewer(viewer)
 			return nil
 		},
 	}
@@ -183,6 +189,9 @@ func restartGo2RTCCmd() *cobra.Command {
 				return err
 			}
 			defer a.Close()
+			if _, err := a.RenderGo2RTC(cmd.Context()); err != nil {
+				return err
+			}
 			if err := system.RestartGo2RTC(cmd.Context(), a.Config); err != nil {
 				return err
 			}
@@ -195,7 +204,7 @@ func restartGo2RTCCmd() *cobra.Command {
 func restartStackCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "restart-stack",
-		Short: "Restart AgentDVR, go2rtc, and camera-appliance containers",
+		Short: "Restart go2rtc and camera-appliance containers",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			a, err := app.Open(cmd.Context())
 			if err != nil {
@@ -287,11 +296,10 @@ func restoreCmd() *cobra.Command {
 
 func printStatus(status app.Status) {
 	fmt.Println("System")
-	printService("AgentDVR", status.System.AgentDVR)
 	printService("go2rtc", status.System.Go2RTC)
 	printService("camera-appliance", status.System.CameraAppliance)
 	fmt.Println()
-	fmt.Println("Kameras")
+	fmt.Println("Zuordnungen")
 	if len(status.Bindings) == 0 {
 		fmt.Println("  Keine Kameras zugeordnet")
 		return
@@ -301,13 +309,44 @@ func printStatus(status app.Status) {
 		if label == "" && binding.Slot != nil {
 			label = binding.Slot.Label
 		}
-		stateText := "offline"
+		stateText := "keine aktuelle IP"
 		ip := ""
 		if binding.Device != nil && binding.Device.LastIP != "" {
-			stateText = "online"
-			ip = " at " + binding.Device.LastIP
+			stateText = "IP bekannt"
+			ip = " " + binding.Device.LastIP
 		}
 		fmt.Printf("  %s %s: %s%s\n", binding.SlotID, label, stateText, ip)
+	}
+}
+
+func printViewer(viewer app.Viewer) {
+	fmt.Println()
+	fmt.Println("Viewer")
+	for _, slot := range viewer.Slots {
+		fmt.Printf("  %s %s: %s", slot.Alias, slot.Label, viewerStateText(slot.State))
+		if slot.Message != "" {
+			fmt.Printf(" (%s)", slot.Message)
+		}
+		fmt.Println()
+	}
+}
+
+func viewerStateText(state string) string {
+	switch state {
+	case app.ViewerStateUnassigned:
+		return "leer"
+	case app.ViewerStateConnecting:
+		return "verbindet"
+	case app.ViewerStateOnline:
+		return "online"
+	case app.ViewerStateOffline:
+		return "offline"
+	case app.ViewerStateCredentialsFailed:
+		return "zugangsdaten fehlen"
+	case app.ViewerStateStreamUnavailable:
+		return "stream nicht verfügbar"
+	default:
+		return state
 	}
 }
 
