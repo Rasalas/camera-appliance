@@ -185,11 +185,48 @@ export interface CameraDisplay {
   crop: DisplayCrop
 }
 
+export type ViewerLayoutID = 'grid_2x2' | 'four_plus_large' | 'vertical_plus_grid' | 'large_only' | 'custom'
+export type ViewerLayoutMode = 'auto' | 'focus_left' | 'focus_middle' | 'focus_right' | ViewerLayoutID
+
+export interface ViewerLayoutCell {
+  id: string
+  slot_id?: string
+  area: string
+  size: string
+  transform?: string
+}
+
+export interface ViewerCustomLayoutCell {
+  slot_id: string
+  column: number
+  row: number
+  column_span: number
+  row_span: number
+}
+
+export interface ViewerCustomLayout {
+  columns: number[]
+  rows: number[]
+  cells: ViewerCustomLayoutCell[]
+}
+
+export interface ViewerLayoutOption {
+  id: ViewerLayoutID | string
+  name: string
+  description: string
+}
+
 export interface ViewerLayout {
-  mode: 'auto' | 'focus_left' | 'focus_right'
+  id: ViewerLayoutID | string
+  name: string
+  mode: ViewerLayoutMode | string
   focus_slot_id: string
+  slot_order: string[]
   split_percent: number
   gap_px: number
+  cells: ViewerLayoutCell[]
+  custom: ViewerCustomLayout
+  options: ViewerLayoutOption[]
 }
 
 export interface StreamPath {

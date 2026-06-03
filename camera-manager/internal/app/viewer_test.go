@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -230,6 +231,7 @@ func TestViewerIncludesDisplayTransformAndLayout(t *testing.T) {
 		"camera.display.dev1.crop_height":  "80",
 		"viewer.layout.mode":               ViewerLayoutFocusRight,
 		"viewer.layout.focus_slot_id":      "cam5",
+		"viewer.layout.slot_order":         "cam3,cam1,missing,cam3",
 		"viewer.layout.split_percent":      "63",
 		"viewer.layout.gap_px":             "6",
 		"camera.display.dev1.ignored_test": "kept only in settings",
@@ -244,12 +246,96 @@ func TestViewerIncludesDisplayTransformAndLayout(t *testing.T) {
 	if viewer.Layout.Mode != ViewerLayoutFocusRight || viewer.Layout.FocusSlotID != "cam5" || viewer.Layout.SplitPercent != 63 || viewer.Layout.GapPX != 6 {
 		t.Fatalf("unexpected viewer layout: %+v", viewer.Layout)
 	}
+	if viewer.Layout.ID != ViewerLayoutFourPlusLarge || viewer.Layout.Name == "" || len(viewer.Layout.Options) < 2 {
+		t.Fatalf("expected named layout options, got %+v", viewer.Layout)
+	}
+	expectedOrder := []string{"cam3", "cam1", "cam2", "cam4", "cam5"}
+	if !slices.Equal(viewer.Layout.SlotOrder, expectedOrder) {
+		t.Fatalf("unexpected slot order: %+v", viewer.Layout.SlotOrder)
+	}
+	if len(viewer.Layout.Cells) != 5 || viewer.Layout.Cells[0].SlotID != "cam5" || viewer.Layout.Cells[1].SlotID != "cam3" {
+		t.Fatalf("expected focus layout cells, got %+v", viewer.Layout.Cells)
+	}
 	slot := viewer.Slots[len(viewer.Slots)-1]
 	if slot.Display.Rotation != 90 || !slot.Display.Mirror || !slot.Display.Flip || slot.Display.FitMode != "contain" {
 		t.Fatalf("unexpected display transform: %+v", slot.Display)
 	}
 	if slot.Display.Crop != (DisplayCrop{X: 20, Y: 10, Width: 60, Height: 80}) {
 		t.Fatalf("unexpected crop: %+v", slot.Display.Crop)
+	}
+}
+
+func TestViewerLayoutPresetIDControlsLayoutCells(t *testing.T) {
+	ctx := context.Background()
+	a := newViewerTestApp(t, "http://127.0.0.1:1", "secret")
+	if err := a.Store.PutSettings(ctx, map[string]string{
+		"viewer.layout.id":            ViewerLayoutVerticalPlusGrid,
+		"viewer.layout.mode":          ViewerLayoutFocusMiddle,
+		"viewer.layout.focus_slot_id": "cam2",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	viewer, err := a.Viewer(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if viewer.Layout.ID != ViewerLayoutVerticalPlusGrid || viewer.Layout.Mode != ViewerLayoutFocusMiddle {
+		t.Fatalf("unexpected vertical layout: %+v", viewer.Layout)
+	}
+	if len(viewer.Layout.Cells) != 5 {
+		t.Fatalf("expected focus plus four grid cells, got %+v", viewer.Layout.Cells)
+	}
+	if viewer.Layout.Cells[0].SlotID != "cam2" || viewer.Layout.Cells[0].Size != "portrait" {
+		t.Fatalf("expected portrait focus cell, got %+v", viewer.Layout.Cells[0])
+	}
+}
+
+func TestViewerReturnsSanitizedCustomLayout(t *testing.T) {
+	ctx := context.Background()
+	a := newViewerTestApp(t, "http://127.0.0.1:1", "secret")
+	custom, err := json.Marshal(ViewerCustomLayout{
+		Columns: []int{40, 20, 20, 20},
+		Rows:    []int{70, 30},
+		Cells: []ViewerCustomLayoutCell{
+			{SlotID: "cam3", Column: 2, Row: 1, ColumnSpan: 2, RowSpan: 2},
+			{SlotID: "missing", Column: 1, Row: 1, ColumnSpan: 1, RowSpan: 1},
+			{SlotID: "cam3", Column: 1, Row: 1, ColumnSpan: 1, RowSpan: 1},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := a.Store.PutSettings(ctx, map[string]string{
+		"viewer.layout.id":         ViewerLayoutCustom,
+		"viewer.layout.mode":       ViewerLayoutCustom,
+		"viewer.layout.custom":     string(custom),
+		"viewer.layout.slot_order": "cam3,cam1",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	viewer, err := a.Viewer(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if viewer.Layout.ID != ViewerLayoutCustom || viewer.Layout.Mode != ViewerLayoutCustom {
+		t.Fatalf("unexpected custom layout: %+v", viewer.Layout)
+	}
+	if !slices.Equal(viewer.Layout.Custom.Columns, []int{40, 20, 20, 20}) || !slices.Equal(viewer.Layout.Custom.Rows, []int{70, 30}) {
+		t.Fatalf("unexpected custom weights: %+v", viewer.Layout.Custom)
+	}
+	if len(viewer.Layout.Custom.Cells) != len(config.DefaultSlots()) {
+		t.Fatalf("expected one custom cell per slot, got %+v", viewer.Layout.Custom.Cells)
+	}
+	first := viewer.Layout.Custom.Cells[0]
+	if first.SlotID != "cam3" || first.Column != 2 || first.Row != 1 || first.ColumnSpan != 2 || first.RowSpan != 2 {
+		t.Fatalf("expected sanitized lead cell, got %+v", first)
+	}
+	for _, cell := range viewer.Layout.Custom.Cells {
+		if cell.SlotID == "missing" {
+			t.Fatalf("custom layout kept missing slot: %+v", viewer.Layout.Custom.Cells)
+		}
 	}
 }
 

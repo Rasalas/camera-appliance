@@ -75,6 +75,51 @@
     </div>
   </section>
 
+  <!-- Section: Kiosk layout -->
+  <section class="panel">
+    <div class="panel-head">
+      <h2>Kiosk-Layout</h2>
+      <div class="right">{{ viewerLayoutName }}</div>
+    </div>
+
+    <div class="layout-admin-grid">
+      <div class="field">
+        <span class="lbl">Preset</span>
+        <select :value="viewerLayoutID" @change="setViewerLayoutFromEvent">
+          <option v-for="layout in viewerLayoutOptions" :key="layout.id" :value="layout.id">{{ layout.name }}</option>
+        </select>
+      </div>
+      <div class="field">
+        <span class="lbl">Fokus-Kamera</span>
+        <select v-model="settings['viewer.layout.focus_slot_id']">
+          <option v-for="slot in viewerSlots" :key="slot.id" :value="slot.id">{{ slot.label }}</option>
+        </select>
+      </div>
+      <div v-if="viewerLayoutUsesSplit" class="field">
+        <span class="lbl">Fokus-Seite</span>
+        <select v-model="settings['viewer.layout.mode']">
+          <option value="focus_right">Rechts</option>
+          <option value="focus_middle">Mitte</option>
+          <option value="focus_left">Links</option>
+          <option value="auto">Auto</option>
+        </select>
+      </div>
+      <div v-if="viewerLayoutUsesSplit" class="field">
+        <span class="lbl">Raster-Anteil · %</span>
+        <input v-model="settings['viewer.layout.split_percent']" type="number" min="30" max="76" />
+      </div>
+      <div class="field">
+        <span class="lbl">Gap · px</span>
+        <input v-model="settings['viewer.layout.gap_px']" type="number" min="2" max="20" />
+      </div>
+    </div>
+
+    <div class="layout-admin-actions">
+      <RouterLink class="btn sm" :to="{ path: '/', query: kioskLayoutQuery }">Kiosk-URL</RouterLink>
+      <div class="mono-mute">{{ viewerLayoutDescription }}</div>
+    </div>
+  </section>
+
   <!-- Section: Access -->
   <section class="panel">
     <div class="panel-head">
@@ -511,7 +556,26 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
 import { api } from '../api/client'
-import type { AuthRole, AuthStatus, CredentialIdentity, EventItem, RelayStatus, StatusResponse, SupportBundleResult } from '../types'
+import type {
+  AuthRole,
+  AuthStatus,
+  CredentialIdentity,
+  EventItem,
+  RelayStatus,
+  Slot,
+  StatusResponse,
+  SupportBundleResult,
+  ViewerLayoutID,
+  ViewerLayoutOption
+} from '../types'
+
+const viewerLayoutOptions: ViewerLayoutOption[] = [
+  { id: 'grid_2x2', name: '2x2', description: 'Vier gleich große Kameras im Raster.' },
+  { id: 'four_plus_large', name: '4 plus groß', description: 'Vier Raster-Kameras mit einer prominenten Ansicht.' },
+  { id: 'vertical_plus_grid', name: 'Vertikal plus Raster', description: 'Eine hochformatige Kamera neben einem Raster.' },
+  { id: 'large_only', name: 'Große Ansicht', description: 'Nur die prominente Kamera bildschirmfüllend.' },
+  { id: 'custom', name: 'Frei', description: 'Kameras per Drag-and-drop auf Zonen und Größen legen.' }
+]
 
 const settings = reactive<Record<string, string>>({})
 const events = ref<EventItem[]>([])
@@ -538,6 +602,21 @@ const relayActionBusy = ref('')
 
 const relayIds = computed(() => settingList(settings['camera.relay.ids']))
 const relayStatuses = computed(() => status.value?.relays ?? [])
+const viewerSlots = computed<Slot[]>(() => status.value?.slots ?? [])
+const viewerLayoutID = computed(() => normalizedViewerLayoutID(settings['viewer.layout.id'] || layoutIDFromMode(settings['viewer.layout.mode'])))
+const viewerLayout = computed(() => viewerLayoutOptions.find((layout) => layout.id === viewerLayoutID.value) || viewerLayoutOptions[1])
+const viewerLayoutName = computed(() => viewerLayout.value.name)
+const viewerLayoutDescription = computed(() => viewerLayout.value.description)
+const viewerLayoutUsesSplit = computed(() => viewerLayoutID.value === 'four_plus_large' || viewerLayoutID.value === 'vertical_plus_grid')
+const kioskLayoutQuery = computed(() => {
+  const query: Record<string, string> = { layout: viewerLayoutID.value }
+  if (viewerLayoutUsesSplit.value) {
+    if (settings['viewer.layout.mode'] === 'focus_left') query.side = 'left'
+    else if (settings['viewer.layout.mode'] === 'focus_middle') query.side = 'middle'
+    else query.side = 'right'
+  }
+  return query
+})
 const cameraBindings = computed(() => (status.value?.bindings ?? []).filter((binding) => binding.device_id))
 const watchdogEnabled = computed(() => boolSetting('watchdog.enabled', status.value?.watchdog?.enabled ?? true))
 const watchdogRestartOnChange = computed(() => boolSetting('watchdog.restart_on_change', status.value?.watchdog?.restart_on_change ?? true))
@@ -614,6 +693,46 @@ function settingList(raw?: string) {
 
 function sanitizeID(value: string) {
   return value.trim().toLowerCase().replace(/[^a-z0-9_]+/g, '_').replace(/^_+|_+$/g, '')
+}
+
+function normalizedViewerLayoutID(raw?: string): ViewerLayoutID {
+  if (raw === 'grid_2x2' || raw === 'four_plus_large' || raw === 'vertical_plus_grid' || raw === 'large_only' || raw === 'custom') return raw
+  return 'four_plus_large'
+}
+
+function layoutIDFromMode(raw?: string): ViewerLayoutID {
+  if (raw === 'grid_2x2' || raw === 'vertical_plus_grid' || raw === 'large_only' || raw === 'custom') return raw
+  return 'four_plus_large'
+}
+
+function defaultViewerLayoutMode(id: ViewerLayoutID) {
+  if (id === 'vertical_plus_grid') return 'focus_right'
+  if (id === 'four_plus_large') {
+    if (settings['viewer.layout.mode'] === 'focus_left' || settings['viewer.layout.mode'] === 'focus_middle' || settings['viewer.layout.mode'] === 'focus_right') return settings['viewer.layout.mode']
+    return 'auto'
+  }
+  return id
+}
+
+function defaultViewerLayoutSplit(id: ViewerLayoutID) {
+  return id === 'vertical_plus_grid' ? '64' : '58'
+}
+
+function setViewerLayoutFromEvent(event: Event) {
+  const target = event.target as HTMLSelectElement
+  setViewerLayoutID(normalizedViewerLayoutID(target.value))
+}
+
+function setViewerLayoutID(id: ViewerLayoutID) {
+  settings['viewer.layout.id'] = id
+  settings['viewer.layout.mode'] = defaultViewerLayoutMode(id)
+  if (!settings['viewer.layout.split_percent']) settings['viewer.layout.split_percent'] = defaultViewerLayoutSplit(id)
+  if (!settings['viewer.layout.gap_px']) settings['viewer.layout.gap_px'] = '8'
+  if (!settings['viewer.layout.focus_slot_id']) settings['viewer.layout.focus_slot_id'] = defaultViewerFocusSlotID()
+}
+
+function defaultViewerFocusSlotID() {
+  return viewerSlots.value.find((slot) => slot.role === 'large')?.id || viewerSlots.value[viewerSlots.value.length - 1]?.id || 'cam5'
 }
 
 function relaySettingKey(id: string, field: string) {
@@ -755,6 +874,15 @@ function ensureRelayDefaults() {
   }
 }
 
+function ensureViewerLayoutDefaults() {
+  const id = viewerLayoutID.value
+  if (!settings['viewer.layout.id']) settings['viewer.layout.id'] = id
+  if (!settings['viewer.layout.mode']) settings['viewer.layout.mode'] = defaultViewerLayoutMode(id)
+  if (!settings['viewer.layout.focus_slot_id']) settings['viewer.layout.focus_slot_id'] = defaultViewerFocusSlotID()
+  if (!settings['viewer.layout.split_percent']) settings['viewer.layout.split_percent'] = defaultViewerLayoutSplit(id)
+  if (!settings['viewer.layout.gap_px']) settings['viewer.layout.gap_px'] = '8'
+}
+
 function removeRelay(id: string) {
   settings['camera.relay.ids'] = relayIds.value.filter((relayId) => relayId !== id).join(',')
   delete settings[relaySettingKey(id, 'name')]
@@ -780,6 +908,7 @@ async function refreshStatus() {
   ensurePathPolicyDefaults()
   ensureWatchdogDefaults()
   ensureRelayDefaults()
+  ensureViewerLayoutDefaults()
 }
 
 async function relayAction(id: string, action: 'start' | 'stop' | 'restart') {
