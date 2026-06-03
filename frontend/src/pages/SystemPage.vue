@@ -112,6 +112,12 @@
         <span class="lbl">Gap · px</span>
         <input v-model="settings['viewer.layout.gap_px']" type="number" min="2" max="20" />
       </div>
+      <div class="field">
+        <span class="lbl">Performance</span>
+        <select v-model="settings['viewer.performance.mode']">
+          <option v-for="option in viewerPerformanceOptions" :key="option.id" :value="option.id">{{ option.name }}</option>
+        </select>
+      </div>
     </div>
 
     <div class="layout-admin-actions">
@@ -566,7 +572,9 @@ import type {
   StatusResponse,
   SupportBundleResult,
   ViewerLayoutID,
-  ViewerLayoutOption
+  ViewerLayoutOption,
+  ViewerPerformanceMode,
+  ViewerPerformanceOption
 } from '../types'
 
 const viewerLayoutOptions: ViewerLayoutOption[] = [
@@ -575,6 +583,12 @@ const viewerLayoutOptions: ViewerLayoutOption[] = [
   { id: 'vertical_plus_grid', name: 'Vertikal plus Raster', description: 'Eine hochformatige Kamera neben einem Raster.' },
   { id: 'large_only', name: 'Große Ansicht', description: 'Nur die prominente Kamera bildschirmfüllend.' },
   { id: 'custom', name: 'Frei', description: 'Kameras per Drag-and-drop auf Zonen und Größen legen.' }
+]
+const viewerPerformanceOptions: ViewerPerformanceOption[] = [
+  { id: 'quality', name: 'Qualität', description: 'Alle sichtbaren Streams sofort live laden.' },
+  { id: 'balanced', name: 'Balanciert', description: 'Nebenansichten lazy laden und primäre Ansicht priorisieren.' },
+  { id: 'low', name: 'Niedrig', description: 'Nur die primäre Ansicht live laden, Nebenansichten pausieren.' },
+  { id: 'diagnostic', name: 'Diagnose', description: 'Alle Streams live laden und Producer/Consumer sichtbar machen.' }
 ]
 
 const settings = reactive<Record<string, string>>({})
@@ -610,6 +624,8 @@ const viewerLayoutDescription = computed(() => viewerLayout.value.description)
 const viewerLayoutUsesSplit = computed(() => viewerLayoutID.value === 'four_plus_large' || viewerLayoutID.value === 'vertical_plus_grid')
 const kioskLayoutQuery = computed(() => {
   const query: Record<string, string> = { layout: viewerLayoutID.value }
+  const performance = normalizedViewerPerformanceMode(settings['viewer.performance.mode'])
+  if (performance !== 'quality') query.perf = performance
   if (viewerLayoutUsesSplit.value) {
     if (settings['viewer.layout.mode'] === 'focus_left') query.side = 'left'
     else if (settings['viewer.layout.mode'] === 'focus_middle') query.side = 'middle'
@@ -703,6 +719,11 @@ function normalizedViewerLayoutID(raw?: string): ViewerLayoutID {
 function layoutIDFromMode(raw?: string): ViewerLayoutID {
   if (raw === 'grid_2x2' || raw === 'vertical_plus_grid' || raw === 'large_only' || raw === 'custom') return raw
   return 'four_plus_large'
+}
+
+function normalizedViewerPerformanceMode(raw?: string): ViewerPerformanceMode {
+  if (raw === 'balanced' || raw === 'low' || raw === 'diagnostic') return raw
+  return 'quality'
 }
 
 function defaultViewerLayoutMode(id: ViewerLayoutID) {
@@ -881,6 +902,7 @@ function ensureViewerLayoutDefaults() {
   if (!settings['viewer.layout.focus_slot_id']) settings['viewer.layout.focus_slot_id'] = defaultViewerFocusSlotID()
   if (!settings['viewer.layout.split_percent']) settings['viewer.layout.split_percent'] = defaultViewerLayoutSplit(id)
   if (!settings['viewer.layout.gap_px']) settings['viewer.layout.gap_px'] = '8'
+  if (!settings['viewer.performance.mode']) settings['viewer.performance.mode'] = 'quality'
 }
 
 function removeRelay(id: string) {

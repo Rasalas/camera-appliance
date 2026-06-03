@@ -157,8 +157,61 @@
             </div>
           </div>
 
+          <div v-if="form.device_id" class="assignment-display">
+            <div class="assignment-display-head">
+              <div>
+                <div class="lbl">Anzeige</div>
+                <div class="mono-mute">{{ displaySummary }}</div>
+              </div>
+              <RouterLink class="btn sm ghost" :to="`/kamera/${form.device_id}`">Crop/Diagnose →</RouterLink>
+            </div>
+
+            <div class="assignment-display-grid">
+              <div class="field">
+                <span class="lbl">Rotation</span>
+                <div class="btn-row">
+                  <button
+                    v-for="value in [0, 90, 180, 270]"
+                    :key="value"
+                    class="btn sm"
+                    :class="{ live: rotation === value }"
+                    type="button"
+                    @click="rotation = value"
+                  >
+                    {{ value }}°
+                  </button>
+                </div>
+              </div>
+
+              <label class="toggle-row compact">
+                <input v-model="mirror" type="checkbox" />
+                <div>
+                  <div class="lbl-main">Horizontal spiegeln</div>
+                  <div class="lbl-sub">Links/rechts tauschen.</div>
+                </div>
+              </label>
+
+              <label class="toggle-row compact">
+                <input v-model="flip" type="checkbox" />
+                <div>
+                  <div class="lbl-main">Vertikal spiegeln</div>
+                  <div class="lbl-sub">Kopfstehende Montage.</div>
+                </div>
+              </label>
+
+              <div class="field">
+                <span class="lbl">Fit</span>
+                <select v-model="fitMode">
+                  <option value="cover">Cover</option>
+                  <option value="contain">Contain</option>
+                </select>
+              </div>
+            </div>
+          </div>
+
           <div class="btn-row" style="margin-top: 8px;">
             <button class="btn primary" :disabled="!form.device_id || saving" @click="save">Speichern</button>
+            <button class="btn" :disabled="!form.device_id || saving" @click="saveDisplay">Anzeige speichern</button>
             <button class="btn danger" :disabled="!bindingFor(selectedSlot)" @click="remove">Entfernen</button>
             <RouterLink v-if="form.device_id" class="btn ghost" :to="`/kamera/${form.device_id}`">Diagnose →</RouterLink>
           </div>
@@ -242,6 +295,7 @@ const route = useRoute()
 const slots = ref<Slot[]>([])
 const devices = ref<Device[]>([])
 const bindings = ref<Binding[]>([])
+const settings = ref<Record<string, string>>({})
 const selectedSlot = ref('')
 const rendered = ref('')
 const renderInfo = ref('')
@@ -256,10 +310,15 @@ const frameResults = ref<FrameRefreshResult[]>([])
 
 const form = reactive({ device_id: '', label: '', username: '', stream_name: 'stream2' })
 const manual = reactive({ ip: '', username: '', password: '', stream: 'stream2' })
+const rotation = ref(0)
+const mirror = ref(false)
+const flip = ref(false)
+const fitMode = ref<'cover' | 'contain'>('cover')
 const slotLabel = computed(() => slots.value.find((s) => s.id === selectedSlot.value)?.label || 'Kamera')
 const selectedDevice = computed(() => devices.value.find((d) => d.id === form.device_id))
 const boundCount = computed(() => slots.value.filter((s) => bindings.value.some((b) => b.slot_id === s.id)).length)
 const assignableDevices = computed(() => devices.value.filter((device) => isAssignableCamera(device)))
+const displaySummary = computed(() => `${rotation.value}° · ${fitMode.value}${mirror.value ? ' · gespiegelt' : ''}${flip.value ? ' · vertikal' : ''}`)
 
 function bindingFor(slotId: string) {
   return bindings.value.find((b) => b.slot_id === slotId)
@@ -297,9 +356,11 @@ function pickSlot(slotId: string) {
   form.label = b?.label || slots.value.find((s) => s.id === slotId)?.label || ''
   form.username = b?.username || ''
   form.stream_name = b?.stream_name || 'stream2'
+  loadDisplaySettingsForDevice(form.device_id)
 }
 function pickDevice(id: string) {
   form.device_id = id
+  loadDisplaySettingsForDevice(id)
   void loadDeviceCredentials(id)
   if (!selectedSlot.value) {
     const firstEmpty = slots.value.find((s) => !bindingFor(s.id))
@@ -322,6 +383,7 @@ async function load() {
   slots.value = status.slots
   devices.value = status.devices
   bindings.value = status.bindings
+  settings.value = await api.settings()
   if (!selectedSlot.value && slots.value.length) {
     const target = String(route.query.camera || '')
     if (target) {
@@ -331,6 +393,8 @@ async function load() {
     } else {
       pickSlot(slots.value[0].id)
     }
+  } else if (form.device_id) {
+    loadDisplaySettingsForDevice(form.device_id)
   }
 }
 
@@ -494,6 +558,33 @@ function uniqueStreams(values: string[]) {
   return Array.from(new Set(values.filter(Boolean)))
 }
 
+function loadDisplaySettingsForDevice(deviceID: string) {
+  if (!deviceID) {
+    resetDisplayControls()
+    return
+  }
+  rotation.value = normalizedRotation(settings.value[`camera.display.${deviceID}.rotation`])
+  mirror.value = boolSetting(settings.value[`camera.display.${deviceID}.mirror`])
+  flip.value = boolSetting(settings.value[`camera.display.${deviceID}.flip`])
+  fitMode.value = settings.value[`camera.display.${deviceID}.fit_mode`] === 'contain' ? 'contain' : 'cover'
+}
+
+function resetDisplayControls() {
+  rotation.value = 0
+  mirror.value = false
+  flip.value = false
+  fitMode.value = 'cover'
+}
+
+function normalizedRotation(raw?: string) {
+  const value = Number(raw)
+  return [0, 90, 180, 270].includes(value) ? value : 0
+}
+
+function boolSetting(raw?: string) {
+  return raw === 'true' || raw === '1' || raw === 'yes' || raw === 'on'
+}
+
 function closeManualModal() {
   if (busy.value !== 'manual') showManualModal.value = false
 }
@@ -513,6 +604,7 @@ async function save() {
       stream_name: form.stream_name,
       enabled: true
     })
+    await saveDisplaySettings(false)
     toast.value = 'Zuordnung gespeichert'
     setTimeout(() => (toast.value = ''), 2200)
     await load()
@@ -521,6 +613,34 @@ async function save() {
   } finally {
     saving.value = false
   }
+}
+
+async function saveDisplay() {
+  if (!form.device_id) return
+  saving.value = true
+  error.value = ''
+  try {
+    await saveDisplaySettings(true)
+    toast.value = 'Anzeige gespeichert'
+    setTimeout(() => (toast.value = ''), 2200)
+  } catch (err) {
+    error.value = err instanceof Error ? err.message : 'Anzeige konnte nicht gespeichert werden.'
+  } finally {
+    saving.value = false
+  }
+}
+
+async function saveDisplaySettings(updateLocal: boolean) {
+  if (!form.device_id) return
+  const deviceID = form.device_id
+  const values: Record<string, string> = {
+    [`camera.display.${deviceID}.rotation`]: String(normalizedRotation(String(rotation.value))),
+    [`camera.display.${deviceID}.mirror`]: String(mirror.value),
+    [`camera.display.${deviceID}.flip`]: String(flip.value),
+    [`camera.display.${deviceID}.fit_mode`]: fitMode.value
+  }
+  await api.saveSettings(values)
+  if (updateLocal) Object.assign(settings.value, values)
 }
 
 async function remove() {

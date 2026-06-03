@@ -339,6 +339,49 @@ func TestViewerReturnsSanitizedCustomLayout(t *testing.T) {
 	}
 }
 
+func TestViewerIncludesPerformanceModeAndStreamMetrics(t *testing.T) {
+	ctx := context.Background()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/streams" {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"cam1":{"producers":[{"url":"rtsp://redacted"}],"consumers":[{"remote_addr":"127.0.0.1"}]}}`))
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+	a := newViewerTestApp(t, srv.URL, "secret")
+	if err := a.Store.UpsertDevice(ctx, state.Device{ID: "dev1", LastIP: "192.168.1.20"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := a.Store.UpsertBinding(ctx, state.Binding{SlotID: "cam1", DeviceID: "dev1", Username: "user", StreamName: "stream2", Enabled: true}); err != nil {
+		t.Fatal(err)
+	}
+	if err := a.Store.PutSettings(ctx, map[string]string{
+		"viewer.performance.mode": ViewerPerformanceLow,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	writeGeneratedGo2RTC(t, a.Config, "streams:\n  cam1:\n    - rtsp://user:redacted@192.168.1.20:554/stream2\n")
+
+	viewer, err := a.Viewer(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if viewer.Performance.Mode != ViewerPerformanceLow || viewer.Performance.Name == "" || len(viewer.Performance.Options) != 4 {
+		t.Fatalf("unexpected performance settings: %+v", viewer.Performance)
+	}
+	slot := viewer.Slots[0]
+	if slot.Stream == nil || slot.Stream.Alias != "cam1" || !slot.Stream.Configured || slot.Stream.Producers != 1 || slot.Stream.Consumers != 1 {
+		t.Fatalf("unexpected stream metrics: %+v", slot.Stream)
+	}
+	if !slices.ContainsFunc(slot.Diagnostics, func(diag ViewerDiagnostic) bool {
+		return diag.Key == "stream" && diag.Status == "ok" && strings.Contains(diag.Message, "Consumer: 1")
+	}) {
+		t.Fatalf("expected stream diagnostic, got %+v", slot.Diagnostics)
+	}
+}
+
 func newViewerTestApp(t *testing.T, go2rtcURL, password string) *App {
 	t.Helper()
 	ctx := context.Background()

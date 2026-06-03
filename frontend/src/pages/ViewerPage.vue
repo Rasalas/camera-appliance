@@ -11,6 +11,7 @@
     <div class="meta">
       <div>go2rtc · <b>{{ viewer?.go2rtc.online ? 'aktiv' : 'offline' }}</b></div>
       <div>Aliase · <b>{{ viewer?.stream_count ?? 0 }}/{{ slots.length || 5 }}</b></div>
+      <div>Modus · <b>{{ performanceName }}</b></div>
       <div>Stand · <b>{{ checkedAt }}</b></div>
     </div>
   </header>
@@ -27,6 +28,9 @@
     <div class="layout-buttons viewer-layout-controls">
       <select class="layout-select" :value="activeLayoutID" :disabled="layoutBusy" @change="setLayoutFromEvent">
         <option v-for="option in layoutOptions" :key="option.id" :value="option.id">{{ option.name }}</option>
+      </select>
+      <select class="layout-select performance-select" :value="performanceMode" :disabled="performanceBusy" @change="setPerformanceFromEvent">
+        <option v-for="option in performanceOptions" :key="option.id" :value="option.id">{{ option.name }}</option>
       </select>
       <template v-if="splitLayout">
         <button class="btn sm" :class="{ live: focusSide === 'left' }" :disabled="layoutBusy" @click="setFocusSide('focus_left')">Links</button>
@@ -52,22 +56,26 @@
     >
       <div class="viewer-frame-wrap">
         <div
-          v-if="slot.playback?.page_url && isPlayable(slot)"
+          v-if="shouldRenderPlayer(slot)"
           class="viewer-frame-transform"
           :class="displayClass(slot)"
           :style="displayStyle(slot)"
         >
           <iframe
             class="viewer-frame"
-            :src="slot.playback.page_url"
+            :src="slot.playback?.page_url || ''"
             :title="slot.label"
+            :loading="iframeLoading(slot)"
             allow="autoplay; fullscreen; picture-in-picture"
             @load="markFrameReady(slot.alias)"
           />
         </div>
-        <div v-else class="viewer-placeholder">
+        <div v-else class="viewer-placeholder" :class="{ paused: isPausedByPerformance(slot) }">
           <div class="placeholder-mark">{{ slot.alias }}</div>
-          <div>{{ slot.message }}</div>
+          <div>{{ placeholderMessage(slot) }}</div>
+        </div>
+        <div v-if="isPausedByPerformance(slot)" class="viewer-cover performance-cover">
+          <span>Standby</span>
         </div>
         <div v-if="effectiveState(slot) === 'connecting'" class="viewer-cover">
           <span class="loader-dot" />
@@ -86,13 +94,14 @@
             <span>{{ slot.device?.last_ip || 'keine IP' }}</span>
             <span>{{ slot.binding?.stream_name || slot.slot.default_stream }}</span>
             <span>{{ pathLabel(slot) }}</span>
+            <span v-if="diagnosticMode">{{ streamStatusLabel(slot) }}</span>
           </div>
         </div>
       </div>
 
       <div class="viewer-diagnostics">
         <span
-          v-for="diag in slot.diagnostics?.slice(0, 5)"
+          v-for="diag in visibleDiagnostics(slot)"
           :key="`${slot.alias}-${diag.key}`"
           class="diag-chip"
           :class="diag.status"
@@ -137,6 +146,21 @@
     </template>
   </section>
 
+  <section v-if="diagnosticMode || performanceMode !== 'quality'" class="panel viewer-performance">
+    <div class="panel-head">
+      <h2>Performance</h2>
+      <div class="right">{{ activePlayerCount }}/{{ visibleSlots.length }} Player aktiv · {{ totalConsumers }} Consumer</div>
+    </div>
+    <div class="performance-grid">
+      <div v-for="slot in visibleSlots" :key="`perf-${slot.alias}`" class="performance-row">
+        <span class="slot">{{ slot.alias }}</span>
+        <span class="name">{{ isPausedByPerformance(slot) ? 'pausiert' : playerStateLabel(slot) }}</span>
+        <span class="stream">P {{ slot.stream?.producers ?? 0 }} · C {{ slot.stream?.consumers ?? 0 }}</span>
+        <span class="message">{{ streamStatusLabel(slot) }}</span>
+      </div>
+    </div>
+  </section>
+
   <section class="panel viewer-summary">
     <div class="panel-head">
       <h2>Diagnose</h2>
@@ -176,6 +200,8 @@ import type {
   ViewerLayoutID,
   ViewerLayoutMode,
   ViewerLayoutOption,
+  ViewerPerformanceMode,
+  ViewerPerformanceOption,
   ViewerResponse,
   ViewerSlot,
   ViewerSlotState
@@ -194,6 +220,12 @@ type LayoutDraft = {
 type DropZoneID = 'left' | 'middle' | 'right' | 'top' | 'bottom'
 type CustomGrabberKind = 'column' | 'row'
 
+const fallbackPerformanceOptions: ViewerPerformanceOption[] = [
+  { id: 'quality', name: 'Qualität', description: 'Alle sichtbaren Streams sofort live laden.' },
+  { id: 'balanced', name: 'Balanciert', description: 'Nebenansichten lazy laden und primäre Ansicht priorisieren.' },
+  { id: 'low', name: 'Niedrig', description: 'Nur die primäre Ansicht live laden, Nebenansichten pausieren.' },
+  { id: 'diagnostic', name: 'Diagnose', description: 'Alle Streams live laden und Producer/Consumer sichtbar machen.' }
+]
 const defaultCustomColumns = [29, 29, 6, 36]
 const defaultCustomRows = [50, 50]
 const fallbackLayoutOptions: ViewerLayoutOption[] = [
@@ -218,6 +250,8 @@ const auth = ref<AuthStatus>()
 const loading = ref(true)
 const busy = ref<'' | 'load' | 'scan' | 'render' | 'restart'>('')
 const layoutBusy = ref(false)
+const performanceBusy = ref(false)
+const performanceMode = ref<ViewerPerformanceMode>('quality')
 const layoutDraft = ref<LayoutDraft>({
   id: 'four_plus_large',
   mode: 'auto',
@@ -245,6 +279,9 @@ const blockingCount = computed(() => blockingSlots.value.length)
 const canAdmin = computed(() => auth.value ? (!auth.value.enabled || auth.value.role === 'admin') : false)
 const canReorderLayout = computed(() => canAdmin.value && !layoutBusy.value && visibleSlots.value.length > 1)
 const layoutOptions = computed(() => viewer.value?.layout.options?.length ? viewer.value.layout.options : fallbackLayoutOptions)
+const performanceOptions = computed(() => viewer.value?.performance.options?.length ? viewer.value.performance.options : fallbackPerformanceOptions)
+const performanceName = computed(() => performanceOptions.value.find((option) => option.id === performanceMode.value)?.name || 'Qualität')
+const diagnosticMode = computed(() => performanceMode.value === 'diagnostic')
 const activeLayoutID = computed(() => normalizedLayoutID(layoutDraft.value.id))
 const layoutMode = computed(() => layoutDraft.value.mode)
 const splitLayout = computed(() => activeLayoutID.value === 'four_plus_large' || activeLayoutID.value === 'vertical_plus_grid')
@@ -353,6 +390,16 @@ const customGrabberStyles = computed(() => {
   }
   return grabbers
 })
+const primaryLiveAlias = computed(() => {
+  if (!visibleSlots.value.length) return ''
+  if (activeLayoutID.value === 'custom') {
+    return prominentCustomSlot(normalizedCustomLayout(layoutDraft.value.custom)) || visibleSlots.value[0].alias
+  }
+  if (splitLayout.value || activeLayoutID.value === 'large_only') return focusSlotID()
+  return visibleSlots.value[0]?.alias || ''
+})
+const activePlayerCount = computed(() => visibleSlots.value.filter((slot) => shouldRenderPlayer(slot)).length)
+const totalConsumers = computed(() => slots.value.reduce((total, slot) => total + (slot.stream?.consumers ?? 0), 0))
 const checkedAt = computed(() => {
   if (!viewer.value?.checked_at) return '—'
   return new Date(viewer.value.checked_at).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })
@@ -362,8 +409,28 @@ function isPlayable(slot: ViewerSlot) {
   return slot.state === 'online' || slot.state === 'connecting'
 }
 
+function shouldRenderPlayer(slot: ViewerSlot) {
+  if (!slot.playback?.page_url || !isPlayable(slot)) return false
+  if (performanceMode.value === 'low') return slot.alias === primaryLiveAlias.value
+  return true
+}
+
+function isPausedByPerformance(slot: ViewerSlot) {
+  return performanceMode.value === 'low' && !!slot.playback?.page_url && isPlayable(slot) && slot.alias !== primaryLiveAlias.value
+}
+
+function iframeLoading(slot: ViewerSlot): 'eager' | 'lazy' {
+  if (performanceMode.value === 'balanced' && slot.alias !== primaryLiveAlias.value) return 'lazy'
+  return 'eager'
+}
+
+function placeholderMessage(slot: ViewerSlot) {
+  if (isPausedByPerformance(slot)) return 'Im Low-Modus pausiert.'
+  return slot.message
+}
+
 function effectiveState(slot: ViewerSlot): ViewerSlotState {
-  if ((slot.state === 'online' || slot.state === 'connecting') && slot.playback?.page_url && !frameReady.value[slot.alias]) {
+  if ((slot.state === 'online' || slot.state === 'connecting') && shouldRenderPlayer(slot) && !frameReady.value[slot.alias]) {
     return 'connecting'
   }
   return slot.state
@@ -398,6 +465,7 @@ function tileClass(slot: ViewerSlot) {
     on: state === 'online',
     connecting: state === 'connecting',
     empty: state === 'unassigned',
+    paused: isPausedByPerformance(slot),
     off: state === 'offline' || state === 'credentials_failed' || state === 'stream_unavailable'
   }
 }
@@ -412,9 +480,27 @@ function diagLabel(key: string) {
     network: 'Netz',
     path: 'Pfad',
     credentials: 'Login',
-    go2rtc: 'go2rtc'
+    go2rtc: 'go2rtc',
+    stream: 'Stream'
   }
   return labels[key] || key
+}
+
+function visibleDiagnostics(slot: ViewerSlot) {
+  const diagnostics = slot.diagnostics ?? []
+  return diagnosticMode.value ? diagnostics : diagnostics.slice(0, 5)
+}
+
+function streamStatusLabel(slot: ViewerSlot) {
+  const stream = slot.stream
+  if (!stream?.configured) return 'nicht konfiguriert'
+  return `${stream.producers ?? 0} Producer · ${stream.consumers ?? 0} Consumer`
+}
+
+function playerStateLabel(slot: ViewerSlot) {
+  if (!shouldRenderPlayer(slot)) return stateLabel(effectiveState(slot))
+  if (frameReady.value[slot.alias]) return 'Player geladen'
+  return 'Player lädt'
 }
 
 function pathLabel(slot: ViewerSlot) {
@@ -441,12 +527,18 @@ async function load() {
   try {
     viewer.value = await api.viewer()
     syncLayoutDraft()
+    syncPerformanceDraft()
   } catch (err) {
     error.value = err instanceof Error ? err.message : 'Viewer konnte nicht geladen werden.'
   } finally {
     loading.value = false
     if (busy.value === 'load') busy.value = ''
   }
+}
+
+function syncPerformanceDraft() {
+  const routeMode = routePerformanceMode()
+  performanceMode.value = routeMode || normalizedPerformanceMode(viewer.value?.performance?.mode)
 }
 
 function syncLayoutDraft() {
@@ -828,6 +920,11 @@ function defaultSplitPercent(id: ViewerLayoutID) {
   return id === 'vertical_plus_grid' ? 64 : 58
 }
 
+function normalizedPerformanceMode(raw?: string): ViewerPerformanceMode {
+  if (raw === 'balanced' || raw === 'low' || raw === 'diagnostic') return raw
+  return 'quality'
+}
+
 function routeLayoutID(): ViewerLayoutID | undefined {
   const raw = Array.isArray(route.query.layout) ? route.query.layout[0] : route.query.layout
   if (!raw) return undefined
@@ -842,9 +939,25 @@ function routeFocusMode(): ViewerLayoutMode | undefined {
   return undefined
 }
 
+function routePerformanceMode(): ViewerPerformanceMode | undefined {
+  const raw = Array.isArray(route.query.perf) ? route.query.perf[0] : route.query.perf
+  if (!raw) return undefined
+  return normalizedPerformanceMode(raw)
+}
+
 async function setLayoutFromEvent(event: Event) {
   const target = event.target as HTMLSelectElement
   await setLayoutID(normalizedLayoutID(target.value))
+}
+
+async function setPerformanceFromEvent(event: Event) {
+  const target = event.target as HTMLSelectElement
+  performanceMode.value = normalizedPerformanceMode(target.value)
+  if (canAdmin.value) {
+    await savePerformance()
+    return
+  }
+  await updateLayoutRoute()
 }
 
 async function setLayoutID(id: ViewerLayoutID) {
@@ -1003,7 +1116,29 @@ async function updateLayoutRoute() {
   } else {
     delete query.side
   }
+  if (performanceMode.value !== 'quality') {
+    query.perf = performanceMode.value
+  } else {
+    delete query.perf
+  }
   await router.replace({ path: route.path, query })
+}
+
+async function savePerformance() {
+  if (!canAdmin.value) return
+  performanceBusy.value = true
+  error.value = ''
+  try {
+    await api.saveSettings({
+      'viewer.performance.mode': performanceMode.value
+    })
+    await updateLayoutRoute()
+    await load()
+  } catch (err) {
+    error.value = err instanceof Error ? err.message : 'Performance-Modus konnte nicht gespeichert werden.'
+  } finally {
+    performanceBusy.value = false
+  }
 }
 
 async function saveLayout() {
@@ -1164,8 +1299,11 @@ async function restartGo2rtc() {
 }
 
 watch(
-  () => [route.query.layout, route.query.side],
-  () => syncLayoutDraft()
+  () => [route.query.layout, route.query.side, route.query.perf],
+  () => {
+    syncLayoutDraft()
+    syncPerformanceDraft()
+  }
 )
 
 onMounted(() => {

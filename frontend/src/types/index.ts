@@ -170,6 +170,30 @@ export interface ViewerPlayback {
   page_url: string
 }
 
+export type ViewerPerformanceMode = 'quality' | 'balanced' | 'low' | 'diagnostic'
+
+export interface ViewerPerformanceOption {
+  id: ViewerPerformanceMode | string
+  name: string
+  description: string
+}
+
+export interface ViewerPerformance {
+  mode: ViewerPerformanceMode | string
+  name: string
+  options: ViewerPerformanceOption[]
+}
+
+export interface ViewerStreamStatus {
+  alias: string
+  configured: boolean
+  producers: number
+  consumers: number
+  has_producer: boolean
+  has_consumer: boolean
+  error?: string
+}
+
 export interface DisplayCrop {
   x: number
   y: number
@@ -262,6 +286,7 @@ export interface ViewerSlot {
   binding?: Binding
   device?: Device
   playback?: ViewerPlayback
+  stream?: ViewerStreamStatus
   path?: StreamPath
   paths?: StreamPath[]
   display: CameraDisplay
@@ -274,6 +299,7 @@ export interface ViewerResponse {
   generated_config?: string
   stream_count: number
   layout: ViewerLayout
+  performance: ViewerPerformance
   slots: ViewerSlot[]
 }
 

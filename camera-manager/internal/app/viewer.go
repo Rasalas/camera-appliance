@@ -2,7 +2,11 @@ package app
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
+	"io"
 	"net"
+	"net/http"
 	"net/url"
 	"os"
 	"path"
@@ -24,6 +28,13 @@ const (
 	ViewerStateOffline           = "offline"
 	ViewerStateCredentialsFailed = "credentials_failed"
 	ViewerStateStreamUnavailable = "stream_unavailable"
+
+	ViewerPerformanceQuality    = "quality"
+	ViewerPerformanceBalanced   = "balanced"
+	ViewerPerformanceLow        = "low"
+	ViewerPerformanceDiagnostic = "diagnostic"
+
+	viewerPerformanceSettingMode = "viewer.performance.mode"
 )
 
 type Viewer struct {
@@ -32,26 +43,50 @@ type Viewer struct {
 	GeneratedConfig string               `json:"generated_config,omitempty"`
 	StreamCount     int                  `json:"stream_count"`
 	Layout          ViewerLayout         `json:"layout"`
+	Performance     ViewerPerformance    `json:"performance"`
 	Slots           []ViewerSlot         `json:"slots"`
 }
 
 type ViewerSlot struct {
-	Slot        config.Slot        `json:"slot"`
-	Alias       string             `json:"alias"`
-	Label       string             `json:"label"`
-	State       string             `json:"state"`
-	Message     string             `json:"message"`
-	Binding     *state.Binding     `json:"binding,omitempty"`
-	Device      *state.Device      `json:"device,omitempty"`
-	Playback    *ViewerPlayback    `json:"playback,omitempty"`
-	Path        *StreamPath        `json:"path,omitempty"`
-	Paths       []StreamPath       `json:"paths,omitempty"`
-	Display     CameraDisplay      `json:"display"`
-	Diagnostics []ViewerDiagnostic `json:"diagnostics,omitempty"`
+	Slot        config.Slot         `json:"slot"`
+	Alias       string              `json:"alias"`
+	Label       string              `json:"label"`
+	State       string              `json:"state"`
+	Message     string              `json:"message"`
+	Binding     *state.Binding      `json:"binding,omitempty"`
+	Device      *state.Device       `json:"device,omitempty"`
+	Playback    *ViewerPlayback     `json:"playback,omitempty"`
+	Stream      *ViewerStreamStatus `json:"stream,omitempty"`
+	Path        *StreamPath         `json:"path,omitempty"`
+	Paths       []StreamPath        `json:"paths,omitempty"`
+	Display     CameraDisplay       `json:"display"`
+	Diagnostics []ViewerDiagnostic  `json:"diagnostics,omitempty"`
 }
 
 type ViewerPlayback struct {
 	PageURL string `json:"page_url"`
+}
+
+type ViewerPerformance struct {
+	Mode    string                    `json:"mode"`
+	Name    string                    `json:"name"`
+	Options []ViewerPerformanceOption `json:"options"`
+}
+
+type ViewerPerformanceOption struct {
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	Description string `json:"description"`
+}
+
+type ViewerStreamStatus struct {
+	Alias       string `json:"alias"`
+	Configured  bool   `json:"configured"`
+	Producers   int    `json:"producers"`
+	Consumers   int    `json:"consumers"`
+	HasProducer bool   `json:"has_producer"`
+	HasConsumer bool   `json:"has_consumer"`
+	Error       string `json:"error,omitempty"`
 }
 
 type ViewerDiagnostic struct {
@@ -73,6 +108,7 @@ func (a *App) Viewer(ctx context.Context) (Viewer, error) {
 	settings, _ := a.Store.Settings(ctx)
 	go2rtcStatus := system.Check(ctx, a.Config).Go2RTC
 	aliases, generatedPath := a.generatedGo2RTCAliases()
+	streams := a.go2rtcStreamStatuses(ctx, go2rtcStatus)
 
 	viewer := Viewer{
 		CheckedAt:       time.Now().UTC(),
@@ -80,6 +116,7 @@ func (a *App) Viewer(ctx context.Context) (Viewer, error) {
 		GeneratedConfig: generatedPath,
 		StreamCount:     len(aliases),
 		Layout:          viewerLayoutFromSettings(settings, a.Slots),
+		Performance:     viewerPerformanceFromSettings(settings),
 		Slots:           make([]ViewerSlot, 0, len(a.Slots)),
 	}
 	bindingBySlot := map[string]state.Binding{}
@@ -87,12 +124,16 @@ func (a *App) Viewer(ctx context.Context) (Viewer, error) {
 		bindingBySlot[binding.SlotID] = binding
 	}
 	for _, slot := range a.Slots {
-		viewer.Slots = append(viewer.Slots, a.viewerSlot(ctx, slot, bindingBySlot[slot.ID], settings, aliases, go2rtcStatus))
+		viewer.Slots = append(viewer.Slots, a.viewerSlot(ctx, slot, bindingBySlot[slot.ID], settings, aliases, go2rtcStatus, streams[slot.ID]))
 	}
 	return viewer, nil
 }
 
-func (a *App) viewerSlot(ctx context.Context, slot config.Slot, binding state.Binding, settings map[string]string, aliases map[string]bool, go2rtcStatus system.ServiceStatus) ViewerSlot {
+func (a *App) viewerSlot(ctx context.Context, slot config.Slot, binding state.Binding, settings map[string]string, aliases map[string]bool, go2rtcStatus system.ServiceStatus, streamStatus ViewerStreamStatus) ViewerSlot {
+	if streamStatus.Alias == "" {
+		streamStatus = ViewerStreamStatus{Alias: slot.ID}
+	}
+	streamStatus.Configured = aliases[slot.ID]
 	item := ViewerSlot{
 		Slot:    slot,
 		Alias:   slot.ID,
@@ -100,6 +141,7 @@ func (a *App) viewerSlot(ctx context.Context, slot config.Slot, binding state.Bi
 		State:   ViewerStateUnassigned,
 		Message: "Kein Gerät zugeordnet.",
 		Display: displayFromSettings(settings, binding),
+		Stream:  &streamStatus,
 		Diagnostics: []ViewerDiagnostic{
 			{Key: "assignment", Status: "missing", Message: "Platz ist leer."},
 		},
@@ -198,6 +240,7 @@ func (a *App) viewerSlot(ctx context.Context, slot config.Slot, binding state.Bi
 		{Key: "path", Status: "ok", Message: streamPathDiagnostic(*pathAssessment.Selected)},
 		{Key: "credentials", Status: "ok", Message: "Zugangsdaten sind hinterlegt."},
 		{Key: "go2rtc", Status: "ok", Message: "Alias " + slot.ID + " ist konfiguriert."},
+		go2rtcStreamDiagnostic(streamStatus),
 	}
 	if item.Playback.PageURL == "" {
 		item.State = ViewerStateStreamUnavailable
@@ -211,6 +254,108 @@ func (a *App) viewerSlot(ctx context.Context, slot config.Slot, binding state.Bi
 		}
 	}
 	return item
+}
+
+func DefaultViewerPerformanceOptions() []ViewerPerformanceOption {
+	return []ViewerPerformanceOption{
+		{ID: ViewerPerformanceQuality, Name: "Qualität", Description: "Alle sichtbaren Streams sofort live laden."},
+		{ID: ViewerPerformanceBalanced, Name: "Balanciert", Description: "Nebenansichten lazy laden und primäre Ansicht priorisieren."},
+		{ID: ViewerPerformanceLow, Name: "Niedrig", Description: "Nur die primäre Ansicht live laden, Nebenansichten pausieren."},
+		{ID: ViewerPerformanceDiagnostic, Name: "Diagnose", Description: "Alle Streams live laden und Producer/Consumer sichtbar machen."},
+	}
+}
+
+func viewerPerformanceFromSettings(settings map[string]string) ViewerPerformance {
+	mode := normalizedViewerPerformanceMode(settings[viewerPerformanceSettingMode])
+	option := viewerPerformanceOption(mode)
+	return ViewerPerformance{Mode: mode, Name: option.Name, Options: DefaultViewerPerformanceOptions()}
+}
+
+func viewerPerformanceOption(mode string) ViewerPerformanceOption {
+	for _, option := range DefaultViewerPerformanceOptions() {
+		if option.ID == mode {
+			return option
+		}
+	}
+	return DefaultViewerPerformanceOptions()[0]
+}
+
+func normalizedViewerPerformanceMode(raw string) string {
+	switch strings.TrimSpace(raw) {
+	case ViewerPerformanceBalanced:
+		return ViewerPerformanceBalanced
+	case ViewerPerformanceLow:
+		return ViewerPerformanceLow
+	case ViewerPerformanceDiagnostic:
+		return ViewerPerformanceDiagnostic
+	default:
+		return ViewerPerformanceQuality
+	}
+}
+
+func go2rtcStreamDiagnostic(status ViewerStreamStatus) ViewerDiagnostic {
+	if status.Error != "" {
+		return ViewerDiagnostic{Key: "stream", Status: "warn", Message: status.Error}
+	}
+	if !status.Configured {
+		return ViewerDiagnostic{Key: "stream", Status: "missing", Message: "Alias ist noch nicht in go2rtc konfiguriert."}
+	}
+	if status.Producers == 0 && status.Consumers == 0 {
+		return ViewerDiagnostic{Key: "stream", Status: "warn", Message: "go2rtc meldet keine Producer oder Consumer für " + status.Alias + "."}
+	}
+	return ViewerDiagnostic{
+		Key:     "stream",
+		Status:  "ok",
+		Message: fmt.Sprintf("Producer: %d, Consumer: %d.", status.Producers, status.Consumers),
+	}
+}
+
+func (a *App) go2rtcStreamStatuses(ctx context.Context, go2rtcStatus system.ServiceStatus) map[string]ViewerStreamStatus {
+	statuses := map[string]ViewerStreamStatus{}
+	if !go2rtcStatus.Online {
+		return statuses
+	}
+	reqCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
+	endpoint := strings.TrimRight(a.Config.Go2RTCURL, "/") + "/api/streams"
+	req, err := http.NewRequestWithContext(reqCtx, http.MethodGet, endpoint, nil)
+	if err != nil {
+		return statuses
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return statuses
+	}
+	defer resp.Body.Close()
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 1024*1024))
+	if err != nil || resp.StatusCode < 200 || resp.StatusCode > 299 {
+		return statuses
+	}
+	var raw map[string]any
+	if err := json.Unmarshal(body, &raw); err != nil {
+		return statuses
+	}
+	for alias, value := range raw {
+		status := ViewerStreamStatus{Alias: alias, Configured: true}
+		status.Producers = jsonArrayLength(value, "producers")
+		status.Consumers = jsonArrayLength(value, "consumers")
+		status.HasProducer = status.Producers > 0
+		status.HasConsumer = status.Consumers > 0
+		statuses[alias] = status
+	}
+	return statuses
+}
+
+func jsonArrayLength(value any, key string) int {
+	object, ok := value.(map[string]any)
+	if !ok {
+		return 0
+	}
+	array, ok := object[key].([]any)
+	if !ok {
+		return 0
+	}
+	return len(array)
 }
 
 func pathFailureSummary(paths []StreamPath) string {
