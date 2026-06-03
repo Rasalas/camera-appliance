@@ -280,17 +280,30 @@ function treeSlots(node: MosaicNode | undefined, out: string[] = []): string[] {
   return out
 }
 
-function balancedTree(aliases: string[]): MosaicNode {
+// Default = an even grid: columns = ceil(sqrt(n)) (4 → 2x2, 9 → 3x3, 5 → 3+2),
+// rows filled as evenly as possible, all cells equal size.
+function gridTree(aliases: string[]): MosaicNode {
   if (aliases.length <= 1) return leaf(aliases[0] || 'cam1')
-  const mid = Math.ceil(aliases.length / 2)
-  const dir: 'row' | 'col' = aliases.length > 2 ? 'row' : 'col'
-  return { type: 'split', dir, ratio: mid / aliases.length, a: balancedColumn(aliases.slice(0, mid)), b: balancedColumn(aliases.slice(mid)) }
+  const n = aliases.length
+  const cols = Math.ceil(Math.sqrt(n))
+  const rows = Math.ceil(n / cols)
+  const base = Math.floor(n / rows)
+  const extra = n % rows
+  const rowNodes: MosaicNode[] = []
+  let index = 0
+  for (let row = 0; row < rows; row += 1) {
+    const count = base + (row < extra ? 1 : 0)
+    const cells = aliases.slice(index, index + count).map((alias) => leaf(alias))
+    index += count
+    if (cells.length) rowNodes.push(evenSplit(cells, 'row'))
+  }
+  return evenSplit(rowNodes, 'col')
 }
 
-function balancedColumn(aliases: string[]): MosaicNode {
-  if (aliases.length <= 1) return leaf(aliases[0] || 'cam1')
-  const mid = Math.ceil(aliases.length / 2)
-  return { type: 'split', dir: 'col', ratio: mid / aliases.length, a: balancedColumn(aliases.slice(0, mid)), b: balancedColumn(aliases.slice(mid)) }
+// Build a left-leaning split tree whose leaves all get an equal share.
+function evenSplit(nodes: MosaicNode[], dir: 'row' | 'col'): MosaicNode {
+  if (nodes.length === 1) return nodes[0]
+  return { type: 'split', dir, ratio: 1 / nodes.length, a: nodes[0], b: evenSplit(nodes.slice(1), dir) }
 }
 
 function removeSlot(node: MosaicNode, slot: string): MosaicNode | null {
@@ -347,7 +360,7 @@ function reconcileTree(tree: MosaicNode | undefined, aliases: string[]): MosaicN
       next = next ? { type: 'split', dir: 'row', ratio: 0.7, a: next, b: leaf(alias) } : leaf(alias)
     }
   }
-  return next ?? balancedTree(aliases)
+  return next ?? gridTree(aliases)
 }
 
 // --- Mosaic interactions -----------------------------------------------------
