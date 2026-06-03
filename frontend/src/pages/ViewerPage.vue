@@ -86,6 +86,11 @@
       </template>
 
       <div v-if="dockTarget" class="mosaic-dock" :style="dockOverlayStyle" aria-hidden="true" />
+
+      <div v-if="!panes.length" class="viewer-empty">
+        <div>Noch keine Kamera ausgewählt.</div>
+        <RouterLink v-if="canAdmin" class="btn sm" to="/einrichtung">Kameras aktivieren</RouterLink>
+      </div>
     </section>
 
     <transition name="hud">
@@ -825,8 +830,10 @@ async function load() {
     const viewerData = await api.viewer()
     viewer.value = viewerData
     performanceMode.value = normalizedPerformanceMode(viewerData.performance?.mode)
-    const aliases = viewerData.slots.map((slot) => slot.alias)
-    mosaic.value = reconcileTree(parseMosaic(viewerData.layout?.mosaic), aliases)
+    // Only cameras that are activated (have a binding) appear in the viewer; their
+    // placement is controlled here, slots are assigned automatically in the background.
+    const aliases = viewerData.slots.filter((slot) => slot.binding?.device_id).map((slot) => slot.alias)
+    mosaic.value = aliases.length ? reconcileTree(parseMosaic(viewerData.layout?.mosaic), aliases) : undefined
     if (spotlightAlias.value && !aliases.includes(spotlightAlias.value)) spotlightAlias.value = ''
   } catch (err) {
     error.value = err instanceof Error ? err.message : 'Viewer konnte nicht geladen werden.'
@@ -898,6 +905,17 @@ onBeforeUnmount(() => {
 
 .mosaic-pane {
   position: absolute;
+}
+.viewer-empty {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: 14px;
+  color: var(--ink-mute);
+  font-size: 13px;
+  letter-spacing: .02em;
 }
 .mosaic-pane > .viewer-tile {
   position: absolute;
@@ -1007,6 +1025,8 @@ onBeforeUnmount(() => {
   box-shadow: 0 12px 40px rgba(0, 0, 0, .5);
   backdrop-filter: blur(8px);
 }
+/* pill bar → pill-shaped buttons inside it */
+.viewer-hud :deep(.btn) { border-radius: 999px; }
 
 .viewer-edit-hint {
   position: absolute;

@@ -28,8 +28,8 @@ Verwandt: [005 – Lokale deutsche UI](decisions/005-local-german-ui.md),
 - Signal: `--live` (phosphorgrün, on-air), `--warn` (amber), `--danger` (rec-rot) je mit `*-bg`-Tint. Farbe **nur** für Status/Akzent, nicht für Dekor.
 
 ### Typografie
-- `--serif` (Instrument Serif): große Display-Zahlen/Headlines (`.headline`, `.stat .value`, Slot-Namen).
-- `--mono` (JetBrains Mono): alles andere; Labels in `UPPERCASE` mit `letter-spacing`.
+- `--mono` (JetBrains Mono): die Arbeitsschrift — Headlines, Labels (UPPERCASE + `letter-spacing`), Inhalte. Seitentitel (`.headline`, `.modal-head h2`) sind **kompakt und mono**, keine großen Serifen.
+- `--serif` (Instrument Serif): nur noch **dekorative Zahlen/Marke** (`.stat .value`, Brand-Logo), nicht für Seitentitel.
 
 ### Radien — konzentrische Regel
 Ein gerundetes Element **in** einem gerundeten Container nimmt den **nächstkleineren** Token,
@@ -64,4 +64,9 @@ Vier Zustände (siehe [013](decisions/013-viewer-redesign.md)):
 
 Hier sammeln, was am Design noch nicht passt, damit es nicht verloren geht:
 
-- _(offen)_ Einzelne Stellen, die noch nicht gefallen — bitte konkret notieren (Seite + Element).
+- [erledigt] Viewer-HUD: „Fertig"/Buttons jetzt pill-förmig (passend zur Pill-Leiste).
+- [erledigt] Verwaltung: große Serifen-Titel durch kompakte Mono-Header ersetzt.
+- [offen] **Einrichtung** überarbeiten: UX umständlich und teils redundant. Ziel: Kamera-Liste
+  + Detailseite mit Konfiguration, „Anzeige"-Optionen direkt am Bild, sauberer Discovery-Flow.
+- [offen] **System** neu ordnen: Einstellungen wirken durcheinander; Teile gehören auf eigene
+  Seiten (z. B. Zugriff / Netzwerk & Relays / Wartung getrennt).
