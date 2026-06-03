@@ -101,7 +101,7 @@
 
     <transition name="hud">
       <div v-if="editing" class="viewer-edit-hint">
-        Kamera an einen <b>Rand</b> ziehen = Fläche teilen · auf die <b>Mitte</b> = tauschen · <b>Trenner</b> ziehen = Größe · <b>Rad</b> = Zoom · <b>Shift+Ziehen</b> = Ausschnitt
+        An einen Kachel<b>rand</b> ziehen = teilen · an den <b>Außenrand</b> = volle Spalte/Reihe · <b>Mitte</b> = tauschen · <b>Trenner</b> = Größe · <b>Rad</b> = Zoom · <b>Shift+Ziehen</b> = Ausschnitt
       </div>
     </transition>
 
@@ -151,6 +151,7 @@ const gridEl = ref<HTMLElement>()
 const dragSourceAlias = ref('')
 const dockTarget = ref('')
 const dockSide = ref<Side>('center')
+const ROOT_TARGET = '__root__'
 
 let refreshTimer = 0
 let controlsTimer = 0
@@ -249,10 +250,12 @@ function gutterStyle(gutter: GutterRect) {
 }
 
 const dockOverlayStyle = computed(() => {
-  const leaf = geometry.value.leaves.find((item) => item.alias === dockTarget.value)
-  if (!leaf) return { display: 'none' }
-  const { x, y, w, h } = leaf.rect
   const side = dockSide.value
+  const base = dockTarget.value === ROOT_TARGET
+    ? { x: 0, y: 0, w: 100, h: 100 }
+    : geometry.value.leaves.find((item) => item.alias === dockTarget.value)?.rect
+  if (!base) return { display: 'none' }
+  const { x, y, w, h } = base
   let rect = { x, y, w, h }
   if (side === 'left') rect = { x, y, w: w / 2, h }
   else if (side === 'right') rect = { x: x + w / 2, y, w: w / 2, h }
@@ -422,6 +425,17 @@ function hitTest(clientX: number, clientY: number): { alias: string; side: Side 
   const box = el.getBoundingClientRect()
   const px = ((clientX - box.left) / box.width) * 100
   const py = ((clientY - box.top) / box.height) * 100
+  // Outer edge of the whole layout → dock as a full-width/height pane (split the root),
+  // like dropping on the edge of the VSCode editor area.
+  const outerEdges: Array<{ side: Side; d: number }> = [
+    { side: 'left', d: px },
+    { side: 'right', d: 100 - px },
+    { side: 'top', d: py },
+    { side: 'bottom', d: 100 - py }
+  ]
+  outerEdges.sort((a, b) => a.d - b.d)
+  if (outerEdges[0].d <= 7) return { alias: ROOT_TARGET, side: outerEdges[0].side }
+
   const target = geometry.value.leaves.find((item) =>
     px >= item.rect.x && px <= item.rect.x + item.rect.w && py >= item.rect.y && py <= item.rect.y + item.rect.h
   )
@@ -441,6 +455,18 @@ function hitTest(clientX: number, clientY: number): { alias: string; side: Side 
 
 function applyDock(sourceAlias: string, targetAlias: string, side: Side) {
   if (!mosaic.value || sourceAlias === targetAlias) return
+  // Dock to the outer edge of the whole layout → wrap the entire tree in a new split,
+  // giving the camera a full-height column (left/right) or full-width row (top/bottom).
+  if (targetAlias === ROOT_TARGET) {
+    if (side === 'center') return
+    const rest = removeSlot(mosaic.value, sourceAlias)
+    if (!rest) return
+    const src = leaf(sourceAlias)
+    const dir: 'row' | 'col' = side === 'left' || side === 'right' ? 'row' : 'col'
+    const sourceFirst = side === 'left' || side === 'top'
+    setTree({ type: 'split', dir, ratio: 0.5, a: sourceFirst ? src : rest, b: sourceFirst ? rest : src })
+    return
+  }
   if (side === 'center') {
     setTree(swapSlots(mosaic.value, sourceAlias, targetAlias))
     return
