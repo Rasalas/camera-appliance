@@ -52,13 +52,7 @@
       />
 
       <div v-if="editing" class="tile-edit">
-        <button
-          class="tile-grip"
-          type="button"
-          title="Zum Umsortieren ziehen"
-          @click.stop
-          @pointerdown.stop="startTilePointerDrag($event, slot)"
-        >{{ slot.alias }} · {{ slot.label }}</button>
+        <span class="tile-tag">{{ slot.alias }} · {{ slot.label }}</span>
         <div v-if="slot.binding?.device_id" class="tile-edit-actions">
           <button class="btn icon sm" type="button" title="90° drehen" @click.stop="rotateTile(slot)">⟳</button>
           <button
@@ -111,25 +105,17 @@
     <transition name="hud">
       <div v-if="showHud" class="viewer-hud" @pointermove.stop="revealControls" @click.stop>
         <template v-if="canAdmin">
-          <select
-            v-if="editing"
-            class="layout-select"
-            :value="activeLayoutID"
-            :disabled="layoutBusy"
-            @change="setLayoutFromEvent"
-          >
-            <option v-for="option in layoutOptions" :key="option.id" :value="option.id">{{ option.name }}</option>
-          </select>
-          <template v-if="editing && splitLayout">
-            <button class="btn sm" :class="{ live: focusSide === 'left' }" :disabled="layoutBusy" @click="setFocusSide('focus_left')">Links</button>
-            <button class="btn sm" :class="{ live: focusSide === 'middle' }" :disabled="layoutBusy" @click="setFocusSide('focus_middle')">Mitte</button>
-            <button class="btn sm" :class="{ live: focusSide === 'right' }" :disabled="layoutBusy" @click="setFocusSide('focus_right')">Rechts</button>
-          </template>
           <button class="btn sm" :class="{ live: editing }" type="button" @click="toggleEdit">{{ editing ? 'Fertig' : 'Bearbeiten' }}</button>
         </template>
         <button class="btn sm" type="button" @click="toggleFullscreen">{{ isFullscreen ? 'Vollbild aus' : 'Vollbild' }}</button>
         <RouterLink v-if="canAdmin" class="btn sm ghost" to="/einrichtung">Verwaltung</RouterLink>
         <RouterLink v-else-if="auth?.enabled && !auth.authenticated" class="btn sm ghost" to="/login">Login</RouterLink>
+      </div>
+    </transition>
+
+    <transition name="hud">
+      <div v-if="editing" class="viewer-edit-hint">
+        Ziehen = verschieben &amp; tauschen · auf Zone ziehen = platzieren · Trenner ziehen = Größe · Rad = Zoom · Shift+Ziehen = Ausschnitt
       </div>
     </transition>
 
@@ -182,8 +168,8 @@ const fallbackPerformanceOptions: ViewerPerformanceOption[] = [
   { id: 'low', name: 'Niedrig', description: 'Nur die primäre Ansicht live laden, Nebenansichten pausieren.' },
   { id: 'diagnostic', name: 'Diagnose', description: 'Alle Streams live laden und Producer/Consumer sichtbar machen.' }
 ]
-const defaultCustomColumns = [29, 29, 6, 36]
-const defaultCustomRows = [50, 50]
+const defaultCustomColumns = [1, 1]
+const defaultCustomRows = [1, 1, 1]
 const fallbackLayoutOptions: ViewerLayoutOption[] = [
   { id: 'grid_2x2', name: '2x2', description: 'Vier gleich große Kameras im Raster.' },
   { id: 'four_plus_large', name: '4 plus groß', description: 'Vier Raster-Kameras mit einer prominenten Ansicht.' },
@@ -317,7 +303,7 @@ const layoutGridStyle = computed(() => {
     }
   }
   if (!splitLayout.value) return {}
-  const split = clamp(layoutDraft.value.split_percent || 58, 30, 76)
+  const split = clamp(layoutDraft.value.split_percent || 58, 12, 88)
   const focus = 100 - split
   const gap = clamp(layoutDraft.value.gap_px || 10, 2, 20)
   let columns = focusSide.value === 'right'
@@ -530,18 +516,19 @@ function syncPerformanceDraft() {
 function syncLayoutDraft() {
   if (!viewer.value?.layout) return
   const serverLayout = viewer.value.layout
-  const routeID = routeLayoutID()
-  const id = routeID || normalizedLayoutID(serverLayout.id || layoutIDFromMode(serverLayout.mode))
-  const routeMode = routeFocusMode()
-  const mode = routeMode || normalizedLayoutMode(serverLayout.mode, id)
+  // The viewer is free-form only: always use the custom layout so cameras can be
+  // placed, swapped and resized arbitrarily (named presets were removed). Until a
+  // free layout has actually been saved (server id === 'custom'), start from an even
+  // grid rather than the backend's placeholder custom block.
+  const hasSavedCustom = serverLayout.id === 'custom' && !!serverLayout.custom?.cells?.length
   layoutDraft.value = {
-    id,
-    mode,
+    id: 'custom',
+    mode: 'custom',
     focus_slot_id: serverLayout.focus_slot_id || defaultFocusSlotID(),
     slot_order: serverLayout.slot_order?.length ? serverLayout.slot_order : slots.value.map((slot) => slot.alias),
-    split_percent: serverLayout.split_percent || defaultSplitPercent(id),
+    split_percent: serverLayout.split_percent || defaultSplitPercent('custom'),
     gap_px: serverLayout.gap_px || 8,
-    custom: normalizedCustomLayout(serverLayout.custom?.cells?.length ? serverLayout.custom : defaultCustomLayoutForSlots(serverLayout.focus_slot_id || defaultFocusSlotID()))
+    custom: normalizedCustomLayout(hasSavedCustom ? serverLayout.custom : defaultCustomLayoutForSlots(serverLayout.focus_slot_id || defaultFocusSlotID()))
   }
 }
 
@@ -609,10 +596,24 @@ function normalizedCustomCell(cell: ViewerCustomLayoutCell, columnCount: number,
   }
 }
 
-function defaultCustomLayoutForSlots(focusAlias = focusSlotID(), side: 'left' | 'middle' | 'right' = 'right') {
-  const zone = side === 'left' ? 'left' : side === 'middle' ? 'middle' : 'right'
-  const leadCell = customLeadCell(focusAlias, zone, defaultCustomColumns.length, defaultCustomRows.length)
-  return customLayoutFromLead(focusAlias, leadCell, defaultCustomColumns, defaultCustomRows)
+function defaultCustomLayoutForSlots(focusAlias = focusSlotID(), _side: 'left' | 'middle' | 'right' = 'right') {
+  // Even free-form grid: every camera gets its own equal cell, focus first.
+  const columns = [...defaultCustomColumns]
+  const rows = [...defaultCustomRows]
+  const order = normalizedSlotOrder()
+  const ordered = [focusAlias, ...order.filter((alias) => alias !== focusAlias)]
+  const capacity = columns.length * rows.length
+  const cells: ViewerCustomLayoutCell[] = []
+  ordered.slice(0, capacity).forEach((alias, index) => {
+    cells.push({
+      slot_id: alias,
+      column: (index % columns.length) + 1,
+      row: Math.floor(index / columns.length) + 1,
+      column_span: 1,
+      row_span: 1
+    })
+  })
+  return { columns, rows, cells }
 }
 
 function customLeadCell(slotAlias: string, zone: DropZoneID, columnCount: number, rowCount: number): ViewerCustomLayoutCell {
@@ -1113,7 +1114,7 @@ async function saveLayout() {
       'viewer.layout.mode': layoutDraft.value.mode,
       'viewer.layout.focus_slot_id': focusSlotID(),
       'viewer.layout.slot_order': normalizedSlotOrder().join(','),
-      'viewer.layout.split_percent': String(clamp(layoutDraft.value.split_percent, 30, 76)),
+      'viewer.layout.split_percent': String(clamp(layoutDraft.value.split_percent, 12, 88)),
       'viewer.layout.gap_px': String(clamp(layoutDraft.value.gap_px, 2, 20)),
       'viewer.layout.custom': JSON.stringify(normalizedCustomLayout(layoutDraft.value.custom))
     })
@@ -1135,15 +1136,15 @@ function startLayoutDrag(event: PointerEvent, handle: 'single' | 'middle_left' |
   const pointerId = event.pointerId
   ;(event.currentTarget as HTMLElement).setPointerCapture(pointerId)
   const move = (moveEvent: PointerEvent) => {
-    const relative = clamp(Math.round(((moveEvent.clientX - rect.left) / rect.width) * 100), 20, 80)
+    const relative = clamp(Math.round(((moveEvent.clientX - rect.left) / rect.width) * 100), 8, 92)
     if (focusSide.value === 'middle') {
       const focusWidth = handle === 'middle_left'
-        ? clamp((50 - relative) * 2, 24, 70)
-        : clamp((relative - 50) * 2, 24, 70)
-      layoutDraft.value.split_percent = clamp(100 - focusWidth, 30, 76)
+        ? clamp((50 - relative) * 2, 12, 84)
+        : clamp((relative - 50) * 2, 12, 84)
+      layoutDraft.value.split_percent = clamp(100 - focusWidth, 12, 88)
       return
     }
-    layoutDraft.value.split_percent = focusSide.value === 'right' ? clamp(relative, 30, 76) : clamp(100 - relative, 30, 76)
+    layoutDraft.value.split_percent = focusSide.value === 'right' ? clamp(relative, 12, 88) : clamp(100 - relative, 12, 88)
   }
   const up = async () => {
     window.removeEventListener('pointermove', move)
@@ -1173,7 +1174,7 @@ function startCustomLayoutDrag(event: PointerEvent, kind: CustomGrabberKind, ind
     const axisPosition = kind === 'column' ? moveEvent.clientX - rect.left : moveEvent.clientY - rect.top
     const pointerWeight = clamp(Math.round((axisPosition / axisSize) * total), 0, total)
     const beforePair = sum(weights.slice(0, index))
-    const minWeight = Math.max(1, Math.min(Math.round(total * 0.08), Math.floor(pairTotal / 2)))
+    const minWeight = Math.max(1, Math.min(Math.round(total * 0.03), Math.floor(pairTotal / 2)))
     const nextWeight = clamp(pointerWeight - beforePair, minWeight, pairTotal - minWeight)
     weights[index] = nextWeight
     weights[index + 1] = pairTotal - nextWeight
@@ -1259,7 +1260,12 @@ function onTilePointerDown(event: PointerEvent, slot: ViewerSlot) {
   if (!editing.value || event.button !== 0) return
   const target = event.target
   if (target instanceof HTMLElement && target.closest('button,a,select,input')) return
-  startCropPan(event, slot)
+  // Plain drag moves/swaps the camera; Shift+drag pans the crop window.
+  if (event.shiftKey && slot.binding?.device_id) {
+    startCropPan(event, slot)
+  } else {
+    startTilePointerDrag(event, slot)
+  }
 }
 
 function onTileWheel(event: WheelEvent, slot: ViewerSlot) {
@@ -1497,9 +1503,8 @@ onBeforeUnmount(() => {
   pointer-events: none;
 }
 .tile-edit > * { pointer-events: auto; }
-.tile-grip {
-  appearance: none;
-  border: 0;
+.tile-tag {
+  pointer-events: none;
   background: rgba(7, 7, 9, .72);
   color: var(--ink-soft);
   border-radius: var(--radius-sm);
@@ -1507,14 +1512,11 @@ onBeforeUnmount(() => {
   font-size: 10px;
   letter-spacing: .12em;
   text-transform: uppercase;
-  cursor: grab;
-  touch-action: none;
   max-width: 60%;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.tile-grip:active { cursor: grabbing; }
 .tile-edit-actions {
   display: flex;
   gap: 4px;
@@ -1542,6 +1544,26 @@ onBeforeUnmount(() => {
   backdrop-filter: blur(8px);
 }
 .viewer-hud .layout-select { min-height: 30px; }
+
+.viewer-edit-hint {
+  position: absolute;
+  z-index: 8;
+  top: 14px;
+  left: 50%;
+  transform: translateX(-50%);
+  max-width: 92%;
+  padding: 6px 14px;
+  border-radius: 999px;
+  background: rgba(12, 12, 14, .82);
+  backdrop-filter: blur(8px);
+  color: var(--ink-mute);
+  font-size: 10.5px;
+  letter-spacing: .04em;
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 
 .viewer-error {
   position: absolute;

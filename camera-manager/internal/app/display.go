@@ -110,7 +110,7 @@ func viewerLayoutFromSettings(settings map[string]string, slots []config.Slot) V
 		Mode:         mode,
 		FocusSlotID:  focus,
 		SlotOrder:    slotOrder,
-		SplitPercent: boundedIntSetting(settings, viewerLayoutSettingSplit, 58, 30, 76),
+		SplitPercent: boundedIntSetting(settings, viewerLayoutSettingSplit, 58, 12, 88),
 		GapPX:        boundedIntSetting(settings, viewerLayoutSettingGap, 10, 2, 20),
 		Cells:        viewerLayoutCells(id, focus, orderedSlots),
 		Custom:       custom,
