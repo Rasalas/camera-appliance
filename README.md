@@ -12,6 +12,8 @@ Tapo cameras -> camera-appliance discovery/state -> go2rtc stable aliases -> cam
 
 Camera identity is never bound to IP address alone. Devices store MAC, ONVIF endpoint reference, serial number, manufacturer, model, hardware ID, hostname, and last known IP.
 
+Project decisions are documented in [docs/decisions](docs/decisions/README.md).
+
 ## Local Development
 
 ```bash

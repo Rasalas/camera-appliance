@@ -14,7 +14,7 @@
   <div v-if="error" class="notice err"><span class="tag">FEHLER</span>{{ error }}</div>
 
   <!-- Section: Settings -->
-  <section class="panel">
+  <section class="panel card">
     <div class="panel-head">
       <h2>Einstellungen</h2>
       <button class="btn sm primary" @click="saveSettings">Speichern</button>
@@ -75,8 +75,91 @@
     </div>
   </section>
 
+  <!-- Section: Viewer display -->
+  <section class="panel card">
+    <div class="panel-head">
+      <h2>Anzeige</h2>
+      <div class="right">Raster und Zuschnitt werden im Viewer bearbeitet</div>
+    </div>
+
+    <div class="split">
+      <div class="field">
+        <span class="lbl">Performance</span>
+        <select v-model="settings['viewer.performance.mode']">
+          <option v-for="option in viewerPerformanceOptions" :key="option.id" :value="option.id">{{ option.name }}</option>
+        </select>
+        <div class="mono-mute" style="margin-top: 6px;">{{ viewerPerformanceDescription }}</div>
+      </div>
+      <div class="field">
+        <span class="lbl">Kiosk</span>
+        <div class="btn-row">
+          <RouterLink class="btn" to="/">Kameraansicht öffnen</RouterLink>
+        </div>
+        <div class="mono-mute" style="margin-top: 6px;">Layout per „Bearbeiten" direkt in der Kameraansicht anpassen.</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Section: Access -->
+  <section class="panel card">
+    <div class="panel-head">
+      <h2>Zugriff</h2>
+      <div class="right">{{ authStatus?.enabled ? 'Login aktiv' : 'Noch offen' }}</div>
+    </div>
+
+    <div class="split">
+      <div class="field">
+        <span class="lbl">Admin-Login</span>
+        <div class="btn-row" style="align-items: stretch;">
+          <input v-model="adminPassword" type="password" :placeholder="settings.auth_admin_password_set === 'true' ? 'Neues Admin-Passwort' : 'Admin-Passwort setzen'" style="flex: 1;" />
+          <button class="btn" :disabled="!adminPassword || savingAuthPassword === 'admin'" @click="saveAuthPassword('admin')">
+            {{ savingAuthPassword === 'admin' ? 'Speichert…' : 'Speichern' }}
+          </button>
+        </div>
+        <div class="mono-mute" style="margin-top: 6px;">
+          {{ settings.auth_admin_password_set === 'true' ? 'Admin-Passwort ist gesetzt.' : 'Noch kein Admin-Passwort gesetzt.' }}
+        </div>
+      </div>
+
+      <div class="field">
+        <span class="lbl">Viewer-Login</span>
+        <div class="btn-row" style="align-items: stretch;">
+          <input v-model="viewerPassword" type="password" :placeholder="settings.auth_viewer_password_set === 'true' ? 'Neues Viewer-Passwort' : 'Viewer-Passwort setzen'" style="flex: 1;" />
+          <button class="btn" :disabled="!viewerPassword || savingAuthPassword === 'viewer'" @click="saveAuthPassword('viewer')">
+            {{ savingAuthPassword === 'viewer' ? 'Speichert…' : 'Speichern' }}
+          </button>
+        </div>
+        <div class="mono-mute" style="margin-top: 6px;">
+          {{ settings.auth_viewer_password_set === 'true' ? 'Viewer-Passwort ist gesetzt.' : 'Viewer-Login ist noch nicht eingerichtet.' }}
+        </div>
+      </div>
+
+      <div class="field">
+        <span class="lbl">Session-Dauer · Stunden</span>
+        <input v-model="settings['auth.session_hours']" type="number" min="1" max="168" />
+      </div>
+    </div>
+
+    <div style="display: grid; gap: 8px;">
+      <label class="toggle-row">
+        <input type="checkbox" :checked="settings['auth.viewer_public'] === 'true'" @change="setBool('auth.viewer_public', $event)" />
+        <div>
+          <div class="lbl-main">Viewer ohne Login erlauben</div>
+          <div class="lbl-sub">Nur die Kameraansicht bleibt ohne Anmeldung erreichbar; Admin-Funktionen bleiben geschützt.</div>
+        </div>
+      </label>
+      <label class="toggle-row">
+        <input type="checkbox" :checked="settings['auth.local_admin_bypass'] === 'true'" @change="setBool('auth.local_admin_bypass', $event)" />
+        <div>
+          <div class="lbl-main">Lokalen Host als Admin akzeptieren</div>
+          <div class="lbl-sub">Zugriffe direkt von 127.0.0.1 dürfen ohne Passwort konfigurieren.</div>
+        </div>
+      </label>
+    </div>
+  </section>
+
   <!-- Section: Watchdog -->
-  <section class="panel">
+  <section class="panel card">
     <div class="panel-head">
       <h2>Watchdog</h2>
       <div class="right">{{ watchdogEnabled ? 'Aktiv' : 'Deaktiviert' }}</div>
@@ -115,6 +198,18 @@
         <span class="lbl">Kamera-Pfade · Sekunden</span>
         <input v-model="settings['watchdog.camera_interval_seconds']" type="number" min="10" max="7200" />
       </div>
+      <div class="field">
+        <span class="lbl">Fehler bis Wechsel</span>
+        <input v-model="settings['camera.path.fail_threshold']" type="number" min="1" max="20" />
+      </div>
+      <div class="field">
+        <span class="lbl">Erfolge bis Rückwechsel</span>
+        <input v-model="settings['camera.path.recovery_threshold']" type="number" min="1" max="20" />
+      </div>
+      <div class="field">
+        <span class="lbl">Restart-Cooldown · Sekunden</span>
+        <input v-model="settings['camera.path.restart_cooldown_seconds']" type="number" min="0" max="7200" />
+      </div>
     </div>
 
     <dl class="spec watchdog-spec">
@@ -134,11 +229,15 @@
         <dt>Letzter Fehler</dt>
         <dd>{{ status?.watchdog?.last_error || 'Kein Fehler.' }}</dd>
       </div>
+      <div>
+        <dt>Restart-Cooldown</dt>
+        <dd>{{ restartCooldownLabel }}</dd>
+      </div>
     </dl>
   </section>
 
   <!-- Section: Relays and stream paths -->
-  <section class="panel">
+  <section class="panel card">
     <div class="panel-head">
       <h2>Relays und Pfade</h2>
       <div class="device-head-actions">
@@ -288,7 +387,7 @@
   </section>
 
   <!-- Section: Credential identities -->
-  <section class="panel">
+  <section class="panel card">
     <div class="panel-head">
       <h2>Kamera-Identitäten</h2>
       <div class="device-head-actions">
@@ -350,7 +449,7 @@
   </div>
 
   <!-- Section: Support bundle -->
-  <section class="panel">
+  <section class="panel card">
     <div class="panel-head">
       <h2>Support-Bundle</h2>
       <div class="right">Status · Viewer · Netzwerk · Logs</div>
@@ -382,7 +481,7 @@
   </section>
 
   <!-- Section: Backup -->
-  <section class="panel">
+  <section class="panel card">
     <div class="panel-head">
       <h2>Sicherung</h2>
       <div class="right">Lokale Konfiguration · Bindings · Einstellungen</div>
@@ -414,7 +513,7 @@
   </section>
 
   <!-- Section: Events -->
-  <section class="panel">
+  <section class="panel card">
     <div class="panel-head">
       <h2>Ereignisprotokoll</h2>
       <div class="right">{{ events.length }} Einträge</div>
@@ -437,11 +536,39 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
 import { api } from '../api/client'
-import type { CredentialIdentity, EventItem, RelayStatus, StatusResponse, SupportBundleResult } from '../types'
+import type {
+  AuthRole,
+  AuthStatus,
+  CredentialIdentity,
+  EventItem,
+  RelayStatus,
+  Slot,
+  StatusResponse,
+  SupportBundleResult,
+  ViewerLayoutID,
+  ViewerLayoutOption,
+  ViewerPerformanceMode,
+  ViewerPerformanceOption
+} from '../types'
+
+const viewerLayoutOptions: ViewerLayoutOption[] = [
+  { id: 'grid_2x2', name: '2x2', description: 'Vier gleich große Kameras im Raster.' },
+  { id: 'four_plus_large', name: '4 plus groß', description: 'Vier Raster-Kameras mit einer prominenten Ansicht.' },
+  { id: 'vertical_plus_grid', name: 'Vertikal plus Raster', description: 'Eine hochformatige Kamera neben einem Raster.' },
+  { id: 'large_only', name: 'Große Ansicht', description: 'Nur die prominente Kamera bildschirmfüllend.' },
+  { id: 'custom', name: 'Frei', description: 'Kameras per Drag-and-drop auf Zonen und Größen legen.' }
+]
+const viewerPerformanceOptions: ViewerPerformanceOption[] = [
+  { id: 'quality', name: 'Qualität', description: 'Alle sichtbaren Streams sofort live laden.' },
+  { id: 'balanced', name: 'Balanciert', description: 'Nebenansichten lazy laden und primäre Ansicht priorisieren.' },
+  { id: 'low', name: 'Niedrig', description: 'Nur die primäre Ansicht live laden, Nebenansichten pausieren.' },
+  { id: 'diagnostic', name: 'Diagnose', description: 'Alle Streams live laden und Producer/Consumer sichtbar machen.' }
+]
 
 const settings = reactive<Record<string, string>>({})
 const events = ref<EventItem[]>([])
 const status = ref<StatusResponse>()
+const authStatus = ref<AuthStatus>()
 const credentialIdentities = ref<CredentialIdentity[]>([])
 const restorePath = ref('')
 const backupResult = ref<{ path: string; warning: string }>()
@@ -449,7 +576,10 @@ const supportBundleResult = ref<SupportBundleResult>()
 const error = ref('')
 const toast = ref('')
 const cameraPassword = ref('')
+const adminPassword = ref('')
+const viewerPassword = ref('')
 const savingPassword = ref(false)
+const savingAuthPassword = ref<AuthRole | ''>('')
 const creatingSupportBundle = ref(false)
 const savingIdentity = ref(false)
 const showIdentityModal = ref(false)
@@ -460,10 +590,38 @@ const relayActionBusy = ref('')
 
 const relayIds = computed(() => settingList(settings['camera.relay.ids']))
 const relayStatuses = computed(() => status.value?.relays ?? [])
+const viewerSlots = computed<Slot[]>(() => status.value?.slots ?? [])
+const viewerLayoutID = computed(() => normalizedViewerLayoutID(settings['viewer.layout.id'] || layoutIDFromMode(settings['viewer.layout.mode'])))
+const viewerLayout = computed(() => viewerLayoutOptions.find((layout) => layout.id === viewerLayoutID.value) || viewerLayoutOptions[1])
+const viewerLayoutName = computed(() => viewerLayout.value.name)
+const viewerLayoutDescription = computed(() => viewerLayout.value.description)
+const viewerLayoutUsesSplit = computed(() => viewerLayoutID.value === 'four_plus_large' || viewerLayoutID.value === 'vertical_plus_grid')
+const viewerPerformanceDescription = computed(() => {
+  const mode = normalizedViewerPerformanceMode(settings['viewer.performance.mode'])
+  return viewerPerformanceOptions.find((option) => option.id === mode)?.description || ''
+})
+const kioskLayoutQuery = computed(() => {
+  const query: Record<string, string> = { layout: viewerLayoutID.value }
+  const performance = normalizedViewerPerformanceMode(settings['viewer.performance.mode'])
+  if (performance !== 'quality') query.perf = performance
+  if (viewerLayoutUsesSplit.value) {
+    if (settings['viewer.layout.mode'] === 'focus_left') query.side = 'left'
+    else if (settings['viewer.layout.mode'] === 'focus_middle') query.side = 'middle'
+    else query.side = 'right'
+  }
+  return query
+})
 const cameraBindings = computed(() => (status.value?.bindings ?? []).filter((binding) => binding.device_id))
 const watchdogEnabled = computed(() => boolSetting('watchdog.enabled', status.value?.watchdog?.enabled ?? true))
 const watchdogRestartOnChange = computed(() => boolSetting('watchdog.restart_on_change', status.value?.watchdog?.restart_on_change ?? true))
 const watchdogRestartGo2RTC = computed(() => boolSetting('watchdog.restart_go2rtc_on_failure', status.value?.watchdog?.restart_go2rtc_on_failure ?? true))
+const restartCooldownLabel = computed(() => {
+  const watchdog = status.value?.watchdog
+  if (!watchdog) return 'Noch kein Status.'
+  if (watchdog.path_restart_pending) return `Ausstehend bis ${watchdogDate(watchdog.path_restart_cooldown_until)}`
+  if (watchdog.path_restart_last_at) return `Letzter Restart ${watchdogDate(watchdog.path_restart_last_at)}`
+  return 'Kein Cooldown aktiv.'
+})
 const versionLabel = computed(() => {
   const info = status.value?.version
   if (!info) return 'dev'
@@ -529,6 +687,51 @@ function settingList(raw?: string) {
 
 function sanitizeID(value: string) {
   return value.trim().toLowerCase().replace(/[^a-z0-9_]+/g, '_').replace(/^_+|_+$/g, '')
+}
+
+function normalizedViewerLayoutID(raw?: string): ViewerLayoutID {
+  if (raw === 'grid_2x2' || raw === 'four_plus_large' || raw === 'vertical_plus_grid' || raw === 'large_only' || raw === 'custom') return raw
+  return 'four_plus_large'
+}
+
+function layoutIDFromMode(raw?: string): ViewerLayoutID {
+  if (raw === 'grid_2x2' || raw === 'vertical_plus_grid' || raw === 'large_only' || raw === 'custom') return raw
+  return 'four_plus_large'
+}
+
+function normalizedViewerPerformanceMode(raw?: string): ViewerPerformanceMode {
+  if (raw === 'balanced' || raw === 'low' || raw === 'diagnostic') return raw
+  return 'quality'
+}
+
+function defaultViewerLayoutMode(id: ViewerLayoutID) {
+  if (id === 'vertical_plus_grid') return 'focus_right'
+  if (id === 'four_plus_large') {
+    if (settings['viewer.layout.mode'] === 'focus_left' || settings['viewer.layout.mode'] === 'focus_middle' || settings['viewer.layout.mode'] === 'focus_right') return settings['viewer.layout.mode']
+    return 'auto'
+  }
+  return id
+}
+
+function defaultViewerLayoutSplit(id: ViewerLayoutID) {
+  return id === 'vertical_plus_grid' ? '64' : '58'
+}
+
+function setViewerLayoutFromEvent(event: Event) {
+  const target = event.target as HTMLSelectElement
+  setViewerLayoutID(normalizedViewerLayoutID(target.value))
+}
+
+function setViewerLayoutID(id: ViewerLayoutID) {
+  settings['viewer.layout.id'] = id
+  settings['viewer.layout.mode'] = defaultViewerLayoutMode(id)
+  if (!settings['viewer.layout.split_percent']) settings['viewer.layout.split_percent'] = defaultViewerLayoutSplit(id)
+  if (!settings['viewer.layout.gap_px']) settings['viewer.layout.gap_px'] = '8'
+  if (!settings['viewer.layout.focus_slot_id']) settings['viewer.layout.focus_slot_id'] = defaultViewerFocusSlotID()
+}
+
+function defaultViewerFocusSlotID() {
+  return viewerSlots.value.find((slot) => slot.role === 'large')?.id || viewerSlots.value[viewerSlots.value.length - 1]?.id || 'cam5'
 }
 
 function relaySettingKey(id: string, field: string) {
@@ -647,6 +850,19 @@ function ensureWatchdogDefaults() {
   if (!settings['watchdog.restart_go2rtc_on_failure']) settings['watchdog.restart_go2rtc_on_failure'] = String(watchdog.restart_go2rtc_on_failure)
   if (!settings['watchdog.fast_interval_seconds']) settings['watchdog.fast_interval_seconds'] = String(watchdog.fast_interval_seconds)
   if (!settings['watchdog.camera_interval_seconds']) settings['watchdog.camera_interval_seconds'] = String(watchdog.camera_interval_seconds)
+  if (!settings['camera.path.fail_threshold']) settings['camera.path.fail_threshold'] = String(watchdog.path_fail_threshold)
+  if (!settings['camera.path.recovery_threshold']) settings['camera.path.recovery_threshold'] = String(watchdog.path_recovery_threshold)
+  if (!settings['camera.path.restart_cooldown_seconds']) settings['camera.path.restart_cooldown_seconds'] = String(watchdog.path_restart_cooldown_seconds)
+}
+
+function ensureAuthDefaults() {
+  const auth = authStatus.value
+  if (!auth) return
+  settings.auth_admin_password_set = String(auth.admin_password_set)
+  settings.auth_viewer_password_set = String(auth.viewer_password_set)
+  if (!settings['auth.viewer_public']) settings['auth.viewer_public'] = String(auth.viewer_public)
+  if (!settings['auth.local_admin_bypass']) settings['auth.local_admin_bypass'] = String(auth.local_admin_bypass)
+  if (!settings['auth.session_hours']) settings['auth.session_hours'] = String(auth.session_hours || 12)
 }
 
 function ensureRelayDefaults() {
@@ -655,6 +871,16 @@ function ensureRelayDefaults() {
     if (!settings[relaySettingKey(relayId, 'bind_host')]) settings[relaySettingKey(relayId, 'bind_host')] = relayStatusFor(relayId)?.bind_host || '127.0.0.1'
     if (!settings[relaySettingKey(relayId, 'auto_start')]) settings[relaySettingKey(relayId, 'auto_start')] = String(relayStatusFor(relayId)?.auto_start ?? false)
   }
+}
+
+function ensureViewerLayoutDefaults() {
+  const id = viewerLayoutID.value
+  if (!settings['viewer.layout.id']) settings['viewer.layout.id'] = id
+  if (!settings['viewer.layout.mode']) settings['viewer.layout.mode'] = defaultViewerLayoutMode(id)
+  if (!settings['viewer.layout.focus_slot_id']) settings['viewer.layout.focus_slot_id'] = defaultViewerFocusSlotID()
+  if (!settings['viewer.layout.split_percent']) settings['viewer.layout.split_percent'] = defaultViewerLayoutSplit(id)
+  if (!settings['viewer.layout.gap_px']) settings['viewer.layout.gap_px'] = '8'
+  if (!settings['viewer.performance.mode']) settings['viewer.performance.mode'] = 'quality'
 }
 
 function removeRelay(id: string) {
@@ -682,6 +908,7 @@ async function refreshStatus() {
   ensurePathPolicyDefaults()
   ensureWatchdogDefaults()
   ensureRelayDefaults()
+  ensureViewerLayoutDefaults()
 }
 
 async function relayAction(id: string, action: 'start' | 'stop' | 'restart') {
@@ -717,6 +944,39 @@ async function saveCameraPassword() {
     error.value = err instanceof Error ? err.message : 'Passwort konnte nicht gespeichert werden.'
   } finally {
     savingPassword.value = false
+  }
+}
+
+async function loadAuthStatus() {
+  authStatus.value = await api.authStatus()
+  ensureAuthDefaults()
+}
+
+async function saveAuthPassword(role: AuthRole) {
+  const password = role === 'admin' ? adminPassword.value : viewerPassword.value
+  const wasEnabled = authStatus.value?.enabled ?? false
+  savingAuthPassword.value = role
+  error.value = ''
+  try {
+    await api.setAuthPassword({ role, password })
+    if (role === 'admin' && !wasEnabled) {
+      await api.login({ username: 'admin', password })
+      window.dispatchEvent(new Event('auth-changed'))
+    }
+    if (role === 'admin') {
+      adminPassword.value = ''
+      settings.auth_admin_password_set = 'true'
+    } else {
+      viewerPassword.value = ''
+      settings.auth_viewer_password_set = 'true'
+    }
+    await loadAuthStatus()
+    toast.value = `${role === 'admin' ? 'Admin' : 'Viewer'}-Passwort gespeichert`
+    setTimeout(() => (toast.value = ''), 2200)
+  } catch (err) {
+    error.value = err instanceof Error ? err.message : 'Login-Passwort konnte nicht gespeichert werden.'
+  } finally {
+    savingAuthPassword.value = ''
   }
 }
 
@@ -820,6 +1080,7 @@ onMounted(async () => {
   try {
     Object.assign(settings, await api.settings())
     passwordSource.value = settings.camera_password_source === 'keyring' ? 'Betriebssystem-Keyring' : (settings.camera_password_source || 'unbekannt')
+    await loadAuthStatus()
     await refreshStatus()
     await loadCredentialIdentities()
     events.value = await api.events()

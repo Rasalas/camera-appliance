@@ -2,7 +2,7 @@
   <header class="topline">
     <div>
       <div class="eyebrow">
-        <RouterLink to="/einrichtung" style="border-bottom: 1px solid var(--hairline-strong);">← Einrichtung</RouterLink>
+        <RouterLink to="/einrichtung" class="mono-mute">← Einrichtung</RouterLink>
         &nbsp;·&nbsp; Kamera-Diagnose
       </div>
       <h1 class="headline">{{ title }}</h1>
@@ -93,7 +93,7 @@
           class="preview-frame"
           :src="`data:${frame.content_type};base64,${frame.image_base64}`"
           alt="Kamera-Referenzbild"
-          style="display: block; max-width: 720px; width: 100%; border: 1px solid var(--hairline); border-radius: 4px;"
+          style="display: block; max-width: 720px; width: 100%; border-radius: var(--radius);"
         />
         <div class="mono-mute" style="font-size: 11px;">
           Frame-ID · {{ frame.sha256.slice(0, 24) }}<span v-if="frame.credential_source"> · Zugang: {{ frame.credential_source }}</span><span v-if="frame.saved_path"> · gespeichert unter {{ frame.saved_path }}</span>
@@ -104,12 +104,113 @@
           class="preview-frame"
           :src="referenceImageUrl"
           alt="Gespeichertes Kamera-Referenzbild"
-          style="display: block; max-width: 720px; width: 100%; border: 1px solid var(--hairline); border-radius: 4px;"
+          style="display: block; max-width: 720px; width: 100%; border-radius: var(--radius);"
           @error="referenceMissing = true"
         />
         <div class="mono-mute" style="font-size: 11px;">Gespeichertes Referenzbild</div>
       </div>
       <div v-else class="empty">Noch kein Referenzbild hinterlegt.</div>
+    </section>
+
+    <section class="panel card">
+      <div class="panel-head">
+        <h2>Anzeige</h2>
+        <div class="right">{{ displaySummary }}</div>
+      </div>
+
+      <div class="split-3-2">
+        <div class="transform-preview">
+          <div v-if="previewImageSrc" class="transform-preview-stage">
+            <img
+              class="transform-preview-image"
+              :src="previewImageSrc"
+              alt="Transformierte Kameravorschau"
+              :style="displayPreviewStyle"
+            />
+          </div>
+          <div v-else class="empty">Für die Vorschau zuerst ein Referenzbild erzeugen.</div>
+        </div>
+
+        <div class="display-controls">
+          <div class="field">
+            <span class="lbl">Rotation</span>
+            <div class="btn-row">
+              <button v-for="value in [0, 90, 180, 270]" :key="value" class="btn sm" :class="{ live: rotation === value }" @click="rotation = value">
+                {{ value }}°
+              </button>
+            </div>
+          </div>
+
+          <div style="display: grid; gap: 8px;">
+            <label class="toggle-row">
+              <input v-model="mirror" type="checkbox" />
+              <div>
+                <div class="lbl-main">Horizontal spiegeln</div>
+                <div class="lbl-sub">Nützlich bei montierten oder invertierten Kameras.</div>
+              </div>
+            </label>
+            <label class="toggle-row">
+              <input v-model="flip" type="checkbox" />
+              <div>
+                <div class="lbl-main">Vertikal spiegeln</div>
+                <div class="lbl-sub">Korrigiert kopfstehende Montage.</div>
+              </div>
+            </label>
+          </div>
+
+          <div class="split">
+            <div class="field">
+              <span class="lbl">Fit</span>
+              <select v-model="fitMode">
+                <option value="cover">Cover</option>
+                <option value="contain">Contain</option>
+              </select>
+            </div>
+            <div class="field">
+              <span class="lbl">Streamprofil</span>
+              <select v-model="stream">
+                <option value="stream2">stream2</option>
+                <option value="stream1">stream1</option>
+              </select>
+            </div>
+            <div class="field">
+              <span class="lbl">Pfad-Policy</span>
+              <select v-model="pathPolicy">
+                <option value="auto">Auto</option>
+                <option value="prefer_direct">Direkt bevorzugen</option>
+                <option value="prefer_relay">Relay bevorzugen</option>
+                <option value="direct_only">Nur direkt</option>
+                <option value="relay_only">Nur Relay</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="crop-grid">
+            <div class="field">
+              <span class="lbl">Crop X</span>
+              <input v-model.number="cropX" type="number" min="0" max="99" />
+            </div>
+            <div class="field">
+              <span class="lbl">Crop Y</span>
+              <input v-model.number="cropY" type="number" min="0" max="99" />
+            </div>
+            <div class="field">
+              <span class="lbl">Breite %</span>
+              <input v-model.number="cropWidth" type="number" min="1" max="100" />
+            </div>
+            <div class="field">
+              <span class="lbl">Höhe %</span>
+              <input v-model.number="cropHeight" type="number" min="1" max="100" />
+            </div>
+          </div>
+
+          <div class="btn-row">
+            <button class="btn primary" :disabled="busy" @click="saveDisplay">Anzeige speichern</button>
+            <button class="btn" :disabled="busy" @click="resetDisplay">Zurücksetzen</button>
+            <button class="btn ghost" :disabled="busy" @click="renderAfterDisplay">go2rtc erzeugen</button>
+          </div>
+        </div>
+      </div>
     </section>
 
     <section class="panel">
@@ -125,7 +226,7 @@
 import { computed, onMounted, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import { api } from '../api/client'
-import type { CredentialIdentity, Device, DeviceCredentials, FrameResult, ProbeResult } from '../types'
+import type { Binding, CredentialIdentity, Device, DeviceCredentials, FrameResult, ProbeResult } from '../types'
 
 const route = useRoute()
 const device = ref<Device>()
@@ -139,13 +240,46 @@ const probeResult = ref<ProbeResult>()
 const frame = ref<FrameResult>()
 const credentials = ref<DeviceCredentials>()
 const credentialIdentities = ref<CredentialIdentity[]>([])
+const bindings = ref<Binding[]>([])
+const settings = ref<Record<string, string>>({})
 const referenceRevision = ref(Date.now())
 const referenceMissing = ref(false)
+const rotation = ref(0)
+const mirror = ref(false)
+const flip = ref(false)
+const fitMode = ref<'cover' | 'contain'>('contain')
+const cropX = ref(0)
+const cropY = ref(0)
+const cropWidth = ref(100)
+const cropHeight = ref(100)
+const pathPolicy = ref('auto')
 
 const title = computed(() => `${device.value?.manufacturer || 'Unbekannte'} ${device.value?.model || 'Kamera'}`.trim())
 const referenceImageUrl = computed(() => device.value ? api.referenceImageUrl(device.value.id, referenceRevision.value) : '')
 const canCapture = computed(() => Boolean((username.value && (password.value || credentials.value?.password_set)) || credentialIdentities.value.length))
 const identitySummary = computed(() => credentialIdentities.value.length ? `${credentialIdentities.value.length} Identität(en)` : 'kein Passwort')
+const previewImageSrc = computed(() => {
+  if (frame.value) return `data:${frame.value.content_type};base64,${frame.value.image_base64}`
+  return referenceMissing.value ? '' : referenceImageUrl.value
+})
+const displaySummary = computed(() => `${rotation.value}° · ${fitMode.value} · ${cropWidth.value}×${cropHeight.value}%`)
+const displayPreviewStyle = computed(() => {
+  const crop = normalizedCrop()
+  const width = 10000 / crop.width
+  const height = 10000 / crop.height
+  const left = -(crop.x / crop.width) * 100
+  const top = -(crop.y / crop.height) * 100
+  const scaleX = mirror.value ? -1 : 1
+  const scaleY = flip.value ? -1 : 1
+  return {
+    left: `${left}%`,
+    top: `${top}%`,
+    width: `${width}%`,
+    height: `${height}%`,
+    objectFit: fitMode.value,
+    transform: `rotate(${rotation.value}deg) scaleX(${scaleX}) scaleY(${scaleY})`
+  }
+})
 const raw = computed(() => {
   const v = device.value?.raw_json
   if (!v) return {} as Record<string, unknown>
@@ -182,6 +316,66 @@ async function saveCredentials() {
   }
 }
 
+async function saveDisplay() {
+  if (!device.value) return
+  busy.value = true
+  error.value = ''
+  try {
+    const deviceID = device.value.id
+    const crop = normalizedCrop()
+    const values: Record<string, string> = {
+      [`camera.display.${deviceID}.rotation`]: String(rotation.value),
+      [`camera.display.${deviceID}.mirror`]: String(mirror.value),
+      [`camera.display.${deviceID}.flip`]: String(flip.value),
+      [`camera.display.${deviceID}.fit_mode`]: fitMode.value,
+      [`camera.display.${deviceID}.crop_x`]: String(crop.x),
+      [`camera.display.${deviceID}.crop_y`]: String(crop.y),
+      [`camera.display.${deviceID}.crop_width`]: String(crop.width),
+      [`camera.display.${deviceID}.crop_height`]: String(crop.height),
+      [`camera.path_policy.${deviceID}`]: pathPolicy.value,
+      [`camera.credentials.${deviceID}.stream`]: stream.value
+    }
+    await api.saveSettings(values)
+    const binding = bindings.value.find((item) => item.device_id === deviceID)
+    if (binding && binding.stream_name !== stream.value) {
+      await api.saveBinding({ ...binding, stream_name: stream.value })
+      bindings.value = await api.bindings()
+    }
+    if (credentials.value) {
+      credentials.value.stream = stream.value
+    }
+    Object.assign(settings.value, values)
+  } catch (err) {
+    error.value = err instanceof Error ? err.message : 'Anzeige konnte nicht gespeichert werden.'
+  } finally {
+    busy.value = false
+  }
+}
+
+async function renderAfterDisplay() {
+  await saveDisplay()
+  if (error.value) return
+  busy.value = true
+  try {
+    await api.renderGo2RTC()
+  } catch (err) {
+    error.value = err instanceof Error ? err.message : 'go2rtc konnte nicht erzeugt werden.'
+  } finally {
+    busy.value = false
+  }
+}
+
+function resetDisplay() {
+  rotation.value = 0
+  mirror.value = false
+  flip.value = false
+  fitMode.value = 'contain'
+  cropX.value = 0
+  cropY.value = 0
+  cropWidth.value = 100
+  cropHeight.value = 100
+}
+
 async function capture(save: boolean) {
   if (!device.value) return
   busy.value = true
@@ -202,13 +396,59 @@ async function capture(save: boolean) {
   }
 }
 
+function loadDisplaySettings() {
+  if (!device.value) return
+  const deviceID = device.value.id
+  rotation.value = normalizedRotation(settings.value[`camera.display.${deviceID}.rotation`])
+  mirror.value = boolSetting(settings.value[`camera.display.${deviceID}.mirror`])
+  flip.value = boolSetting(settings.value[`camera.display.${deviceID}.flip`])
+  fitMode.value = settings.value[`camera.display.${deviceID}.fit_mode`] === 'cover' ? 'cover' : 'contain'
+  cropX.value = boundedNumber(settings.value[`camera.display.${deviceID}.crop_x`], 0, 0, 99)
+  cropY.value = boundedNumber(settings.value[`camera.display.${deviceID}.crop_y`], 0, 0, 99)
+  cropWidth.value = boundedNumber(settings.value[`camera.display.${deviceID}.crop_width`], 100, 1, 100)
+  cropHeight.value = boundedNumber(settings.value[`camera.display.${deviceID}.crop_height`], 100, 1, 100)
+  pathPolicy.value = settings.value[`camera.path_policy.${deviceID}`] || 'auto'
+}
+
+function normalizedCrop() {
+  const width = clamp(Number(cropWidth.value) || 100, 1, 100)
+  const height = clamp(Number(cropHeight.value) || 100, 1, 100)
+  return {
+    x: clamp(Number(cropX.value) || 0, 0, 100 - width),
+    y: clamp(Number(cropY.value) || 0, 0, 100 - height),
+    width,
+    height
+  }
+}
+
+function normalizedRotation(raw?: string) {
+  const value = Number(raw)
+  return [0, 90, 180, 270].includes(value) ? value : 0
+}
+
+function boolSetting(raw?: string) {
+  return raw === 'true' || raw === '1' || raw === 'yes' || raw === 'on'
+}
+
+function boundedNumber(raw: string | undefined, fallback: number, min: number, max: number) {
+  const parsed = Number(raw)
+  return clamp(Number.isFinite(parsed) ? parsed : fallback, min, max)
+}
+
+function clamp(value: number, min: number, max: number) {
+  return Math.min(max, Math.max(min, value))
+}
+
 onMounted(async () => {
   try {
     device.value = await api.device(String(route.params.id))
     credentials.value = await api.deviceCredentials(device.value.id)
     credentialIdentities.value = await api.credentialIdentities()
+    bindings.value = await api.bindings()
+    settings.value = await api.settings()
     username.value = credentials.value.username || ''
     stream.value = credentials.value.stream || 'stream2'
+    loadDisplaySettings()
   } catch (err) {
     error.value = err instanceof Error ? err.message : 'Kamera konnte nicht geladen werden.'
   } finally {

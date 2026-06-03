@@ -16,6 +16,12 @@ export interface WatchdogStatus {
   camera_interval_seconds: number
   restart_on_change: boolean
   restart_go2rtc_on_failure: boolean
+  path_fail_threshold: number
+  path_recovery_threshold: number
+  path_restart_cooldown_seconds: number
+  path_restart_last_at?: string
+  path_restart_pending: boolean
+  path_restart_cooldown_until?: string
   last_run_at?: string
   next_run_at?: string
   last_action?: string
@@ -109,6 +115,26 @@ export interface CredentialIdentity {
   password_source?: string
 }
 
+export type AuthRole = 'admin' | 'viewer'
+
+export interface AuthStatus {
+  enabled: boolean
+  authenticated: boolean
+  role?: AuthRole
+  session_expires_at?: string
+  admin_password_set: boolean
+  viewer_password_set: boolean
+  viewer_public: boolean
+  local_admin_bypass: boolean
+  session_hours: number
+  local_admin_bypass_now?: boolean
+}
+
+export interface LoginResult {
+  role: AuthRole
+  expires_at: string
+}
+
 export interface ManualDeviceResult {
   device: Device
   rtsp_port_open: boolean
@@ -144,6 +170,90 @@ export interface ViewerPlayback {
   page_url: string
 }
 
+export type ViewerPerformanceMode = 'quality' | 'balanced' | 'low' | 'diagnostic'
+
+export interface ViewerPerformanceOption {
+  id: ViewerPerformanceMode | string
+  name: string
+  description: string
+}
+
+export interface ViewerPerformance {
+  mode: ViewerPerformanceMode | string
+  name: string
+  options: ViewerPerformanceOption[]
+}
+
+export interface ViewerStreamStatus {
+  alias: string
+  configured: boolean
+  producers: number
+  consumers: number
+  has_producer: boolean
+  has_consumer: boolean
+  error?: string
+}
+
+export interface DisplayCrop {
+  x: number
+  y: number
+  width: number
+  height: number
+}
+
+export interface CameraDisplay {
+  rotation: 0 | 90 | 180 | 270 | number
+  mirror: boolean
+  flip: boolean
+  fit_mode: 'cover' | 'contain'
+  crop: DisplayCrop
+}
+
+export type ViewerLayoutID = 'grid_2x2' | 'four_plus_large' | 'vertical_plus_grid' | 'large_only' | 'custom'
+export type ViewerLayoutMode = 'auto' | 'focus_left' | 'focus_middle' | 'focus_right' | ViewerLayoutID
+
+export interface ViewerLayoutCell {
+  id: string
+  slot_id?: string
+  area: string
+  size: string
+  transform?: string
+}
+
+export interface ViewerCustomLayoutCell {
+  slot_id: string
+  column: number
+  row: number
+  column_span: number
+  row_span: number
+}
+
+export interface ViewerCustomLayout {
+  columns: number[]
+  rows: number[]
+  cells: ViewerCustomLayoutCell[]
+}
+
+export interface ViewerLayoutOption {
+  id: ViewerLayoutID | string
+  name: string
+  description: string
+}
+
+export interface ViewerLayout {
+  id: ViewerLayoutID | string
+  name: string
+  mode: ViewerLayoutMode | string
+  focus_slot_id: string
+  slot_order: string[]
+  split_percent: number
+  gap_px: number
+  cells: ViewerLayoutCell[]
+  custom: ViewerCustomLayout
+  mosaic?: string
+  options: ViewerLayoutOption[]
+}
+
 export interface StreamPath {
   id: string
   label: string
@@ -157,6 +267,15 @@ export interface StreamPath {
   active: boolean
   selected: boolean
   last_selected: boolean
+  success_count: number
+  failure_count: number
+  last_success_at?: string
+  last_failure_at?: string
+  selected_since?: string
+  last_switch_at?: string
+  last_switch_reason?: string
+  stability: string
+  stability_message: string
 }
 
 export interface ViewerSlot {
@@ -168,8 +287,10 @@ export interface ViewerSlot {
   binding?: Binding
   device?: Device
   playback?: ViewerPlayback
+  stream?: ViewerStreamStatus
   path?: StreamPath
   paths?: StreamPath[]
+  display: CameraDisplay
   diagnostics?: ViewerDiagnostic[]
 }
 
@@ -178,6 +299,8 @@ export interface ViewerResponse {
   go2rtc: ServiceStatus
   generated_config?: string
   stream_count: number
+  layout: ViewerLayout
+  performance: ViewerPerformance
   slots: ViewerSlot[]
 }
 

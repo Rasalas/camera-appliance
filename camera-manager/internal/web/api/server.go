@@ -11,6 +11,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/http/httputil"
 	neturl "net/url"
 	"os"
 	"os/exec"
@@ -19,6 +20,7 @@ import (
 	"time"
 
 	"camera-appliance/camera-manager/internal/app"
+	authn "camera-appliance/camera-manager/internal/auth"
 	"camera-appliance/camera-manager/internal/backup"
 	"camera-appliance/camera-manager/internal/redaction"
 	"camera-appliance/camera-manager/internal/secrets"
@@ -56,10 +58,14 @@ func New(a *app.App) *Server {
 }
 
 func (s *Server) Handler() http.Handler {
-	return withJSONHeaders(s.mux)
+	return withJSONHeaders(s.authMiddleware(s.mux))
 }
 
 func (s *Server) routes() {
+	s.mux.HandleFunc("GET /api/auth/status", s.getAuthStatus)
+	s.mux.HandleFunc("POST /api/auth/login", s.login)
+	s.mux.HandleFunc("POST /api/auth/logout", s.logout)
+	s.mux.HandleFunc("POST /api/auth/password", s.setAuthPassword)
 	s.mux.HandleFunc("GET /api/status", s.getStatus)
 	s.mux.HandleFunc("POST /api/discovery/start", s.startDiscovery)
 	s.mux.HandleFunc("GET /api/discovery/runs", s.getScanRuns)
@@ -91,6 +97,8 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST /api/backup", s.createBackup)
 	s.mux.HandleFunc("POST /api/support-bundle", s.createSupportBundle)
 	s.mux.HandleFunc("POST /api/restore", s.restoreBackup)
+	s.mux.HandleFunc("GET /go2rtc/api/ws", s.proxyGo2RTCWebSocket)
+	s.mux.HandleFunc("GET /go2rtc/{asset}", s.getGo2RTCAsset)
 	s.mux.HandleFunc("/", s.static)
 }
 
@@ -102,6 +110,64 @@ func (s *Server) getStatus(w http.ResponseWriter, r *http.Request) {
 func (s *Server) getViewer(w http.ResponseWriter, r *http.Request) {
 	viewer, err := s.app.Viewer(r.Context())
 	writeResult(w, viewer, err)
+}
+
+func (s *Server) getAuthStatus(w http.ResponseWriter, r *http.Request) {
+	info := authInfoFromContext(r.Context())
+	status, err := s.app.AuthStatus(r.Context(), info.Role, info.ExpiresAt, info.LocalAdminBypass)
+	writeResult(w, status, err)
+}
+
+func (s *Server) login(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Username string `json:"username"`
+		Password string `json:"password"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, err, http.StatusBadRequest)
+		return
+	}
+	token, result, err := s.app.Login(r.Context(), req.Username, req.Password)
+	if err != nil {
+		writeError(w, err, http.StatusUnauthorized)
+		return
+	}
+	setSessionCookie(w, r, token, result.ExpiresAt)
+	writeJSON(w, result, http.StatusOK)
+}
+
+func (s *Server) logout(w http.ResponseWriter, r *http.Request) {
+	if cookie, err := r.Cookie(sessionCookieName); err == nil {
+		_ = s.app.Logout(r.Context(), cookie.Value)
+	}
+	clearSessionCookie(w, r)
+	writeJSON(w, map[string]string{"status": "ok"}, http.StatusOK)
+}
+
+func (s *Server) setAuthPassword(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Role     string `json:"role"`
+		Password string `json:"password"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, err, http.StatusBadRequest)
+		return
+	}
+	info := authInfoFromContext(r.Context())
+	status, err := s.app.AuthStatus(r.Context(), info.Role, info.ExpiresAt, info.LocalAdminBypass)
+	if err != nil {
+		writeError(w, err, http.StatusInternalServerError)
+		return
+	}
+	if status.Enabled && info.Role != authn.RoleAdmin {
+		writeError(w, errors.New("admin login required"), unauthorizedStatus(info.Role, authn.RoleAdmin))
+		return
+	}
+	if err := s.app.SetAuthPassword(r.Context(), req.Role, req.Password); err != nil {
+		writeError(w, err, http.StatusBadRequest)
+		return
+	}
+	writeJSON(w, map[string]string{"status": "ok"}, http.StatusOK)
 }
 
 func (s *Server) startDiscovery(w http.ResponseWriter, r *http.Request) {
@@ -848,6 +914,8 @@ func (s *Server) getSettings(w http.ResponseWriter, r *http.Request) {
 	if settings == nil {
 		settings = map[string]string{}
 	}
+	delete(settings, app.AuthSettingAdminPasswordHash)
+	delete(settings, app.AuthSettingViewerPasswordHash)
 	settings["go2rtc_url"] = s.app.Config.Go2RTCURL
 	settings["bind_addr"] = s.app.Config.BindAddr
 	if settings["capture_ssh_host"] == "" {
@@ -855,6 +923,21 @@ func (s *Server) getSettings(w http.ResponseWriter, r *http.Request) {
 	}
 	settings["camera_password_set"] = fmt.Sprintf("%t", s.app.Config.TapoPassword != "")
 	settings["camera_password_source"] = s.app.Config.TapoPasswordSource
+	info := authInfoFromContext(r.Context())
+	authStatus, authErr := s.app.AuthStatus(r.Context(), info.Role, info.ExpiresAt, info.LocalAdminBypass)
+	if authErr == nil {
+		settings["auth_admin_password_set"] = fmt.Sprintf("%t", authStatus.AdminPasswordSet)
+		settings["auth_viewer_password_set"] = fmt.Sprintf("%t", authStatus.ViewerPasswordSet)
+		if settings[app.AuthSettingViewerPublic] == "" {
+			settings[app.AuthSettingViewerPublic] = fmt.Sprintf("%t", authStatus.ViewerPublic)
+		}
+		if settings[app.AuthSettingLocalAdminBypass] == "" {
+			settings[app.AuthSettingLocalAdminBypass] = fmt.Sprintf("%t", authStatus.LocalAdminBypass)
+		}
+		if settings[app.AuthSettingSessionHours] == "" {
+			settings[app.AuthSettingSessionHours] = fmt.Sprintf("%d", authStatus.SessionHours)
+		}
+	}
 	writeResult(w, settings, err)
 }
 
@@ -865,6 +948,12 @@ func (s *Server) putSettings(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	delete(settings, "camera_password")
+	delete(settings, app.AuthSettingAdminPasswordHash)
+	delete(settings, app.AuthSettingViewerPasswordHash)
+	delete(settings, "auth_admin_password_set")
+	delete(settings, "auth_viewer_password_set")
+	delete(settings, "camera_password_set")
+	delete(settings, "camera_password_source")
 	err := s.app.Store.PutSettings(r.Context(), settings)
 	writeResult(w, map[string]string{"status": "ok"}, err)
 }
@@ -945,6 +1034,261 @@ func (s *Server) static(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write([]byte(`<html><body><h1>camera-appliance</h1><p>Frontend wurde noch nicht gebaut. Bitte npm run build im frontend-Verzeichnis ausführen.</p></body></html>`))
+}
+
+func (s *Server) getGo2RTCAsset(w http.ResponseWriter, r *http.Request) {
+	asset := strings.TrimSpace(r.PathValue("asset"))
+	if asset != "video-stream.js" && asset != "video-rtc.js" {
+		writeError(w, errors.New("go2rtc asset not found"), http.StatusNotFound)
+		return
+	}
+	base, err := neturl.Parse(strings.TrimSpace(s.app.Config.Go2RTCURL))
+	if err != nil || base.Scheme == "" || base.Host == "" {
+		writeError(w, errors.New("go2rtc url is invalid"), http.StatusBadGateway)
+		return
+	}
+	base.User = nil
+	base.Path = strings.TrimRight(base.Path, "/") + "/" + asset
+	base.RawQuery = ""
+	base.Fragment = ""
+
+	ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, base.String(), nil)
+	if err != nil {
+		writeError(w, err, http.StatusBadGateway)
+		return
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		writeError(w, err, http.StatusBadGateway)
+		return
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode > 299 {
+		writeError(w, fmt.Errorf("go2rtc asset request failed: %s", resp.Status), http.StatusBadGateway)
+		return
+	}
+	w.Header().Set("Content-Type", "text/javascript; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-store")
+	w.WriteHeader(http.StatusOK)
+	_, _ = io.Copy(w, resp.Body)
+}
+
+func (s *Server) proxyGo2RTCWebSocket(w http.ResponseWriter, r *http.Request) {
+	target, err := neturl.Parse(strings.TrimSpace(s.app.Config.Go2RTCURL))
+	if err != nil || target.Scheme == "" || target.Host == "" {
+		writeError(w, errors.New("go2rtc url is invalid"), http.StatusBadGateway)
+		return
+	}
+	target.User = nil
+	basePath := strings.TrimRight(target.Path, "/")
+	proxy := httputil.NewSingleHostReverseProxy(target)
+	proxy.Director = func(req *http.Request) {
+		req.URL.Scheme = target.Scheme
+		req.URL.Host = target.Host
+		req.URL.Path = basePath + "/api/ws"
+		req.URL.RawQuery = r.URL.RawQuery
+		req.Host = target.Host
+		req.Header.Set("Origin", target.Scheme+"://"+target.Host)
+	}
+	proxy.ErrorHandler = func(w http.ResponseWriter, _ *http.Request, err error) {
+		writeError(w, err, http.StatusBadGateway)
+	}
+	proxy.ServeHTTP(w, r)
+}
+
+const sessionCookieName = "camera_appliance_session"
+
+type authContextKey struct{}
+
+type requestAuthInfo struct {
+	Role             string
+	ExpiresAt        *time.Time
+	LocalAdminBypass bool
+}
+
+func (s *Server) authMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		info := s.requestAuthInfo(r)
+		ctx := context.WithValue(r.Context(), authContextKey{}, info)
+		r = r.WithContext(ctx)
+
+		status, err := s.app.AuthStatus(r.Context(), info.Role, info.ExpiresAt, info.LocalAdminBypass)
+		if err != nil {
+			if strings.HasPrefix(r.URL.Path, "/api/") {
+				writeError(w, err, http.StatusInternalServerError)
+				return
+			}
+			next.ServeHTTP(w, r)
+			return
+		}
+		if !status.Enabled {
+			next.ServeHTTP(w, r)
+			return
+		}
+		if strings.HasPrefix(r.URL.Path, "/api/") {
+			if isPublicAuthAPI(r) {
+				next.ServeHTTP(w, r)
+				return
+			}
+			requiredRole := requiredAPIRole(r)
+			if requiredRole == authn.RoleViewer && status.ViewerPublic {
+				next.ServeHTTP(w, r)
+				return
+			}
+			if roleAllowed(info.Role, requiredRole) {
+				next.ServeHTTP(w, r)
+				return
+			}
+			writeError(w, errors.New("login required"), unauthorizedStatus(info.Role, requiredRole))
+			return
+		}
+		if shouldRedirectStaticToLogin(r.URL.Path, status, info) {
+			nextParam := r.URL.RequestURI()
+			http.Redirect(w, r, "/login?next="+neturl.QueryEscape(nextParam), http.StatusFound)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+func (s *Server) requestAuthInfo(r *http.Request) requestAuthInfo {
+	if cookie, err := r.Cookie(sessionCookieName); err == nil {
+		session, sessionErr := s.app.AuthSession(r.Context(), cookie.Value)
+		if sessionErr == nil && authn.IsRole(session.Role) {
+			expiresAt := session.ExpiresAt
+			return requestAuthInfo{Role: session.Role, ExpiresAt: &expiresAt}
+		}
+	}
+	status, err := s.app.AuthStatus(r.Context(), "", nil, false)
+	if err == nil && !status.Enabled {
+		return requestAuthInfo{Role: authn.RoleAdmin}
+	}
+	if err == nil && status.LocalAdminBypass && isLoopbackRemote(r.RemoteAddr) {
+		return requestAuthInfo{Role: authn.RoleAdmin, LocalAdminBypass: true}
+	}
+	return requestAuthInfo{}
+}
+
+func authInfoFromContext(ctx context.Context) requestAuthInfo {
+	info, _ := ctx.Value(authContextKey{}).(requestAuthInfo)
+	return info
+}
+
+func isPublicAuthAPI(r *http.Request) bool {
+	switch r.URL.Path {
+	case "/api/auth/status":
+		return r.Method == http.MethodGet
+	case "/api/auth/login", "/api/auth/logout", "/api/auth/password":
+		return r.Method == http.MethodPost
+	default:
+		return false
+	}
+}
+
+func requiredAPIRole(r *http.Request) string {
+	if r.Method == http.MethodGet && r.URL.Path == "/api/viewer" {
+		return authn.RoleViewer
+	}
+	return authn.RoleAdmin
+}
+
+func roleAllowed(role, requiredRole string) bool {
+	if requiredRole == authn.RoleViewer {
+		return role == authn.RoleViewer || role == authn.RoleAdmin
+	}
+	return role == authn.RoleAdmin
+}
+
+func unauthorizedStatus(role, requiredRole string) int {
+	if role != "" && !roleAllowed(role, requiredRole) {
+		return http.StatusForbidden
+	}
+	return http.StatusUnauthorized
+}
+
+func shouldRedirectStaticToLogin(path string, status app.AuthStatus, info requestAuthInfo) bool {
+	if path == "/login" || isStaticAssetPath(path) {
+		return false
+	}
+	if isAdminUIPath(path) {
+		return info.Role != authn.RoleAdmin
+	}
+	if path == "/" && !status.ViewerPublic {
+		return info.Role != authn.RoleAdmin && info.Role != authn.RoleViewer
+	}
+	return false
+}
+
+func isStaticAssetPath(path string) bool {
+	if strings.HasPrefix(path, "/assets/") || strings.HasPrefix(path, "/fonts/") {
+		return true
+	}
+	return filepath.Ext(path) != ""
+}
+
+func isAdminUIPath(path string) bool {
+	for _, prefix := range []string{
+		"/einrichtung",
+		"/uebersicht",
+		"/system",
+		"/kamera",
+		"/setup",
+		"/overview",
+		"/cameras",
+		"/discovery",
+		"/assign",
+		"/bindings",
+		"/devices",
+		"/settings",
+		"/events",
+		"/backup",
+	} {
+		if path == prefix || strings.HasPrefix(path, prefix+"/") {
+			return true
+		}
+	}
+	return false
+}
+
+func isLoopbackRemote(remoteAddr string) bool {
+	host, _, err := net.SplitHostPort(remoteAddr)
+	if err != nil {
+		host = remoteAddr
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
+}
+
+func setSessionCookie(w http.ResponseWriter, r *http.Request, token string, expiresAt time.Time) {
+	maxAge := int(time.Until(expiresAt).Seconds())
+	if maxAge < 1 {
+		maxAge = 1
+	}
+	http.SetCookie(w, &http.Cookie{
+		Name:     sessionCookieName,
+		Value:    token,
+		Path:     "/",
+		Expires:  expiresAt,
+		MaxAge:   maxAge,
+		HttpOnly: true,
+		SameSite: http.SameSiteLaxMode,
+		Secure:   r.TLS != nil,
+	})
+}
+
+func clearSessionCookie(w http.ResponseWriter, r *http.Request) {
+	http.SetCookie(w, &http.Cookie{
+		Name:     sessionCookieName,
+		Value:    "",
+		Path:     "/",
+		Expires:  time.Unix(0, 0),
+		MaxAge:   -1,
+		HttpOnly: true,
+		SameSite: http.SameSiteLaxMode,
+		Secure:   r.TLS != nil,
+	})
 }
 
 func writeResult(w http.ResponseWriter, value any, err error) {

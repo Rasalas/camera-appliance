@@ -84,6 +84,13 @@ type Setting struct {
 	UpdatedAt time.Time `json:"updated_at"`
 }
 
+type AuthSession struct {
+	TokenHash string
+	Role      string
+	CreatedAt time.Time
+	ExpiresAt time.Time
+}
+
 func Open(ctx context.Context, dbPath string) (*Store, error) {
 	if err := os.MkdirAll(filepath.Dir(dbPath), 0o750); err != nil {
 		return nil, err
@@ -116,6 +123,8 @@ func (s *Store) Migrate(ctx context.Context) error {
 		`CREATE TABLE IF NOT EXISTS stream_checks (id TEXT PRIMARY KEY, device_id TEXT NOT NULL, checked_at TEXT NOT NULL, stream_name TEXT NOT NULL, url_redacted TEXT NOT NULL, success INTEGER NOT NULL, latency_ms INTEGER, message TEXT, FOREIGN KEY(device_id) REFERENCES devices(id));`,
 		`CREATE TABLE IF NOT EXISTS events (id TEXT PRIMARY KEY, created_at TEXT NOT NULL, level TEXT NOT NULL, type TEXT NOT NULL, message TEXT NOT NULL, details_json TEXT);`,
 		`CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TEXT NOT NULL);`,
+		`CREATE TABLE IF NOT EXISTS auth_sessions (token_hash TEXT PRIMARY KEY, role TEXT NOT NULL, created_at TEXT NOT NULL, expires_at TEXT NOT NULL);`,
+		`CREATE INDEX IF NOT EXISTS idx_auth_sessions_expires_at ON auth_sessions(expires_at);`,
 	}
 	for _, stmt := range stmts {
 		if _, err := s.db.ExecContext(ctx, stmt); err != nil {
@@ -397,6 +406,52 @@ func (s *Store) PutSettings(ctx context.Context, values map[string]string) error
 		}
 	}
 	return tx.Commit()
+}
+
+func (s *Store) SaveAuthSession(ctx context.Context, session AuthSession) error {
+	if session.TokenHash == "" {
+		return errors.New("session token hash is required")
+	}
+	if session.Role == "" {
+		return errors.New("session role is required")
+	}
+	now := time.Now().UTC()
+	if session.CreatedAt.IsZero() {
+		session.CreatedAt = now
+	}
+	if session.ExpiresAt.IsZero() {
+		return errors.New("session expiry is required")
+	}
+	_, err := s.db.ExecContext(ctx, `INSERT INTO auth_sessions (token_hash,role,created_at,expires_at) VALUES (?,?,?,?)
+		ON CONFLICT(token_hash) DO UPDATE SET role=excluded.role, created_at=excluded.created_at, expires_at=excluded.expires_at`,
+		session.TokenHash, session.Role, formatTime(session.CreatedAt), formatTime(session.ExpiresAt))
+	return err
+}
+
+func (s *Store) AuthSession(ctx context.Context, tokenHash string, now time.Time) (AuthSession, error) {
+	row := s.db.QueryRowContext(ctx, `SELECT token_hash,role,created_at,expires_at FROM auth_sessions WHERE token_hash=?`, tokenHash)
+	var session AuthSession
+	var created, expires string
+	if err := row.Scan(&session.TokenHash, &session.Role, &created, &expires); err != nil {
+		return AuthSession{}, err
+	}
+	session.CreatedAt = parseTime(created)
+	session.ExpiresAt = parseTime(expires)
+	if !session.ExpiresAt.After(now.UTC()) {
+		_ = s.DeleteAuthSession(ctx, tokenHash)
+		return AuthSession{}, sql.ErrNoRows
+	}
+	return session, nil
+}
+
+func (s *Store) DeleteAuthSession(ctx context.Context, tokenHash string) error {
+	_, err := s.db.ExecContext(ctx, `DELETE FROM auth_sessions WHERE token_hash=?`, tokenHash)
+	return err
+}
+
+func (s *Store) DeleteExpiredAuthSessions(ctx context.Context, now time.Time) error {
+	_, err := s.db.ExecContext(ctx, `DELETE FROM auth_sessions WHERE expires_at<=?`, formatTime(now.UTC()))
+	return err
 }
 
 func (d Device) Fingerprint() fingerprint.Fingerprint {

@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="de"><head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Stream</title>
+<style>
+  html,body{margin:0;height:100%;background:#000;overflow:hidden}
+  video-stream{display:block;width:100%;height:100%}
+  video{width:100%!important;height:100%!important;object-fit:var(--fit,cover);background:#000}
+  /* Chromium: native Video-Chrome ausblenden (Video ist hier same-origin) */
+  video::-webkit-media-controls,
+  video::-webkit-media-controls-enclosure,
+  video::-webkit-media-controls-panel{display:none!important;-webkit-appearance:none!important}
+</style></head><body>
+<script type="module">
+  const p = new URLSearchParams(location.search);
+  const src = p.get('src');
+  const mode = p.get('mode') || 'mse,mp4,mjpeg';
+  document.documentElement.style.setProperty('--fit', p.get('fit') === 'contain' ? 'contain' : 'cover');
+  if (src) {
+    await import('/go2rtc/video-stream.js'); // registriert <video-stream> same-origin
+    const el = document.createElement('video-stream');
+    el.background = true;            // Stream nicht pausieren, wenn iframe versteckt
+    el.mode = mode;
+    el.src = '/go2rtc/api/ws?src=' + encodeURIComponent(src);
+    document.body.appendChild(el);
+    // Native Controls cross-browser zuverlässig abschalten (auch Firefox):
+    const strip = () => { const v = el.video; if (v) { v.controls = false; v.removeAttribute('controls'); v.style.pointerEvents = 'none'; } };
+    strip();
+    new MutationObserver(strip).observe(el, { childList: true, subtree: true });
+  }
+</script></body></html>

@@ -157,16 +157,18 @@ func isSensitiveSettingKey(key string) bool {
 func networkReport(viewer Viewer) string {
 	var out strings.Builder
 	fmt.Fprintf(&out, "checked_at: %s\n", viewer.CheckedAt.Format(time.RFC3339))
+	fmt.Fprintf(&out, "layout: mode=%s focus=%s split=%d gap=%d\n", viewer.Layout.Mode, viewer.Layout.FocusSlotID, viewer.Layout.SplitPercent, viewer.Layout.GapPX)
 	for _, slot := range viewer.Slots {
 		fmt.Fprintf(&out, "\n[%s] %s state=%s\n", slot.Alias, slot.Label, slot.State)
+		fmt.Fprintf(&out, "display=rotation:%d mirror:%t flip:%t fit:%s crop:%d,%d,%d,%d\n", slot.Display.Rotation, slot.Display.Mirror, slot.Display.Flip, slot.Display.FitMode, slot.Display.Crop.X, slot.Display.Crop.Y, slot.Display.Crop.Width, slot.Display.Crop.Height)
 		if slot.Device != nil {
 			fmt.Fprintf(&out, "device=%s ip=%s\n", slot.Device.ID, slot.Device.LastIP)
 		}
 		if slot.Path != nil {
-			fmt.Fprintf(&out, "selected=%s kind=%s host=%s port=%s state=%s\n", slot.Path.ID, slot.Path.Kind, slot.Path.Host, slot.Path.Port, slot.Path.State)
+			fmt.Fprintf(&out, "selected=%s kind=%s host=%s port=%s state=%s stability=%s success=%d failure=%d\n", slot.Path.ID, slot.Path.Kind, slot.Path.Host, slot.Path.Port, slot.Path.State, slot.Path.Stability, slot.Path.SuccessCount, slot.Path.FailureCount)
 		}
 		for _, path := range slot.Paths {
-			fmt.Fprintf(&out, "path=%s kind=%s host=%s port=%s state=%s message=%s\n", path.ID, path.Kind, path.Host, path.Port, path.State, path.Message)
+			fmt.Fprintf(&out, "path=%s kind=%s host=%s port=%s state=%s stability=%s success=%d failure=%d message=%s\n", path.ID, path.Kind, path.Host, path.Port, path.State, path.Stability, path.SuccessCount, path.FailureCount, path.Message)
 		}
 	}
 	return out.String()
