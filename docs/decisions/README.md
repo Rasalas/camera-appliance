@@ -2,6 +2,8 @@
 
 Diese Decision Records dokumentieren Projektentscheidungen, die im Verlauf der Umsetzung getroffen wurden. Sie sind bewusst breiter als klassische Architektur-ADRs: Sie halten auch Produkt-, Betriebs-, Sicherheits- und Umsetzungsentscheidungen fest.
 
+Siehe auch: [Design-System / Styleguide](../design-system.md) — Tokens, Prinzipien und UI-Bausteine.
+
 ## Statuswerte
 
 - `accepted`: Gilt aktuell.

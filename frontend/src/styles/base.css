@@ -34,10 +34,13 @@
   --shell-pad: 34px;
   --gutter: 28px;
 
-  /* radii — generous, borderless look */
+  /* radii — generous, borderless look.
+     Concentric rule: a rounded element inside another rounded box uses the next
+     SMALLER token, so nested corners stay visually parallel.
+     tile (outer) → radius (card/section) → radius-sm (anything nested in a card). */
   --radius-tile: 20px;   /* camera tiles, large rounded */
-  --radius: 12px;        /* sections, cards where needed */
-  --radius-sm: 8px;      /* inputs, buttons, chips */
+  --radius: 12px;        /* standalone cards, sections, modals */
+  --radius-sm: 8px;      /* inputs, buttons, chips, blocks nested inside a card */
 
   color: var(--ink);
   background: var(--bg);
@@ -786,7 +789,7 @@ input, select, textarea { font: inherit; color: inherit; }
 .assignment-display {
   margin-top: 14px;
   padding: 14px;
-  border-radius: var(--radius);
+  border-radius: var(--radius-sm);
   background: var(--surface);
 }
 .assignment-display-head {
@@ -897,7 +900,7 @@ input, select, textarea { font: inherit; color: inherit; }
   gap: 12px;
 }
 .relay-config {
-  border-radius: var(--radius);
+  border-radius: var(--radius-sm);
   padding: 14px;
   display: grid;
   gap: 12px;
@@ -956,7 +959,7 @@ input, select, textarea { font: inherit; color: inherit; }
   gap: 10px;
 }
 .relay-camera {
-  border-radius: var(--radius);
+  border-radius: var(--radius-sm);
   padding: 14px;
   display: grid;
   gap: 12px;
@@ -1058,7 +1061,7 @@ input, select, textarea { font: inherit; color: inherit; }
   overflow: hidden;
   min-height: 320px;
   aspect-ratio: 16 / 9;
-  border-radius: var(--radius);
+  border-radius: var(--radius-sm);
   background: #000;
 }
 .transform-preview-image {
@@ -1111,7 +1114,7 @@ input, select, textarea { font: inherit; color: inherit; }
   position: relative;
   border: 1px solid transparent;
   background: var(--surface);
-  border-radius: var(--radius);
+  border-radius: var(--radius-sm);
   padding: 16px;
   display: flex; flex-direction: column; justify-content: space-between;
   cursor: pointer;
