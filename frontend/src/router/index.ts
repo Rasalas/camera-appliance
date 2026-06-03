@@ -1,6 +1,5 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import ViewerPage from '../pages/ViewerPage.vue'
-import OverviewPage from '../pages/OverviewPage.vue'
 import SetupPage from '../pages/SetupPage.vue'
 import SystemPage from '../pages/SystemPage.vue'
 import DeviceDetailsPage from '../pages/DeviceDetailsPage.vue'
@@ -13,14 +12,14 @@ const router = createRouter({
   routes: [
     { path: '/', name: 'viewer', component: ViewerPage, meta: { requiresViewer: true } },
     { path: '/login', name: 'login', component: LoginPage },
-    { path: '/uebersicht', name: 'overview', component: OverviewPage, meta: { requiresAdmin: true } },
     { path: '/einrichtung', name: 'setup', component: SetupPage, meta: { requiresAdmin: true } },
     { path: '/system', name: 'system', component: SystemPage, meta: { requiresAdmin: true } },
     { path: '/kamera/:id', name: 'device', component: DeviceDetailsPage, meta: { requiresAdmin: true } },
 
     // legacy redirects from the previous IA
+    { path: '/uebersicht', redirect: '/einrichtung' },
     { path: '/setup', redirect: '/einrichtung' },
-    { path: '/overview', redirect: '/uebersicht' },
+    { path: '/overview', redirect: '/einrichtung' },
     { path: '/cameras', redirect: '/einrichtung' },
     { path: '/cameras/:id', redirect: (to) => `/kamera/${to.params.id}` },
     { path: '/display', redirect: '/' },

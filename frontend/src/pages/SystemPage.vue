@@ -14,7 +14,7 @@
   <div v-if="error" class="notice err"><span class="tag">FEHLER</span>{{ error }}</div>
 
   <!-- Section: Settings -->
-  <section class="panel">
+  <section class="panel card">
     <div class="panel-head">
       <h2>Einstellungen</h2>
       <button class="btn sm primary" @click="saveSettings">Speichern</button>
@@ -75,59 +75,33 @@
     </div>
   </section>
 
-  <!-- Section: Kiosk layout -->
-  <section class="panel">
+  <!-- Section: Viewer display -->
+  <section class="panel card">
     <div class="panel-head">
-      <h2>Kiosk-Layout</h2>
-      <div class="right">{{ viewerLayoutName }}</div>
+      <h2>Anzeige</h2>
+      <div class="right">Raster und Zuschnitt werden im Viewer bearbeitet</div>
     </div>
 
-    <div class="layout-admin-grid">
-      <div class="field">
-        <span class="lbl">Preset</span>
-        <select :value="viewerLayoutID" @change="setViewerLayoutFromEvent">
-          <option v-for="layout in viewerLayoutOptions" :key="layout.id" :value="layout.id">{{ layout.name }}</option>
-        </select>
-      </div>
-      <div class="field">
-        <span class="lbl">Fokus-Kamera</span>
-        <select v-model="settings['viewer.layout.focus_slot_id']">
-          <option v-for="slot in viewerSlots" :key="slot.id" :value="slot.id">{{ slot.label }}</option>
-        </select>
-      </div>
-      <div v-if="viewerLayoutUsesSplit" class="field">
-        <span class="lbl">Fokus-Seite</span>
-        <select v-model="settings['viewer.layout.mode']">
-          <option value="focus_right">Rechts</option>
-          <option value="focus_middle">Mitte</option>
-          <option value="focus_left">Links</option>
-          <option value="auto">Auto</option>
-        </select>
-      </div>
-      <div v-if="viewerLayoutUsesSplit" class="field">
-        <span class="lbl">Raster-Anteil · %</span>
-        <input v-model="settings['viewer.layout.split_percent']" type="number" min="30" max="76" />
-      </div>
-      <div class="field">
-        <span class="lbl">Gap · px</span>
-        <input v-model="settings['viewer.layout.gap_px']" type="number" min="2" max="20" />
-      </div>
+    <div class="split">
       <div class="field">
         <span class="lbl">Performance</span>
         <select v-model="settings['viewer.performance.mode']">
           <option v-for="option in viewerPerformanceOptions" :key="option.id" :value="option.id">{{ option.name }}</option>
         </select>
+        <div class="mono-mute" style="margin-top: 6px;">{{ viewerPerformanceDescription }}</div>
       </div>
-    </div>
-
-    <div class="layout-admin-actions">
-      <RouterLink class="btn sm" :to="{ path: '/', query: kioskLayoutQuery }">Kiosk-URL</RouterLink>
-      <div class="mono-mute">{{ viewerLayoutDescription }}</div>
+      <div class="field">
+        <span class="lbl">Kiosk</span>
+        <div class="btn-row">
+          <RouterLink class="btn" to="/">Kameraansicht öffnen</RouterLink>
+        </div>
+        <div class="mono-mute" style="margin-top: 6px;">Layout per „Bearbeiten" direkt in der Kameraansicht anpassen.</div>
+      </div>
     </div>
   </section>
 
   <!-- Section: Access -->
-  <section class="panel">
+  <section class="panel card">
     <div class="panel-head">
       <h2>Zugriff</h2>
       <div class="right">{{ authStatus?.enabled ? 'Login aktiv' : 'Noch offen' }}</div>
@@ -185,7 +159,7 @@
   </section>
 
   <!-- Section: Watchdog -->
-  <section class="panel">
+  <section class="panel card">
     <div class="panel-head">
       <h2>Watchdog</h2>
       <div class="right">{{ watchdogEnabled ? 'Aktiv' : 'Deaktiviert' }}</div>
@@ -263,7 +237,7 @@
   </section>
 
   <!-- Section: Relays and stream paths -->
-  <section class="panel">
+  <section class="panel card">
     <div class="panel-head">
       <h2>Relays und Pfade</h2>
       <div class="device-head-actions">
@@ -413,7 +387,7 @@
   </section>
 
   <!-- Section: Credential identities -->
-  <section class="panel">
+  <section class="panel card">
     <div class="panel-head">
       <h2>Kamera-Identitäten</h2>
       <div class="device-head-actions">
@@ -475,7 +449,7 @@
   </div>
 
   <!-- Section: Support bundle -->
-  <section class="panel">
+  <section class="panel card">
     <div class="panel-head">
       <h2>Support-Bundle</h2>
       <div class="right">Status · Viewer · Netzwerk · Logs</div>
@@ -507,7 +481,7 @@
   </section>
 
   <!-- Section: Backup -->
-  <section class="panel">
+  <section class="panel card">
     <div class="panel-head">
       <h2>Sicherung</h2>
       <div class="right">Lokale Konfiguration · Bindings · Einstellungen</div>
@@ -539,7 +513,7 @@
   </section>
 
   <!-- Section: Events -->
-  <section class="panel">
+  <section class="panel card">
     <div class="panel-head">
       <h2>Ereignisprotokoll</h2>
       <div class="right">{{ events.length }} Einträge</div>
@@ -622,6 +596,10 @@ const viewerLayout = computed(() => viewerLayoutOptions.find((layout) => layout.
 const viewerLayoutName = computed(() => viewerLayout.value.name)
 const viewerLayoutDescription = computed(() => viewerLayout.value.description)
 const viewerLayoutUsesSplit = computed(() => viewerLayoutID.value === 'four_plus_large' || viewerLayoutID.value === 'vertical_plus_grid')
+const viewerPerformanceDescription = computed(() => {
+  const mode = normalizedViewerPerformanceMode(settings['viewer.performance.mode'])
+  return viewerPerformanceOptions.find((option) => option.id === mode)?.description || ''
+})
 const kioskLayoutQuery = computed(() => {
   const query: Record<string, string> = { layout: viewerLayoutID.value }
   const performance = normalizedViewerPerformanceMode(settings['viewer.performance.mode'])

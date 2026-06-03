@@ -1,49 +1,11 @@
 <template>
-  <header class="topline viewer-topline">
-    <div>
-      <div class="eyebrow">Kameraansicht · go2rtc</div>
-      <h1 class="headline">
-        <template v-if="loading">Verbindung <em>wird geprüft.</em></template>
-        <template v-else-if="onlineCount">{{ onlineCount }} <em>Stream{{ onlineCount === 1 ? '' : 's' }} bereit.</em></template>
-        <template v-else>Kameras <em>nicht bereit.</em></template>
-      </h1>
-    </div>
-    <div class="meta">
-      <div>go2rtc · <b>{{ viewer?.go2rtc.online ? 'aktiv' : 'offline' }}</b></div>
-      <div>Aliase · <b>{{ viewer?.stream_count ?? 0 }}/{{ slots.length || 5 }}</b></div>
-      <div>Modus · <b>{{ performanceName }}</b></div>
-      <div>Stand · <b>{{ checkedAt }}</b></div>
-    </div>
-  </header>
-
-  <div v-if="error" class="notice err"><span class="tag">FEHLER</span>{{ error }}</div>
-
-  <div class="btn-row viewer-actions">
-    <button class="btn primary" :disabled="!!busy" @click="load">{{ busy === 'load' ? 'Lädt…' : 'Neu laden' }}</button>
-    <template v-if="canAdmin">
-      <button class="btn" :disabled="!!busy" @click="runDiscovery">{{ busy === 'scan' ? 'Suche läuft…' : 'Kameras suchen' }}</button>
-      <button class="btn" :disabled="!!busy" @click="render">{{ busy === 'render' ? 'Erzeugt…' : 'go2rtc erzeugen' }}</button>
-      <button class="btn ghost" :disabled="!!busy" @click="restartGo2rtc">{{ busy === 'restart' ? 'Startet…' : 'go2rtc neu starten' }}</button>
-    </template>
-    <div class="layout-buttons viewer-layout-controls">
-      <select class="layout-select" :value="activeLayoutID" :disabled="layoutBusy" @change="setLayoutFromEvent">
-        <option v-for="option in layoutOptions" :key="option.id" :value="option.id">{{ option.name }}</option>
-      </select>
-      <select class="layout-select performance-select" :value="performanceMode" :disabled="performanceBusy" @change="setPerformanceFromEvent">
-        <option v-for="option in performanceOptions" :key="option.id" :value="option.id">{{ option.name }}</option>
-      </select>
-      <template v-if="splitLayout">
-        <button class="btn sm" :class="{ live: focusSide === 'left' }" :disabled="layoutBusy" @click="setFocusSide('focus_left')">Links</button>
-        <button class="btn sm" :class="{ live: focusSide === 'middle' }" :disabled="layoutBusy" @click="setFocusSide('focus_middle')">Mitte</button>
-        <button class="btn sm" :class="{ live: focusSide === 'right' }" :disabled="layoutBusy" @click="setFocusSide('focus_right')">Rechts</button>
-      </template>
-    </div>
-    <div class="spacer" />
-    <RouterLink v-if="canAdmin" class="btn ghost" to="/einrichtung">Einrichtung</RouterLink>
-    <RouterLink v-else-if="auth?.enabled && !auth.authenticated" class="btn ghost" to="/login">Login</RouterLink>
-  </div>
-
-  <section class="viewer-grid" :class="layoutClass" :style="layoutGridStyle">
+  <div
+    class="viewer-root"
+    :class="rootClass"
+    @pointermove="revealControls"
+    @mouseleave="scheduleHideControls"
+  >
+    <section class="viewer-grid" :class="layoutClass" :style="layoutGridStyle">
     <article
       v-for="slot in visibleSlots"
       :key="slot.alias"
@@ -51,8 +13,6 @@
       :class="[tileClass(slot), { large: isFocusTile(slot), portrait: isPortraitTile(slot), reorderable: canReorderLayout, dragging: draggedSlotAlias === slot.alias, 'drop-target': dropSlotAlias === slot.alias && draggedSlotAlias !== slot.alias }]"
       :style="layoutTileStyle(slot)"
       :data-slot-alias="slot.alias"
-      :title="canReorderLayout ? 'Kamera ziehen' : undefined"
-      @pointerdown="startTilePointerDrag($event, slot)"
     >
       <div class="viewer-frame-wrap">
         <div
@@ -83,35 +43,37 @@
         </div>
       </div>
 
-      <div class="viewer-overlay">
-        <div class="slot-tag">
-          <span>{{ slot.alias }}</span>
-          <span class="pill" :class="stateClass(effectiveState(slot))">{{ stateLabel(effectiveState(slot)) }}</span>
-        </div>
-        <div>
-          <div class="slot-name">{{ slot.label }}</div>
-          <div class="slot-meta">
-            <span>{{ slot.device?.last_ip || 'keine IP' }}</span>
-            <span>{{ slot.binding?.stream_name || slot.slot.default_stream }}</span>
-            <span>{{ pathLabel(slot) }}</span>
-            <span v-if="diagnosticMode">{{ streamStatusLabel(slot) }}</span>
-          </div>
-        </div>
-      </div>
+      <div
+        class="tile-surface"
+        :title="editing ? undefined : 'Klicken zum Vergrößern'"
+        @click="onTileClick(slot)"
+        @pointerdown="onTilePointerDown($event, slot)"
+        @wheel="onTileWheel($event, slot)"
+      />
 
-      <div class="viewer-diagnostics">
-        <span
-          v-for="diag in visibleDiagnostics(slot)"
-          :key="`${slot.alias}-${diag.key}`"
-          class="diag-chip"
-          :class="diag.status"
-          :title="diag.message"
-        >
-          {{ diagLabel(diag.key) }}
-        </span>
+      <div v-if="editing" class="tile-edit">
+        <button
+          class="tile-grip"
+          type="button"
+          title="Zum Umsortieren ziehen"
+          @click.stop
+          @pointerdown.stop="startTilePointerDrag($event, slot)"
+        >{{ slot.alias }} · {{ slot.label }}</button>
+        <div v-if="slot.binding?.device_id" class="tile-edit-actions">
+          <button class="btn icon sm" type="button" title="90° drehen" @click.stop="rotateTile(slot)">⟳</button>
+          <button
+            class="btn sm"
+            type="button"
+            :title="effectiveDisplay(slot).fit_mode === 'cover' ? 'Ganzes Bild zeigen' : 'Format füllen'"
+            @click.stop="toggleFitTile(slot)"
+          >{{ effectiveDisplay(slot).fit_mode === 'cover' ? 'Füllen' : 'Ganz' }}</button>
+          <button class="btn icon sm" type="button" title="Hineinzoomen" @click.stop="zoomTile(slot, -1)">＋</button>
+          <button class="btn icon sm" type="button" title="Herauszoomen" @click.stop="zoomTile(slot, 1)">－</button>
+          <button class="btn icon sm" type="button" title="Zuschnitt zurücksetzen" @click.stop="resetTile(slot)">⟲</button>
+        </div>
       </div>
     </article>
-    <div v-if="activeLayoutID === 'custom' && draggedSlotAlias" class="viewer-drop-zones" aria-hidden="true">
+    <div v-if="editing && activeLayoutID === 'custom' && draggedSlotAlias" class="viewer-drop-zones" aria-hidden="true">
       <button
         v-for="zone in customDropZones"
         :key="zone.id"
@@ -123,7 +85,7 @@
         {{ zone.label }}
       </button>
     </div>
-    <template v-if="canAdmin">
+    <template v-if="editing">
       <button
         v-for="grabber in grabberStyles"
         :key="grabber.handle"
@@ -144,43 +106,37 @@
         @pointerdown="startCustomLayoutDrag($event, grabber.kind, grabber.index)"
       />
     </template>
-  </section>
+    </section>
 
-  <section v-if="diagnosticMode || performanceMode !== 'quality'" class="panel viewer-performance">
-    <div class="panel-head">
-      <h2>Performance</h2>
-      <div class="right">{{ activePlayerCount }}/{{ visibleSlots.length }} Player aktiv · {{ totalConsumers }} Consumer</div>
-    </div>
-    <div class="performance-grid">
-      <div v-for="slot in visibleSlots" :key="`perf-${slot.alias}`" class="performance-row">
-        <span class="slot">{{ slot.alias }}</span>
-        <span class="name">{{ isPausedByPerformance(slot) ? 'pausiert' : playerStateLabel(slot) }}</span>
-        <span class="stream">P {{ slot.stream?.producers ?? 0 }} · C {{ slot.stream?.consumers ?? 0 }}</span>
-        <span class="message">{{ streamStatusLabel(slot) }}</span>
+    <transition name="hud">
+      <div v-if="showHud" class="viewer-hud" @pointermove.stop="revealControls" @click.stop>
+        <template v-if="canAdmin">
+          <select
+            v-if="editing"
+            class="layout-select"
+            :value="activeLayoutID"
+            :disabled="layoutBusy"
+            @change="setLayoutFromEvent"
+          >
+            <option v-for="option in layoutOptions" :key="option.id" :value="option.id">{{ option.name }}</option>
+          </select>
+          <template v-if="editing && splitLayout">
+            <button class="btn sm" :class="{ live: focusSide === 'left' }" :disabled="layoutBusy" @click="setFocusSide('focus_left')">Links</button>
+            <button class="btn sm" :class="{ live: focusSide === 'middle' }" :disabled="layoutBusy" @click="setFocusSide('focus_middle')">Mitte</button>
+            <button class="btn sm" :class="{ live: focusSide === 'right' }" :disabled="layoutBusy" @click="setFocusSide('focus_right')">Rechts</button>
+          </template>
+          <button class="btn sm" :class="{ live: editing }" type="button" @click="toggleEdit">{{ editing ? 'Fertig' : 'Bearbeiten' }}</button>
+        </template>
+        <button class="btn sm" type="button" @click="toggleFullscreen">{{ isFullscreen ? 'Vollbild aus' : 'Vollbild' }}</button>
+        <RouterLink v-if="canAdmin" class="btn sm ghost" to="/einrichtung">Verwaltung</RouterLink>
+        <RouterLink v-else-if="auth?.enabled && !auth.authenticated" class="btn sm ghost" to="/login">Login</RouterLink>
       </div>
-    </div>
-  </section>
+    </transition>
 
-  <section class="panel viewer-summary">
-    <div class="panel-head">
-      <h2>Diagnose</h2>
-      <div class="right">{{ blockingCount }} Slot{{ blockingCount === 1 ? '' : 's' }} mit Aktion</div>
-    </div>
-    <div v-if="!blockingSlots.length" class="empty">Alle zugeordneten Streams sind für den Viewer vorbereitet.</div>
-    <div v-else class="result-list">
-      <div v-for="slot in blockingSlots" :key="slot.alias" class="result-row viewer-result" :class="resultClass(slot)">
-        <span class="slot">{{ slot.alias }}</span>
-        <span class="name">{{ slot.label }}</span>
-        <span class="ip">{{ slot.device?.last_ip || 'keine IP' }}</span>
-        <span class="stream">{{ stateLabel(slot.state) }}</span>
-        <RouterLink v-if="canAdmin" class="action" :to="slot.binding?.device_id ? `/kamera/${slot.binding.device_id}` : '/einrichtung'">
-          Öffnen
-        </RouterLink>
-        <span v-else class="action muted">Viewer</span>
-        <span class="message">{{ slot.message }}</span>
-      </div>
-    </div>
-  </section>
+    <transition name="hud">
+      <div v-if="error" class="viewer-error" @click="error = ''">{{ error }}</div>
+    </transition>
+  </div>
 
   <div class="toast-host">
     <transition name="page"><div v-if="toast" class="toast" :key="toast">{{ toast }}</div></transition>
@@ -267,9 +223,22 @@ const frameReady = ref<Record<string, boolean>>({})
 const draggedSlotAlias = ref('')
 const dropSlotAlias = ref('')
 const dropZoneID = ref<DropZoneID | ''>('')
+
+// Viewer chrome state: clean by default, edit reveals layout/crop tools,
+// spotlight enlarges a single camera, fullscreen suppresses all chrome.
+const editing = ref(false)
+const spotlightAlias = ref('')
+const controlsVisible = ref(false)
+const isFullscreen = ref(false)
+const displayOverrides = ref<Record<string, CameraDisplay>>({})
 let refreshTimer = 0
+let controlsTimer = 0
+let displaySaveTimer = 0
 let onAuthChanged: (() => void) | undefined
+let onFullscreenChange: (() => void) | undefined
+let onKey: ((e: KeyboardEvent) => void) | undefined
 let stopPointerTileDrag: (() => void) | undefined
+let stopCropPan: (() => void) | undefined
 
 const slots = computed(() => viewer.value?.slots ?? [])
 const orderedSlots = computed(() => orderSlotsByAlias(slots.value, layoutDraft.value.slot_order))
@@ -277,7 +246,14 @@ const onlineCount = computed(() => slots.value.filter((slot) => effectiveState(s
 const blockingSlots = computed(() => slots.value.filter((slot) => !['online', 'connecting'].includes(effectiveState(slot))))
 const blockingCount = computed(() => blockingSlots.value.length)
 const canAdmin = computed(() => auth.value ? (!auth.value.enabled || auth.value.role === 'admin') : false)
-const canReorderLayout = computed(() => canAdmin.value && !layoutBusy.value && visibleSlots.value.length > 1)
+const canReorderLayout = computed(() => editing.value && canAdmin.value && !layoutBusy.value && visibleSlots.value.length > 1)
+const rootClass = computed(() => ({
+  editing: editing.value,
+  spotlight: !!spotlightAlias.value,
+  fullscreen: isFullscreen.value,
+  'chrome-idle': !controlsVisible.value && !editing.value
+}))
+const showHud = computed(() => !isFullscreen.value && (controlsVisible.value || editing.value))
 const layoutOptions = computed(() => viewer.value?.layout.options?.length ? viewer.value.layout.options : fallbackLayoutOptions)
 const performanceOptions = computed(() => viewer.value?.performance.options?.length ? viewer.value.performance.options : fallbackPerformanceOptions)
 const performanceName = computed(() => performanceOptions.value.find((option) => option.id === performanceMode.value)?.name || 'Qualität')
@@ -291,6 +267,10 @@ const focusSide = computed<'left' | 'middle' | 'right'>(() => {
   return 'right'
 })
 const visibleSlots = computed(() => {
+  if (spotlightAlias.value) {
+    const target = orderedSlots.value.find((slot) => slot.alias === spotlightAlias.value)
+    if (target) return [target]
+  }
   const focus = focusSlotID()
   if (activeLayoutID.value === 'large_only') {
     return orderedSlots.value.filter((slot) => slot.alias === focus).slice(0, 1)
@@ -314,14 +294,20 @@ const visibleSlots = computed(() => {
   const grid = preferredGridSlots(focus).slice(0, 4)
   return focusSlot ? [focusSlot, ...grid] : grid
 })
-const layoutClass = computed(() => ({
-  [`layout-${activeLayoutID.value}`]: true,
-  'layout-focus': splitLayout.value,
-  'layout-focus-left': splitLayout.value && focusSide.value === 'left',
-  'layout-focus-middle': splitLayout.value && focusSide.value === 'middle',
-  'layout-focus-right': splitLayout.value && focusSide.value === 'right'
-}))
+const layoutClass = computed(() => {
+  if (spotlightAlias.value) return { 'layout-spotlight': true }
+  return {
+    [`layout-${activeLayoutID.value}`]: true,
+    'layout-focus': splitLayout.value,
+    'layout-focus-left': splitLayout.value && focusSide.value === 'left',
+    'layout-focus-middle': splitLayout.value && focusSide.value === 'middle',
+    'layout-focus-right': splitLayout.value && focusSide.value === 'right'
+  }
+})
 const layoutGridStyle = computed(() => {
+  if (spotlightAlias.value) {
+    return { gridTemplateColumns: 'minmax(0, 1fr)', gridTemplateRows: 'minmax(0, 1fr)' }
+  }
   if (activeLayoutID.value === 'custom') {
     const custom = normalizedCustomLayout(layoutDraft.value.custom)
     return {
@@ -807,6 +793,7 @@ function layoutZoneFromPoint(x: number, y: number): DropZoneID | '' {
 }
 
 function layoutTileStyle(slot: ViewerSlot) {
+  if (spotlightAlias.value) return {}
   if (activeLayoutID.value === 'custom') {
     const cell = customCellForAlias(slot.alias)
     if (!cell) return {}
@@ -855,15 +842,19 @@ function isPortraitTile(slot: ViewerSlot) {
 }
 
 function displayClass(slot: ViewerSlot) {
-  const display = normalizedDisplay(slot.display)
+  const display = effectiveDisplay(slot)
   return {
     'fit-contain': display.fit_mode === 'contain',
     'rotated-quarter': display.rotation === 90 || display.rotation === 270
   }
 }
 
+function effectiveDisplay(slot: ViewerSlot): CameraDisplay {
+  return displayOverrides.value[slot.alias] ?? normalizedDisplay(slot.display)
+}
+
 function displayStyle(slot: ViewerSlot) {
-  const display = normalizedDisplay(slot.display)
+  const display = effectiveDisplay(slot)
   const crop = display.crop
   const width = 10000 / crop.width
   const height = 10000 / crop.height
@@ -887,7 +878,7 @@ function normalizedDisplay(display?: CameraDisplay): CameraDisplay {
     rotation: ([0, 90, 180, 270].includes(display?.rotation ?? 0) ? display?.rotation : 0) ?? 0,
     mirror: display?.mirror ?? false,
     flip: display?.flip ?? false,
-    fit_mode: display?.fit_mode === 'contain' ? 'contain' : 'cover',
+    fit_mode: display?.fit_mode === 'cover' ? 'cover' : 'contain',
     crop: {
       x: clamp(display?.crop?.x ?? 0, 0, 99),
       y: clamp(display?.crop?.y ?? 0, 0, 99),
@@ -950,16 +941,6 @@ async function setLayoutFromEvent(event: Event) {
   await setLayoutID(normalizedLayoutID(target.value))
 }
 
-async function setPerformanceFromEvent(event: Event) {
-  const target = event.target as HTMLSelectElement
-  performanceMode.value = normalizedPerformanceMode(target.value)
-  if (canAdmin.value) {
-    await savePerformance()
-    return
-  }
-  await updateLayoutRoute()
-}
-
 async function setLayoutID(id: ViewerLayoutID) {
   const focus = focusSlotID()
   const custom = id === 'custom'
@@ -978,8 +959,6 @@ async function setLayoutID(id: ViewerLayoutID) {
 
 function startTilePointerDrag(event: PointerEvent, slot: ViewerSlot) {
   if (!canReorderLayout.value || event.button !== 0) return
-  const target = event.target
-  if (target instanceof HTMLElement && target.closest('button,a,select,input')) return
 
   const startX = event.clientX
   const startY = event.clientY
@@ -1124,23 +1103,6 @@ async function updateLayoutRoute() {
   await router.replace({ path: route.path, query })
 }
 
-async function savePerformance() {
-  if (!canAdmin.value) return
-  performanceBusy.value = true
-  error.value = ''
-  try {
-    await api.saveSettings({
-      'viewer.performance.mode': performanceMode.value
-    })
-    await updateLayoutRoute()
-    await load()
-  } catch (err) {
-    error.value = err instanceof Error ? err.message : 'Performance-Modus konnte nicht gespeichert werden.'
-  } finally {
-    performanceBusy.value = false
-  }
-}
-
 async function saveLayout() {
   if (!canAdmin.value) return
   layoutBusy.value = true
@@ -1243,58 +1205,183 @@ function sum(values: number[]) {
   return values.reduce((total, value) => total + value, 0)
 }
 
+// --- Viewer chrome: controls auto-hide, spotlight, edit, fullscreen ----------
+
+function revealControls() {
+  controlsVisible.value = true
+  window.clearTimeout(controlsTimer)
+  if (editing.value) return
+  controlsTimer = window.setTimeout(() => {
+    controlsVisible.value = false
+  }, 2600)
+}
+
+function scheduleHideControls() {
+  if (editing.value) return
+  window.clearTimeout(controlsTimer)
+  controlsTimer = window.setTimeout(() => {
+    controlsVisible.value = false
+  }, 600)
+}
+
+function toggleEdit() {
+  editing.value = !editing.value
+  spotlightAlias.value = ''
+  controlsVisible.value = true
+  if (!editing.value) window.clearTimeout(controlsTimer)
+}
+
+function toggleSpotlight(alias: string) {
+  spotlightAlias.value = spotlightAlias.value === alias ? '' : alias
+}
+
+async function toggleFullscreen() {
+  try {
+    if (document.fullscreenElement) {
+      await document.exitFullscreen()
+    } else {
+      await document.documentElement.requestFullscreen()
+    }
+  } catch {
+    // Fullscreen can be blocked; fall back to in-page state only.
+    isFullscreen.value = !isFullscreen.value
+  }
+}
+
+// --- Tile gestures -----------------------------------------------------------
+
+function onTileClick(slot: ViewerSlot) {
+  if (editing.value) return
+  toggleSpotlight(slot.alias)
+}
+
+function onTilePointerDown(event: PointerEvent, slot: ViewerSlot) {
+  if (!editing.value || event.button !== 0) return
+  const target = event.target
+  if (target instanceof HTMLElement && target.closest('button,a,select,input')) return
+  startCropPan(event, slot)
+}
+
+function onTileWheel(event: WheelEvent, slot: ViewerSlot) {
+  if (!editing.value || !slot.binding?.device_id) return
+  event.preventDefault()
+  zoomTile(slot, event.deltaY > 0 ? 1 : -1)
+}
+
+// --- Inline display editing (rotation / fit / zoom / pan) --------------------
+
+function setDisplayOverride(slot: ViewerSlot, display: CameraDisplay) {
+  displayOverrides.value = { ...displayOverrides.value, [slot.alias]: display }
+}
+
+function rotateTile(slot: ViewerSlot) {
+  const display = effectiveDisplay(slot)
+  const rotation = (((display.rotation || 0) + 90) % 360) as CameraDisplay['rotation']
+  setDisplayOverride(slot, { ...display, rotation })
+  scheduleDisplaySave(slot)
+}
+
+function toggleFitTile(slot: ViewerSlot) {
+  const display = effectiveDisplay(slot)
+  const fit_mode = display.fit_mode === 'cover' ? 'contain' : 'cover'
+  setDisplayOverride(slot, { ...display, fit_mode })
+  scheduleDisplaySave(slot)
+}
+
+function zoomTile(slot: ViewerSlot, direction: number) {
+  const display = effectiveDisplay(slot)
+  const step = 8
+  const width = clamp(display.crop.width + direction * step, 20, 100)
+  const height = clamp(display.crop.height + direction * step, 20, 100)
+  const centerX = display.crop.x + display.crop.width / 2
+  const centerY = display.crop.y + display.crop.height / 2
+  const crop = {
+    x: clamp(centerX - width / 2, 0, 100 - width),
+    y: clamp(centerY - height / 2, 0, 100 - height),
+    width,
+    height
+  }
+  setDisplayOverride(slot, { ...display, fit_mode: 'cover', crop })
+  scheduleDisplaySave(slot)
+}
+
+function resetTile(slot: ViewerSlot) {
+  setDisplayOverride(slot, {
+    rotation: 0,
+    mirror: false,
+    flip: false,
+    fit_mode: 'contain',
+    crop: { x: 0, y: 0, width: 100, height: 100 }
+  })
+  scheduleDisplaySave(slot)
+}
+
+function startCropPan(event: PointerEvent, slot: ViewerSlot) {
+  const base = effectiveDisplay(slot)
+  if (base.crop.width >= 100 && base.crop.height >= 100) return
+  const tile = (event.currentTarget as HTMLElement)
+  const rect = tile.getBoundingClientRect()
+  const startX = event.clientX
+  const startY = event.clientY
+  let moved = false
+  event.preventDefault()
+  stopCropPan?.()
+  const move = (moveEvent: PointerEvent) => {
+    moved = true
+    const dx = ((moveEvent.clientX - startX) / rect.width) * base.crop.width
+    const dy = ((moveEvent.clientY - startY) / rect.height) * base.crop.height
+    const crop = {
+      ...base.crop,
+      x: clamp(base.crop.x - dx, 0, 100 - base.crop.width),
+      y: clamp(base.crop.y - dy, 0, 100 - base.crop.height)
+    }
+    setDisplayOverride(slot, { ...base, crop })
+    moveEvent.preventDefault()
+  }
+  const up = () => {
+    stopCropPan?.()
+    stopCropPan = undefined
+    if (moved) scheduleDisplaySave(slot)
+  }
+  stopCropPan = () => {
+    window.removeEventListener('pointermove', move)
+    window.removeEventListener('pointerup', up)
+  }
+  window.addEventListener('pointermove', move)
+  window.addEventListener('pointerup', up)
+}
+
+function scheduleDisplaySave(slot: ViewerSlot) {
+  if (!canAdmin.value) return
+  window.clearTimeout(displaySaveTimer)
+  displaySaveTimer = window.setTimeout(() => void persistDisplay(slot), 500)
+}
+
+async function persistDisplay(slot: ViewerSlot) {
+  const deviceID = slot.binding?.device_id
+  const display = displayOverrides.value[slot.alias]
+  if (!deviceID || !display) return
+  try {
+    await api.saveSettings({
+      [`camera.display.${deviceID}.rotation`]: String(display.rotation),
+      [`camera.display.${deviceID}.mirror`]: String(display.mirror),
+      [`camera.display.${deviceID}.flip`]: String(display.flip),
+      [`camera.display.${deviceID}.fit_mode`]: display.fit_mode,
+      [`camera.display.${deviceID}.crop_x`]: String(Math.round(display.crop.x)),
+      [`camera.display.${deviceID}.crop_y`]: String(Math.round(display.crop.y)),
+      [`camera.display.${deviceID}.crop_width`]: String(Math.round(display.crop.width)),
+      [`camera.display.${deviceID}.crop_height`]: String(Math.round(display.crop.height))
+    })
+  } catch (err) {
+    error.value = err instanceof Error ? err.message : 'Anzeige konnte nicht gespeichert werden.'
+  }
+}
+
 async function refreshAuth() {
   try {
     auth.value = await api.authStatus()
   } catch {
     auth.value = undefined
-  }
-}
-
-async function runDiscovery() {
-  busy.value = 'scan'
-  error.value = ''
-  try {
-    const result = await api.discover()
-    toast.value = `${result.devices.length} Gerät(e) gefunden`
-    setTimeout(() => (toast.value = ''), 2400)
-    await load()
-  } catch (err) {
-    error.value = err instanceof Error ? err.message : 'Kamerasuche fehlgeschlagen.'
-  } finally {
-    busy.value = ''
-  }
-}
-
-async function render() {
-  busy.value = 'render'
-  error.value = ''
-  try {
-    const result = await api.renderGo2RTC()
-    frameReady.value = {}
-    toast.value = `${result.rendered_streams} Stream(s) erzeugt`
-    setTimeout(() => (toast.value = ''), 2400)
-    await load()
-  } catch (err) {
-    error.value = err instanceof Error ? err.message : 'go2rtc konnte nicht erzeugt werden.'
-  } finally {
-    busy.value = ''
-  }
-}
-
-async function restartGo2rtc() {
-  busy.value = 'restart'
-  error.value = ''
-  try {
-    await api.restartGo2RTC()
-    frameReady.value = {}
-    toast.value = 'go2rtc neu gestartet'
-    setTimeout(() => (toast.value = ''), 2400)
-    await load()
-  } catch (err) {
-    error.value = err instanceof Error ? err.message : 'go2rtc konnte nicht neu gestartet werden.'
-  } finally {
-    busy.value = ''
   }
 }
 
@@ -1306,21 +1393,171 @@ watch(
   }
 )
 
+function syncFullscreen() {
+  isFullscreen.value = !!document.fullscreenElement
+}
+
 onMounted(() => {
   void refreshAuth()
   onAuthChanged = () => {
     void refreshAuth()
   }
   window.addEventListener('auth-changed', onAuthChanged)
+  onFullscreenChange = () => syncFullscreen()
+  document.addEventListener('fullscreenchange', onFullscreenChange)
+  onKey = (event: KeyboardEvent) => {
+    if (event.key !== 'Escape') return
+    if (spotlightAlias.value) spotlightAlias.value = ''
+    else if (editing.value) editing.value = false
+  }
+  window.addEventListener('keydown', onKey)
   void load()
   refreshTimer = window.setInterval(() => {
-    if (!busy.value) void load()
+    if (!busy.value && !editing.value && !spotlightAlias.value) void load()
   }, 15000)
 })
 
 onBeforeUnmount(() => {
   stopPointerTileDrag?.()
+  stopCropPan?.()
   window.clearInterval(refreshTimer)
+  window.clearTimeout(controlsTimer)
+  window.clearTimeout(displaySaveTimer)
   if (onAuthChanged) window.removeEventListener('auth-changed', onAuthChanged)
+  if (onFullscreenChange) document.removeEventListener('fullscreenchange', onFullscreenChange)
+  if (onKey) window.removeEventListener('keydown', onKey)
 })
 </script>
+
+<style scoped>
+/* Full-bleed kiosk surface: nothing but cameras by default. */
+.viewer-root {
+  position: relative;
+  min-height: 100vh;
+  height: 100vh;
+  padding: 14px;
+  background: var(--bg);
+  overflow: hidden;
+}
+.viewer-root.fullscreen { padding: 0; }
+
+.viewer-root .viewer-grid {
+  height: 100%;
+  min-height: 0;
+}
+/* override the static min-heights from the shared stylesheet for full-bleed */
+.viewer-root :deep(.viewer-grid.layout-focus),
+.viewer-root :deep(.viewer-grid.layout-large_only),
+.viewer-root :deep(.viewer-grid.layout-vertical_plus_grid),
+.viewer-root :deep(.viewer-grid.layout-custom) {
+  min-height: 0;
+  height: 100%;
+}
+.viewer-root :deep(.viewer-grid.layout-spotlight) {
+  height: 100%;
+}
+.viewer-root :deep(.viewer-tile) {
+  min-height: 0;
+}
+.viewer-root :deep(.viewer-tile.portrait) {
+  min-height: 0;
+}
+
+/* transparent layer above the iframe so the tile is clickable/draggable */
+.tile-surface {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+}
+.viewer-root:not(.editing) .tile-surface {
+  cursor: zoom-in;
+}
+.viewer-root.spotlight .tile-surface {
+  cursor: zoom-out;
+}
+.viewer-root.editing .tile-surface {
+  cursor: grab;
+}
+.viewer-root.editing .tile-surface:active {
+  cursor: grabbing;
+}
+
+/* edit-mode framing + per-tile tools */
+.viewer-root.editing :deep(.viewer-tile) {
+  box-shadow: inset 0 0 0 1px var(--hairline-strong);
+}
+.tile-edit {
+  position: absolute;
+  inset: 8px 8px auto 8px;
+  z-index: 4;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  pointer-events: none;
+}
+.tile-edit > * { pointer-events: auto; }
+.tile-grip {
+  appearance: none;
+  border: 0;
+  background: rgba(7, 7, 9, .72);
+  color: var(--ink-soft);
+  border-radius: var(--radius-sm);
+  padding: 5px 10px;
+  font-size: 10px;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+  cursor: grab;
+  touch-action: none;
+  max-width: 60%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tile-grip:active { cursor: grabbing; }
+.tile-edit-actions {
+  display: flex;
+  gap: 4px;
+  background: rgba(7, 7, 9, .72);
+  border-radius: var(--radius-sm);
+  padding: 3px;
+}
+
+/* auto-hiding control cluster — appears on mouse move, fades when idle */
+.viewer-hud {
+  position: absolute;
+  z-index: 8;
+  left: 50%;
+  bottom: 18px;
+  transform: translateX(-50%);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 8px;
+  border-radius: 999px;
+  background: rgba(12, 12, 14, .82);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, .5);
+  backdrop-filter: blur(8px);
+}
+.viewer-hud .layout-select { min-height: 30px; }
+
+.viewer-error {
+  position: absolute;
+  z-index: 9;
+  top: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  max-width: min(560px, 90%);
+  padding: 10px 16px;
+  border-radius: var(--radius-sm);
+  background: var(--danger-bg);
+  color: var(--danger);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.hud-enter-active, .hud-leave-active { transition: opacity .18s ease, transform .18s ease; }
+.hud-enter-from, .hud-leave-to { opacity: 0; transform: translate(-50%, 8px); }
+</style>

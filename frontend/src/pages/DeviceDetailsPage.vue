@@ -2,7 +2,7 @@
   <header class="topline">
     <div>
       <div class="eyebrow">
-        <RouterLink to="/einrichtung" style="border-bottom: 1px solid var(--hairline-strong);">← Einrichtung</RouterLink>
+        <RouterLink to="/einrichtung" class="mono-mute">← Einrichtung</RouterLink>
         &nbsp;·&nbsp; Kamera-Diagnose
       </div>
       <h1 class="headline">{{ title }}</h1>
@@ -93,7 +93,7 @@
           class="preview-frame"
           :src="`data:${frame.content_type};base64,${frame.image_base64}`"
           alt="Kamera-Referenzbild"
-          style="display: block; max-width: 720px; width: 100%; border: 1px solid var(--hairline); border-radius: 4px;"
+          style="display: block; max-width: 720px; width: 100%; border-radius: var(--radius);"
         />
         <div class="mono-mute" style="font-size: 11px;">
           Frame-ID · {{ frame.sha256.slice(0, 24) }}<span v-if="frame.credential_source"> · Zugang: {{ frame.credential_source }}</span><span v-if="frame.saved_path"> · gespeichert unter {{ frame.saved_path }}</span>
@@ -104,7 +104,7 @@
           class="preview-frame"
           :src="referenceImageUrl"
           alt="Gespeichertes Kamera-Referenzbild"
-          style="display: block; max-width: 720px; width: 100%; border: 1px solid var(--hairline); border-radius: 4px;"
+          style="display: block; max-width: 720px; width: 100%; border-radius: var(--radius);"
           @error="referenceMissing = true"
         />
         <div class="mono-mute" style="font-size: 11px;">Gespeichertes Referenzbild</div>
@@ -112,7 +112,7 @@
       <div v-else class="empty">Noch kein Referenzbild hinterlegt.</div>
     </section>
 
-    <section class="panel">
+    <section class="panel card">
       <div class="panel-head">
         <h2>Anzeige</h2>
         <div class="right">{{ displaySummary }}</div>
@@ -247,7 +247,7 @@ const referenceMissing = ref(false)
 const rotation = ref(0)
 const mirror = ref(false)
 const flip = ref(false)
-const fitMode = ref<'cover' | 'contain'>('cover')
+const fitMode = ref<'cover' | 'contain'>('contain')
 const cropX = ref(0)
 const cropY = ref(0)
 const cropWidth = ref(100)
@@ -369,7 +369,7 @@ function resetDisplay() {
   rotation.value = 0
   mirror.value = false
   flip.value = false
-  fitMode.value = 'cover'
+  fitMode.value = 'contain'
   cropX.value = 0
   cropY.value = 0
   cropWidth.value = 100
@@ -402,7 +402,7 @@ function loadDisplaySettings() {
   rotation.value = normalizedRotation(settings.value[`camera.display.${deviceID}.rotation`])
   mirror.value = boolSetting(settings.value[`camera.display.${deviceID}.mirror`])
   flip.value = boolSetting(settings.value[`camera.display.${deviceID}.flip`])
-  fitMode.value = settings.value[`camera.display.${deviceID}.fit_mode`] === 'contain' ? 'contain' : 'cover'
+  fitMode.value = settings.value[`camera.display.${deviceID}.fit_mode`] === 'cover' ? 'cover' : 'contain'
   cropX.value = boundedNumber(settings.value[`camera.display.${deviceID}.crop_x`], 0, 0, 99)
   cropY.value = boundedNumber(settings.value[`camera.display.${deviceID}.crop_y`], 0, 0, 99)
   cropWidth.value = boundedNumber(settings.value[`camera.display.${deviceID}.crop_width`], 100, 1, 100)

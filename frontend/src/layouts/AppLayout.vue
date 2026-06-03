@@ -1,6 +1,6 @@
 <template>
-  <div class="shell">
-    <aside class="rail">
+  <div class="shell" :class="{ 'shell-bleed': isViewer }">
+    <aside v-if="!isViewer" class="rail">
       <div class="brand">
         <span class="mark" />
         <span class="name">Watch<em>deck</em></span>
@@ -9,8 +9,7 @@
       <nav class="nav">
         <RouterLink to="/">Kameras<span class="nav-key">1</span></RouterLink>
         <RouterLink v-if="canAdmin" to="/einrichtung">Einrichtung<span class="nav-key">2</span></RouterLink>
-        <RouterLink v-if="canAdmin" to="/uebersicht">Status<span class="nav-key">3</span></RouterLink>
-        <RouterLink v-if="canAdmin" to="/system">System<span class="nav-key">4</span></RouterLink>
+        <RouterLink v-if="canAdmin" to="/system">System<span class="nav-key">3</span></RouterLink>
       </nav>
 
       <div class="auth-actions">
@@ -37,13 +36,15 @@
 
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { api } from '../api/client'
 import type { AuthStatus } from '../types'
 
 const router = useRouter()
+const route = useRoute()
 const clock = ref('')
 const auth = ref<AuthStatus>()
+const isViewer = computed(() => route.name === 'viewer')
 
 const canAdmin = computed(() => auth.value ? (!auth.value.enabled || auth.value.role === 'admin') : false)
 const roleLabel = computed(() => {
@@ -91,8 +92,7 @@ onMounted(() => {
     if (e.target instanceof HTMLElement && ['INPUT', 'TEXTAREA', 'SELECT'].includes(e.target.tagName)) return
     if (e.key === '1') router.push('/')
     if (canAdmin.value && e.key === '2') router.push('/einrichtung')
-    if (canAdmin.value && e.key === '3') router.push('/uebersicht')
-    if (canAdmin.value && e.key === '4') router.push('/system')
+    if (canAdmin.value && e.key === '3') router.push('/system')
   }
   window.addEventListener('keydown', onKey)
 })
@@ -111,6 +111,15 @@ onBeforeUnmount(() => {
   gap: var(--gutter);
   animation: route-in .18s ease-out both;
 }
+/* Viewer route: edge-to-edge, no rail, no canvas chrome. */
+.shell-bleed { grid-template-columns: 1fr; }
+.shell-bleed :deep(.canvas) {
+  padding: 0;
+  max-width: none;
+  gap: 0;
+  min-height: 100vh;
+}
+.shell-bleed .route-fade { gap: 0; }
 @keyframes route-in {
   from { opacity: 0; }
   to   { opacity: 1; }

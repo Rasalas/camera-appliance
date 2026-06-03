@@ -12,7 +12,7 @@
 
   <div v-if="error" class="notice err"><span class="tag">FEHLER</span>{{ error }}</div>
 
-  <section class="panel login-panel">
+  <section class="panel card login-panel">
     <div class="panel-head">
       <h2>{{ initialSetup ? 'Admin-Passwort setzen' : 'Anmelden' }}</h2>
       <div class="right">{{ authLabel }}</div>

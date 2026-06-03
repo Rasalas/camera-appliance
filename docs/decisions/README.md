@@ -22,3 +22,4 @@ Diese Decision Records dokumentieren Projektentscheidungen, die im Verlauf der U
 - [010 - Lokaler Login mit Admin- und Viewer-Rolle](010-local-login-roles.md)
 - [011 - Kamera-Transforms, Kiosk-Layouts und Performance-Modi](011-display-layout-performance.md)
 - [012 - Keine Aufzeichnung im aktuellen Zielbild](012-no-recording-current-scope.md)
+- [013 - Chrome-freier Viewer und entkartetes UI](013-viewer-redesign.md)

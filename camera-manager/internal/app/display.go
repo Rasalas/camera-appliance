@@ -388,7 +388,7 @@ func displayFromSettings(settings map[string]string, binding state.Binding) Came
 		Rotation: 0,
 		Mirror:   false,
 		Flip:     false,
-		FitMode:  "cover",
+		FitMode:  "contain",
 		Crop: DisplayCrop{
 			X:      0,
 			Y:      0,
@@ -449,11 +449,13 @@ func normalizedRotation(raw string) int {
 }
 
 func normalizedFitMode(raw string) string {
+	// Default to "contain" so the whole camera image is visible; "cover" is an
+	// explicit per-camera opt-in (e.g. when cropping/zooming in the viewer).
 	switch strings.TrimSpace(raw) {
-	case "contain":
-		return "contain"
-	default:
+	case "cover":
 		return "cover"
+	default:
+		return "contain"
 	}
 }
 

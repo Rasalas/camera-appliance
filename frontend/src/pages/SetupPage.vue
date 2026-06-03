@@ -12,6 +12,30 @@
 
   <div v-if="error" class="notice err"><span class="tag">FEHLER</span>{{ error }}</div>
 
+  <section class="service-strip">
+    <div class="service">
+      <div>
+        <div class="name">Viewer</div>
+        <div class="endpoint">localhost:8091 · Kameraansicht</div>
+      </div>
+      <span class="pill" :class="managerOnline ? 'live' : 'down'">{{ managerOnline ? 'aktiv' : 'offline' }}</span>
+    </div>
+    <div class="service">
+      <div>
+        <div class="name">go2rtc</div>
+        <div class="endpoint">localhost:1984 · Stream-Alias</div>
+      </div>
+      <span class="pill" :class="go2rtcOnline ? 'live' : 'down'">{{ go2rtcOnline ? 'aktiv' : 'offline' }}</span>
+    </div>
+    <div class="service">
+      <div>
+        <div class="name">Letzte Suche</div>
+        <div class="endpoint">{{ lastScanRel }}</div>
+      </div>
+      <span class="pill" :class="boundCount >= slots.length && slots.length ? 'live' : ''">{{ boundCount }}/{{ slots.length }}</span>
+    </div>
+  </section>
+
   <div class="btn-row">
     <button class="btn primary" :disabled="busy === 'scan'" @click="runDiscovery">
       {{ busy === 'scan' ? 'Suche läuft…' : 'Netzwerk durchsuchen' }}
@@ -25,6 +49,23 @@
     <span v-if="busy === 'scan'" class="mono-mute" style="font-size: 11px;">RTSP · ONVIF · ARP</span>
   </div>
   <div v-if="busy === 'scan'" class="progress" />
+
+  <section v-if="blockingSlots.length" class="panel">
+    <div class="panel-head">
+      <h2>Braucht Aufmerksamkeit</h2>
+      <div class="right">{{ blockingSlots.length }} Platz{{ blockingSlots.length === 1 ? '' : 'e' }}</div>
+    </div>
+    <div class="result-list">
+      <div v-for="slot in blockingSlots" :key="slot.alias" class="result-row err">
+        <span class="slot">{{ slot.alias }}</span>
+        <span class="name">{{ slot.label }}</span>
+        <span class="ip">{{ slot.device?.last_ip || 'keine IP' }}</span>
+        <span class="stream">{{ slotStateLabel(slot.state) }}</span>
+        <RouterLink class="action" :to="slot.binding?.device_id ? `/kamera/${slot.binding.device_id}` : '/einrichtung'">Öffnen</RouterLink>
+        <span class="message">{{ slot.message }}</span>
+      </div>
+    </div>
+  </section>
 
   <section v-if="frameResults.length" class="panel">
     <div class="panel-head">
@@ -46,7 +87,7 @@
 
   <div class="workbench">
     <!-- LEFT: device pool -->
-    <section class="panel">
+    <section class="panel card">
       <div class="panel-head">
         <h2>Gefundene Geräte</h2>
         <div class="device-head-actions">
@@ -88,7 +129,7 @@
 
     <!-- RIGHT: layout + form -->
     <section style="display: grid; gap: 24px;">
-      <div class="panel">
+      <div class="panel card">
         <div class="panel-head">
           <h2>Anzeige-Layout</h2>
           <div class="right">{{ selectedSlot ? `Aktiv: ${selectedSlot}` : 'Platz wählen' }}</div>
@@ -122,7 +163,7 @@
         </div>
       </div>
 
-      <div class="panel">
+      <div class="panel card">
         <div class="panel-head">
           <h2>Zuordnung · {{ selectedSlot || '—' }}</h2>
           <div v-if="selectedDevice" class="right">{{ selectedDevice.last_ip || 'ohne IP' }}</div>
@@ -279,7 +320,7 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import { api } from '../api/client'
-import type { Binding, Device, Slot } from '../types'
+import type { Binding, Device, Slot, StatusResponse, ViewerResponse, ViewerSlot, ViewerSlotState } from '../types'
 
 interface FrameRefreshResult {
   slot_id: string
@@ -295,6 +336,8 @@ const route = useRoute()
 const slots = ref<Slot[]>([])
 const devices = ref<Device[]>([])
 const bindings = ref<Binding[]>([])
+const systemStatus = ref<StatusResponse>()
+const viewerData = ref<ViewerResponse>()
 const settings = ref<Record<string, string>>({})
 const selectedSlot = ref('')
 const rendered = ref('')
@@ -313,12 +356,38 @@ const manual = reactive({ ip: '', username: '', password: '', stream: 'stream2' 
 const rotation = ref(0)
 const mirror = ref(false)
 const flip = ref(false)
-const fitMode = ref<'cover' | 'contain'>('cover')
+const fitMode = ref<'cover' | 'contain'>('contain')
 const slotLabel = computed(() => slots.value.find((s) => s.id === selectedSlot.value)?.label || 'Kamera')
 const selectedDevice = computed(() => devices.value.find((d) => d.id === form.device_id))
 const boundCount = computed(() => slots.value.filter((s) => bindings.value.some((b) => b.slot_id === s.id)).length)
 const assignableDevices = computed(() => devices.value.filter((device) => isAssignableCamera(device)))
 const displaySummary = computed(() => `${rotation.value}° · ${fitMode.value}${mirror.value ? ' · gespiegelt' : ''}${flip.value ? ' · vertikal' : ''}`)
+const go2rtcOnline = computed(() => systemStatus.value?.system.go2rtc.online ?? false)
+const managerOnline = computed(() => systemStatus.value?.system.camera_appliance.online ?? true)
+const blockingSlots = computed<ViewerSlot[]>(() =>
+  (viewerData.value?.slots ?? []).filter((slot) => slot.state !== 'online' && slot.state !== 'connecting' && slot.state !== 'unassigned')
+)
+const lastScanRel = computed(() => {
+  const started = systemStatus.value?.scan_runs?.[0]?.started_at
+  if (!started) return 'noch nie'
+  const diff = (Date.now() - new Date(started).getTime()) / 1000
+  if (diff < 60) return 'gerade eben'
+  if (diff < 3600) return `vor ${Math.floor(diff / 60)} Min.`
+  if (diff < 86400) return `vor ${Math.floor(diff / 3600)} Std.`
+  return new Date(started).toLocaleDateString('de-DE')
+})
+
+function slotStateLabel(state: ViewerSlotState) {
+  const labels: Record<ViewerSlotState, string> = {
+    unassigned: 'leer',
+    connecting: 'verbindet',
+    online: 'live',
+    offline: 'offline',
+    credentials_failed: 'Login',
+    stream_unavailable: 'Stream'
+  }
+  return labels[state]
+}
 
 function bindingFor(slotId: string) {
   return bindings.value.find((b) => b.slot_id === slotId)
@@ -380,10 +449,12 @@ async function loadDeviceCredentials(id: string) {
 
 async function load() {
   const status = await api.status()
+  systemStatus.value = status
   slots.value = status.slots
   devices.value = status.devices
   bindings.value = status.bindings
   settings.value = await api.settings()
+  viewerData.value = await api.viewer().catch(() => undefined)
   if (!selectedSlot.value && slots.value.length) {
     const target = String(route.query.camera || '')
     if (target) {
@@ -566,14 +637,14 @@ function loadDisplaySettingsForDevice(deviceID: string) {
   rotation.value = normalizedRotation(settings.value[`camera.display.${deviceID}.rotation`])
   mirror.value = boolSetting(settings.value[`camera.display.${deviceID}.mirror`])
   flip.value = boolSetting(settings.value[`camera.display.${deviceID}.flip`])
-  fitMode.value = settings.value[`camera.display.${deviceID}.fit_mode`] === 'contain' ? 'contain' : 'cover'
+  fitMode.value = settings.value[`camera.display.${deviceID}.fit_mode`] === 'cover' ? 'cover' : 'contain'
 }
 
 function resetDisplayControls() {
   rotation.value = 0
   mirror.value = false
   flip.value = false
-  fitMode.value = 'cover'
+  fitMode.value = 'contain'
 }
 
 function normalizedRotation(raw?: string) {
