@@ -60,13 +60,19 @@ Vier Zustände (siehe [013](decisions/013-viewer-redesign.md)):
 - **Bearbeiten**: Split-Editor (Mosaic-Baum). Rand andocken = teilen, Außenrand = volle Spalte/Reihe, Mitte = tauschen, Trenner = Größe, Rad = Zoom, Shift+Ziehen = Ausschnitt. Default-Layout = gleichmäßiges Raster (`ceil(√n)` Spalten).
 - **Vollbild**: schaltet alles Chrome ab.
 
+## Navigation / IA
+
+- Drei Bereiche: **Kameras** (Viewer, full-bleed), **Geräte** (Kamera-Liste + Detailseite),
+  **System** (Unterseiten-Tabs: Allgemein · Zugriff · Netzwerk & Relays · Wartung).
+- Kameras sind das Zuhause; Slots werden automatisch im Hintergrund vergeben (kein Slot-UI).
+
 ## Offene Punkte / To-do
 
 Hier sammeln, was am Design noch nicht passt, damit es nicht verloren geht:
 
 - [erledigt] Viewer-HUD: „Fertig"/Buttons jetzt pill-förmig (passend zur Pill-Leiste).
 - [erledigt] Verwaltung: große Serifen-Titel durch kompakte Mono-Header ersetzt.
-- [offen] **Einrichtung** überarbeiten: UX umständlich und teils redundant. Ziel: Kamera-Liste
-  + Detailseite mit Konfiguration, „Anzeige"-Optionen direkt am Bild, sauberer Discovery-Flow.
-- [offen] **System** neu ordnen: Einstellungen wirken durcheinander; Teile gehören auf eigene
-  Seiten (z. B. Zugriff / Netzwerk & Relays / Wartung getrennt).
+- [erledigt] **Einrichtung → „Geräte"**: Kamera-Liste + Anzeigen-Schalter, Detailseite mit
+  Konfiguration und Zuschnitt direkt am Bild; Slot-Bedienung entfernt (siehe
+  [014](decisions/014-device-centric-ui.md)).
+- [erledigt] **System** in Unterseiten geteilt: Allgemein · Zugriff · Netzwerk & Relays · Wartung.

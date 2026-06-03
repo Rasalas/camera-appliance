@@ -1,7 +1,11 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import ViewerPage from '../pages/ViewerPage.vue'
 import SetupPage from '../pages/SetupPage.vue'
-import SystemPage from '../pages/SystemPage.vue'
+import SystemLayout from '../layouts/SystemLayout.vue'
+import SystemGeneralPage from '../pages/system/GeneralPage.vue'
+import SystemAccessPage from '../pages/system/AccessPage.vue'
+import SystemNetworkPage from '../pages/system/NetworkPage.vue'
+import SystemMaintenancePage from '../pages/system/MaintenancePage.vue'
 import DeviceDetailsPage from '../pages/DeviceDetailsPage.vue'
 import LoginPage from '../pages/LoginPage.vue'
 import { api } from '../api/client'
@@ -13,7 +17,18 @@ const router = createRouter({
     { path: '/', name: 'viewer', component: ViewerPage, meta: { requiresViewer: true } },
     { path: '/login', name: 'login', component: LoginPage },
     { path: '/einrichtung', name: 'setup', component: SetupPage, meta: { requiresAdmin: true } },
-    { path: '/system', name: 'system', component: SystemPage, meta: { requiresAdmin: true } },
+    {
+      path: '/system',
+      component: SystemLayout,
+      meta: { requiresAdmin: true },
+      children: [
+        { path: '', redirect: '/system/allgemein' },
+        { path: 'allgemein', name: 'system-general', component: SystemGeneralPage },
+        { path: 'zugriff', name: 'system-access', component: SystemAccessPage },
+        { path: 'netzwerk', name: 'system-network', component: SystemNetworkPage },
+        { path: 'wartung', name: 'system-maintenance', component: SystemMaintenancePage }
+      ]
+    },
     { path: '/kamera/:id', name: 'device', component: DeviceDetailsPage, meta: { requiresAdmin: true } },
 
     // legacy redirects from the previous IA

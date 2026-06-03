@@ -1,12 +1,12 @@
 <template>
   <header class="topline">
     <div>
-      <div class="eyebrow">Einrichtung · Werkbank</div>
-      <h1 class="headline">Geräte <em>zu Plätzen</em> zuordnen.</h1>
+      <div class="eyebrow">Geräte</div>
+      <h1 class="headline">Kameras <em>verwalten.</em></h1>
     </div>
     <div class="meta">
       <div>Gefunden · <b>{{ assignableDevices.length }}</b></div>
-      <div>Zugeordnet · <b>{{ boundCount }}/{{ slots.length }}</b></div>
+      <div>Sichtbar · <b>{{ shownCount }}/{{ slots.length }}</b></div>
     </div>
   </header>
 
@@ -32,19 +32,18 @@
         <div class="name">Letzte Suche</div>
         <div class="endpoint">{{ lastScanRel }}</div>
       </div>
-      <span class="pill" :class="boundCount >= slots.length && slots.length ? 'live' : ''">{{ boundCount }}/{{ slots.length }}</span>
+      <span class="pill" :class="shownCount ? 'live' : ''">{{ shownCount }} sichtbar</span>
     </div>
   </section>
 
   <div class="btn-row">
     <button class="btn primary" :disabled="busy === 'scan'" @click="runDiscovery">
-      {{ busy === 'scan' ? 'Suche läuft…' : 'Netzwerk durchsuchen' }}
+      {{ busy === 'scan' ? 'Suche läuft…' : 'Kameras suchen' }}
     </button>
-    <button class="btn" :disabled="!!busy || boundCount === 0" @click="refreshFrames">
-      {{ busy === 'frames' ? 'Bilder werden gezogen…' : 'Bilder aktualisieren' }}
+    <button class="btn" :disabled="!!busy || !shownCount" @click="refreshFrames">
+      {{ busy === 'frames' ? 'Vorschau wird geladen…' : 'Vorschau aktualisieren' }}
     </button>
-    <button class="btn" :disabled="busy === 'render'" @click="render">go2rtc erzeugen</button>
-    <button class="btn ghost" :disabled="busy === 'restart'" @click="restartGo2rtc">go2rtc neu starten</button>
+    <button class="btn icon" type="button" title="Kamera per RTSP hinzufügen" @click="showManualModal = true">+</button>
     <div class="spacer" />
     <span v-if="busy === 'scan'" class="mono-mute" style="font-size: 11px;">RTSP · ONVIF · ARP</span>
   </div>
@@ -53,11 +52,10 @@
   <section v-if="blockingSlots.length" class="panel">
     <div class="panel-head">
       <h2>Braucht Aufmerksamkeit</h2>
-      <div class="right">{{ blockingSlots.length }} Platz{{ blockingSlots.length === 1 ? '' : 'e' }}</div>
+      <div class="right">{{ blockingSlots.length }} Kamera{{ blockingSlots.length === 1 ? '' : 's' }}</div>
     </div>
     <div class="result-list">
       <div v-for="slot in blockingSlots" :key="slot.alias" class="result-row err">
-        <span class="slot">{{ slot.alias }}</span>
         <span class="name">{{ slot.label }}</span>
         <span class="ip">{{ slot.device?.last_ip || 'keine IP' }}</span>
         <span class="stream">{{ slotStateLabel(slot.state) }}</span>
@@ -67,213 +65,64 @@
     </div>
   </section>
 
-  <section v-if="frameResults.length" class="panel">
+  <section class="panel">
     <div class="panel-head">
-      <h2>Bildprüfung</h2>
-      <div class="right">{{ frameResults.filter((r) => r.success).length }}/{{ frameResults.length }} erfolgreich</div>
+      <h2>Gefundene Kameras</h2>
+      <div class="right">{{ assignableDevices.length }} Geräte · Klick öffnet Details</div>
     </div>
-    <div class="result-list">
-      <div v-for="result in frameResults" :key="result.slot_id" class="result-row" :class="{ ok: result.success, err: !result.success }">
-        <span class="slot">{{ result.slot_id }}</span>
-        <span class="name">{{ result.label }}</span>
-        <span class="ip">{{ result.ip || 'ohne IP' }}</span>
-        <span class="stream">{{ result.stream || '—' }}</span>
-        <RouterLink v-if="!result.success" class="action" :to="`/kamera/${result.device_id}`">Diagnose</RouterLink>
-        <span v-else class="action">OK</span>
-        <span class="message">{{ result.message }}</span>
-      </div>
+    <div v-if="!assignableDevices.length" class="empty">
+      Noch keine Kameras. Starte die Suche oben oder füge eine RTSP-Kamera hinzu.
     </div>
-  </section>
-
-  <div class="workbench">
-    <!-- LEFT: device pool -->
-    <section class="panel card">
-      <div class="panel-head">
-        <h2>Gefundene Geräte</h2>
-        <div class="device-head-actions">
-          <div class="right">{{ assignableDevices.length }} Kameras</div>
-          <button class="btn icon sm" type="button" title="Kamera per RTSP hinzufügen" @click="showManualModal = true">+</button>
-        </div>
-      </div>
-      <div v-if="!assignableDevices.length" class="empty">Noch keine Kameras. Starte die Suche oben oder füge eine RTSP-Kamera hinzu.</div>
-      <div v-else class="device-list">
-        <button
-          v-for="(device, ix) in assignableDevices"
-          :key="device.id"
-          class="device-card"
-          :class="{ active: form.device_id === device.id }"
-          @click="pickDevice(device.id)"
-        >
-          <img
-            v-if="referenceVisible(device.id)"
-            class="device-thumb"
-            :src="referenceImageUrl(device.id)"
-            alt=""
-            @error="markReferenceMissing(device.id)"
-          />
-          <div v-else class="device-thumb empty" aria-label="Kein Bild gespeichert"></div>
-          <div>
-            <div class="title">
-              <span class="ix">{{ String(ix + 1).padStart(2, '0') }}</span>
-              <span>{{ deviceTitle(device) }}</span>
-            </div>
-            <div class="ip">{{ device.last_ip || 'IP unbekannt' }} · {{ device.mac_address || 'MAC unbekannt' }}</div>
+    <div v-else class="device-list">
+      <div
+        v-for="(device, ix) in assignableDevices"
+        :key="device.id"
+        class="device-card"
+        :class="{ active: isShown(device) }"
+        role="button"
+        tabindex="0"
+        @click="goDetail(device.id)"
+        @keydown.enter="goDetail(device.id)"
+      >
+        <img
+          v-if="referenceVisible(device.id)"
+          class="device-thumb"
+          :src="referenceImageUrl(device.id)"
+          alt=""
+          @error="markReferenceMissing(device.id)"
+        />
+        <div v-else class="device-thumb empty" aria-label="Kein Bild gespeichert"></div>
+        <div>
+          <div class="title">
+            <span class="ix">{{ String(ix + 1).padStart(2, '0') }}</span>
+            <span>{{ deviceTitle(device) }}</span>
           </div>
+          <div class="ip">{{ device.last_ip || 'IP unbekannt' }} · {{ device.mac_address || 'MAC unbekannt' }}</div>
+        </div>
+        <div class="device-card-actions" @click.stop>
           <div class="signals">
             <span class="sig" :class="{ on: sig(device, 'rtsp_port_open') }">RTSP</span>
             <span class="sig" :class="{ on: sig(device, 'onvif_port_open') }">ONVIF</span>
           </div>
-        </button>
-      </div>
-    </section>
-
-    <!-- RIGHT: layout + form -->
-    <section style="display: grid; gap: 24px;">
-      <div class="panel card">
-        <div class="panel-head">
-          <h2>Anzeige-Layout</h2>
-          <div class="right">{{ selectedSlot ? `Aktiv: ${selectedSlot}` : 'Platz wählen' }}</div>
-        </div>
-        <div class="layout-canvas">
           <button
-            v-for="slot in slots"
-            :key="slot.id"
-            class="bay"
-            :class="{
-              large: slot.role === 'large',
-              bound: !!bindingFor(slot.id),
-              target: selectedSlot === slot.id
-            }"
-            @click="pickSlot(slot.id)"
+            class="btn sm"
+            :class="{ live: isShown(device) }"
+            type="button"
+            :disabled="busy === device.id"
+            @click="toggleShow(device)"
           >
-            <img
-              v-if="referenceVisible(bindingFor(slot.id)?.device_id)"
-              class="bay-reference"
-              :src="referenceImageUrl(bindingFor(slot.id)?.device_id)"
-              alt=""
-              @error="markReferenceMissing(bindingFor(slot.id)?.device_id)"
-            />
-            <div class="bay-id">{{ slot.id }}</div>
-            <div>
-              <div class="bay-name">{{ bindingFor(slot.id)?.label || slot.label }}</div>
-              <div v-if="bindingFor(slot.id)?.device?.last_ip" class="bay-ip">{{ bindingFor(slot.id)?.device?.last_ip }}</div>
-              <div v-else class="bay-empty">— leer —</div>
-            </div>
+            {{ busy === device.id ? '…' : isShown(device) ? 'Sichtbar' : 'Anzeigen' }}
           </button>
         </div>
       </div>
-
-      <div class="panel card">
-        <div class="panel-head">
-          <h2>Zuordnung · {{ selectedSlot || '—' }}</h2>
-          <div v-if="selectedDevice" class="right">{{ selectedDevice.last_ip || 'ohne IP' }}</div>
-        </div>
-
-        <div v-if="!selectedSlot" class="empty">Wähle einen Platz im Layout oben.</div>
-        <template v-else>
-          <div class="split">
-            <div class="field">
-              <span class="lbl">Gerät</span>
-              <select v-model="form.device_id">
-                <option value="">— kein Gerät —</option>
-                <option v-for="d in assignableDevices" :key="d.id" :value="d.id">
-                  {{ deviceTitle(d) }} · {{ d.last_ip || 'ohne IP' }}
-                </option>
-              </select>
-            </div>
-            <div class="field">
-              <span class="lbl">Anzeigename</span>
-              <input v-model="form.label" :placeholder="slotLabel" />
-            </div>
-            <div class="field">
-              <span class="lbl">Benutzername (Kamera)</span>
-              <input v-model="form.username" placeholder="tapo_hof" />
-            </div>
-            <div class="field">
-              <span class="lbl">Stream</span>
-              <select v-model="form.stream_name">
-                <option value="stream2">stream2 · empfohlen</option>
-                <option value="stream1">stream1</option>
-              </select>
-            </div>
-          </div>
-
-          <div v-if="form.device_id" class="assignment-display">
-            <div class="assignment-display-head">
-              <div>
-                <div class="lbl">Anzeige</div>
-                <div class="mono-mute">{{ displaySummary }}</div>
-              </div>
-              <RouterLink class="btn sm ghost" :to="`/kamera/${form.device_id}`">Crop/Diagnose →</RouterLink>
-            </div>
-
-            <div class="assignment-display-grid">
-              <div class="field">
-                <span class="lbl">Rotation</span>
-                <div class="btn-row">
-                  <button
-                    v-for="value in [0, 90, 180, 270]"
-                    :key="value"
-                    class="btn sm"
-                    :class="{ live: rotation === value }"
-                    type="button"
-                    @click="rotation = value"
-                  >
-                    {{ value }}°
-                  </button>
-                </div>
-              </div>
-
-              <label class="toggle-row compact">
-                <input v-model="mirror" type="checkbox" />
-                <div>
-                  <div class="lbl-main">Horizontal spiegeln</div>
-                  <div class="lbl-sub">Links/rechts tauschen.</div>
-                </div>
-              </label>
-
-              <label class="toggle-row compact">
-                <input v-model="flip" type="checkbox" />
-                <div>
-                  <div class="lbl-main">Vertikal spiegeln</div>
-                  <div class="lbl-sub">Kopfstehende Montage.</div>
-                </div>
-              </label>
-
-              <div class="field">
-                <span class="lbl">Fit</span>
-                <select v-model="fitMode">
-                  <option value="cover">Cover</option>
-                  <option value="contain">Contain</option>
-                </select>
-              </div>
-            </div>
-          </div>
-
-          <div class="btn-row" style="margin-top: 8px;">
-            <button class="btn primary" :disabled="!form.device_id || saving" @click="save">Speichern</button>
-            <button class="btn" :disabled="!form.device_id || saving" @click="saveDisplay">Anzeige speichern</button>
-            <button class="btn danger" :disabled="!bindingFor(selectedSlot)" @click="remove">Entfernen</button>
-            <RouterLink v-if="form.device_id" class="btn ghost" :to="`/kamera/${form.device_id}`">Diagnose →</RouterLink>
-          </div>
-        </template>
-      </div>
-    </section>
-  </div>
-
-  <section v-if="rendered" class="panel">
-    <div class="panel-head">
-      <h2>Erzeugte go2rtc-Konfiguration</h2>
-      <div class="right">{{ renderInfo }}</div>
     </div>
-    <pre class="code">{{ rendered }}</pre>
   </section>
 
   <div v-if="showManualModal" class="modal-backdrop" @click.self="closeManualModal">
     <form class="modal" @submit.prevent="addManual">
       <div class="modal-head">
         <div>
-          <div class="eyebrow">Gefundene Geräte</div>
+          <div class="eyebrow">Geräte</div>
           <h2>Kamera per RTSP hinzufügen</h2>
         </div>
         <button class="btn icon sm ghost" type="button" title="Schließen" @click="closeManualModal">×</button>
@@ -318,50 +167,26 @@
 
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRouter } from 'vue-router'
 import { api } from '../api/client'
 import type { Binding, Device, Slot, StatusResponse, ViewerResponse, ViewerSlot, ViewerSlotState } from '../types'
 
-interface FrameRefreshResult {
-  slot_id: string
-  device_id: string
-  label: string
-  ip: string
-  stream: string
-  success: boolean
-  message: string
-}
-
-const route = useRoute()
+const router = useRouter()
 const slots = ref<Slot[]>([])
 const devices = ref<Device[]>([])
 const bindings = ref<Binding[]>([])
 const systemStatus = ref<StatusResponse>()
 const viewerData = ref<ViewerResponse>()
-const settings = ref<Record<string, string>>({})
-const selectedSlot = ref('')
-const rendered = ref('')
-const renderInfo = ref('')
-const toast = ref('')
 const error = ref('')
-const saving = ref(false)
-const busy = ref<'' | 'scan' | 'render' | 'restart' | 'manual' | 'frames'>('')
+const toast = ref('')
+const busy = ref('')
 const frameRevision = ref(Date.now())
 const missingReferences = ref<Record<string, boolean>>({})
 const showManualModal = ref(false)
-const frameResults = ref<FrameRefreshResult[]>([])
-
-const form = reactive({ device_id: '', label: '', username: '', stream_name: 'stream2' })
 const manual = reactive({ ip: '', username: '', password: '', stream: 'stream2' })
-const rotation = ref(0)
-const mirror = ref(false)
-const flip = ref(false)
-const fitMode = ref<'cover' | 'contain'>('contain')
-const slotLabel = computed(() => slots.value.find((s) => s.id === selectedSlot.value)?.label || 'Kamera')
-const selectedDevice = computed(() => devices.value.find((d) => d.id === form.device_id))
-const boundCount = computed(() => slots.value.filter((s) => bindings.value.some((b) => b.slot_id === s.id)).length)
+
 const assignableDevices = computed(() => devices.value.filter((device) => isAssignableCamera(device)))
-const displaySummary = computed(() => `${rotation.value}° · ${fitMode.value}${mirror.value ? ' · gespiegelt' : ''}${flip.value ? ' · vertikal' : ''}`)
+const shownCount = computed(() => bindings.value.filter((b) => b.device_id).length)
 const go2rtcOnline = computed(() => systemStatus.value?.system.go2rtc.online ?? false)
 const managerOnline = computed(() => systemStatus.value?.system.camera_appliance.online ?? true)
 const blockingSlots = computed<ViewerSlot[]>(() =>
@@ -377,20 +202,11 @@ const lastScanRel = computed(() => {
   return new Date(started).toLocaleDateString('de-DE')
 })
 
-function slotStateLabel(state: ViewerSlotState) {
-  const labels: Record<ViewerSlotState, string> = {
-    unassigned: 'leer',
-    connecting: 'verbindet',
-    online: 'live',
-    offline: 'offline',
-    credentials_failed: 'Login',
-    stream_unavailable: 'Stream'
-  }
-  return labels[state]
+function bindingForDevice(deviceId: string) {
+  return bindings.value.find((b) => b.device_id === deviceId)
 }
-
-function bindingFor(slotId: string) {
-  return bindings.value.find((b) => b.slot_id === slotId)
+function isShown(device: Device) {
+  return !!bindingForDevice(device.id)
 }
 function referenceVisible(deviceId?: string) {
   return Boolean(deviceId && !missingReferences.value[deviceId])
@@ -417,34 +233,20 @@ function isAssignableCamera(d: Device): boolean {
 function safeParse(v: string): Record<string, unknown> {
   try { return JSON.parse(v) as Record<string, unknown> } catch { return {} }
 }
-
-function pickSlot(slotId: string) {
-  selectedSlot.value = slotId
-  const b = bindingFor(slotId)
-  form.device_id = b?.device_id || form.device_id || ''
-  form.label = b?.label || slots.value.find((s) => s.id === slotId)?.label || ''
-  form.username = b?.username || ''
-  form.stream_name = b?.stream_name || 'stream2'
-  loadDisplaySettingsForDevice(form.device_id)
-}
-function pickDevice(id: string) {
-  form.device_id = id
-  loadDisplaySettingsForDevice(id)
-  void loadDeviceCredentials(id)
-  if (!selectedSlot.value) {
-    const firstEmpty = slots.value.find((s) => !bindingFor(s.id))
-    if (firstEmpty) pickSlot(firstEmpty.id)
+function slotStateLabel(state: ViewerSlotState) {
+  const labels: Record<ViewerSlotState, string> = {
+    unassigned: 'leer',
+    connecting: 'verbindet',
+    online: 'live',
+    offline: 'offline',
+    credentials_failed: 'Login',
+    stream_unavailable: 'Stream'
   }
+  return labels[state]
 }
 
-async function loadDeviceCredentials(id: string) {
-  try {
-    const credentials = await api.deviceCredentials(id)
-    if (!form.username) form.username = credentials.username || ''
-    if (credentials.stream) form.stream_name = credentials.stream
-  } catch {
-    // credentials are optional; keep the assignment flow usable.
-  }
+function goDetail(deviceId: string) {
+  void router.push(`/kamera/${deviceId}`)
 }
 
 async function load() {
@@ -453,20 +255,7 @@ async function load() {
   slots.value = status.slots
   devices.value = status.devices
   bindings.value = status.bindings
-  settings.value = await api.settings()
   viewerData.value = await api.viewer().catch(() => undefined)
-  if (!selectedSlot.value && slots.value.length) {
-    const target = String(route.query.camera || '')
-    if (target) {
-      const slotOfDevice = bindings.value.find((b) => b.device_id === target)?.slot_id
-      pickSlot(slotOfDevice || slots.value[0].id)
-      form.device_id = target
-    } else {
-      pickSlot(slots.value[0].id)
-    }
-  } else if (form.device_id) {
-    loadDisplaySettingsForDevice(form.device_id)
-  }
 }
 
 async function runDiscovery() {
@@ -485,46 +274,36 @@ async function runDiscovery() {
   }
 }
 
-async function addManual() {
-  busy.value = 'manual'
+async function toggleShow(device: Device) {
+  if (busy.value) return
+  busy.value = device.id
   error.value = ''
   try {
-    const result = await api.addManualDevice({
-      ip: manual.ip,
-      username: manual.username,
-      password: manual.password,
-      stream: manual.stream
-    })
-    await load()
-    form.device_id = result.device.id
-    form.username = manual.username
-    form.stream_name = manual.stream
-    if (!form.label) form.label = selectedSlot.value ? slotLabel.value : 'Kamera'
-    await loadDeviceCredentials(result.device.id)
-    let frameNote = ''
-    if (manual.username && manual.password) {
-      try {
-        await api.captureFrame(result.device.id, {
-          username: manual.username,
-          password: manual.password,
-          stream: manual.stream,
-          save: true
-        })
-        const next = { ...missingReferences.value }
-        delete next[result.device.id]
-        missingReferences.value = next
-        frameRevision.value = Date.now()
-        frameNote = ' Referenzbild gespeichert.'
-      } catch (err) {
-        frameNote = ` Bild noch nicht verfügbar: ${err instanceof Error ? err.message : 'Frame fehlgeschlagen'}`
+    const existing = bindingForDevice(device.id)
+    if (existing) {
+      await api.removeBinding(existing.slot_id)
+    } else {
+      const used = new Set(bindings.value.map((b) => b.slot_id))
+      const free = slots.value.find((slot) => !used.has(slot.id))
+      if (!free) {
+        error.value = 'Maximal ' + slots.value.length + ' Kameras gleichzeitig sichtbar. Blende zuerst eine andere aus.'
+        return
       }
+      const credentials = await api.deviceCredentials(device.id).catch(() => undefined)
+      await api.saveBinding({
+        slot_id: free.id,
+        device_id: device.id,
+        label: deviceTitle(device),
+        username: credentials?.username || '',
+        stream_name: credentials?.stream || free.default_stream || 'stream2',
+        enabled: true
+      })
     }
-    toast.value = `${result.message}${frameNote}`
-    setTimeout(() => (toast.value = ''), 4200)
-    manual.password = ''
-    showManualModal.value = false
+    await api.renderGo2RTC()
+    await api.restartGo2RTC().catch(() => undefined)
+    await load()
   } catch (err) {
-    error.value = err instanceof Error ? err.message : 'Kamera konnte nicht hinzugefügt werden.'
+    error.value = err instanceof Error ? err.message : 'Sichtbarkeit konnte nicht geändert werden.'
   } finally {
     busy.value = ''
   }
@@ -535,224 +314,80 @@ async function refreshFrames() {
   if (!targets.length) return
   busy.value = 'frames'
   error.value = ''
-  frameResults.value = []
   let ok = 0
   let failed = 0
   try {
     for (const binding of targets) {
-      const result = await refreshFrame(binding)
-      frameResults.value = [...frameResults.value, result]
-      if (result.success) {
+      try {
+        const credentials = await api.deviceCredentials(binding.device_id).catch(() => undefined)
+        await api.captureFrame(binding.device_id, {
+          username: credentials?.username || binding.username || '',
+          password: '',
+          stream: credentials?.stream || binding.stream_name || 'stream2',
+          save: true
+        })
         ok += 1
         const next = { ...missingReferences.value }
         delete next[binding.device_id]
         missingReferences.value = next
-      } else {
+      } catch {
         failed += 1
         missingReferences.value = { ...missingReferences.value, [binding.device_id]: true }
       }
     }
     frameRevision.value = Date.now()
-    toast.value = failed ? `${ok} Bild(er) aktualisiert, ${failed} fehlgeschlagen` : `${ok} Bild(er) aktualisiert`
+    toast.value = failed ? `${ok} Vorschau(en) aktualisiert, ${failed} fehlgeschlagen` : `${ok} Vorschau(en) aktualisiert`
     setTimeout(() => (toast.value = ''), 2800)
-    if (!ok && failed) error.value = 'Keine Bilder konnten gezogen werden. Prüfe Zugangsdaten und RTSP-Freigabe je Kamera.'
   } finally {
     busy.value = ''
   }
 }
 
-async function refreshFrame(binding: Binding): Promise<FrameRefreshResult> {
-  const credentials = await api.deviceCredentials(binding.device_id).catch(() => undefined)
-  const username = credentials?.username || binding.username || ''
-  const preferred = credentials?.stream || binding.stream_name || 'stream2'
-  const streams = uniqueStreams([preferred, preferred === 'stream1' ? 'stream2' : 'stream1'])
-  const messages: string[] = []
-
-  for (const streamName of streams) {
-    try {
-      const frame = await api.captureFrame(binding.device_id, {
-        username,
-        password: '',
-        stream: streamName,
-        save: true
-      })
-      if (streamName !== preferred) {
-        await persistWorkingStream(binding, username, streamName)
+async function addManual() {
+  busy.value = 'manual'
+  error.value = ''
+  try {
+    const result = await api.addManualDevice({
+      ip: manual.ip,
+      username: manual.username,
+      password: manual.password,
+      stream: manual.stream
+    })
+    if (manual.username && manual.password) {
+      try {
+        await api.captureFrame(result.device.id, { username: manual.username, password: manual.password, stream: manual.stream, save: true })
+        const next = { ...missingReferences.value }
+        delete next[result.device.id]
+        missingReferences.value = next
+        frameRevision.value = Date.now()
+      } catch {
+        // frame optional
       }
-      const source = frame.credential_source ? ` über ${frame.credential_source}` : ''
-      return frameResult(binding, streamName, true, streamName === preferred ? `Bild gespeichert${source}` : `Bild gespeichert${source}, ${streamName} übernommen`)
-    } catch (err) {
-      messages.push(`${streamName}: ${err instanceof Error ? err.message : 'fehlgeschlagen'}`)
     }
+    toast.value = result.message
+    setTimeout(() => (toast.value = ''), 3200)
+    manual.password = ''
+    showManualModal.value = false
+    await load()
+  } catch (err) {
+    error.value = err instanceof Error ? err.message : 'Kamera konnte nicht hinzugefügt werden.'
+  } finally {
+    busy.value = ''
   }
-
-  return frameResult(binding, preferred, false, messages.join(' · ') || 'Kein Frame erhalten')
-}
-
-function frameResult(binding: Binding, streamName: string, success: boolean, message: string): FrameRefreshResult {
-  const duplicates = duplicateSlotsForIP(binding)
-  const conflict = duplicates.length ? `Doppelte IP mit ${duplicates.join(', ')}. ` : ''
-  return {
-    slot_id: binding.slot_id,
-    device_id: binding.device_id,
-    label: binding.label || binding.slot?.label || binding.device?.hostname || 'Kamera',
-    ip: binding.device?.last_ip || '',
-    stream: streamName,
-    success,
-    message: conflict + message
-  }
-}
-
-function duplicateSlotsForIP(binding: Binding) {
-  const ip = binding.device?.last_ip
-  if (!ip) return []
-  return bindings.value
-    .filter((other) => other.slot_id !== binding.slot_id && other.device?.last_ip === ip)
-    .map((other) => other.slot_id)
-}
-
-async function persistWorkingStream(binding: Binding, username: string, streamName: string) {
-  if (username) {
-    await api.saveDeviceCredentials(binding.device_id, { username, stream: streamName }).catch(() => undefined)
-  }
-  await api.saveBinding({
-    slot_id: binding.slot_id,
-    device_id: binding.device_id,
-    label: binding.label,
-    username: binding.username || username,
-    stream_name: streamName,
-    enabled: binding.enabled
-  }).catch(() => undefined)
-}
-
-function uniqueStreams(values: string[]) {
-  return Array.from(new Set(values.filter(Boolean)))
-}
-
-function loadDisplaySettingsForDevice(deviceID: string) {
-  if (!deviceID) {
-    resetDisplayControls()
-    return
-  }
-  rotation.value = normalizedRotation(settings.value[`camera.display.${deviceID}.rotation`])
-  mirror.value = boolSetting(settings.value[`camera.display.${deviceID}.mirror`])
-  flip.value = boolSetting(settings.value[`camera.display.${deviceID}.flip`])
-  fitMode.value = settings.value[`camera.display.${deviceID}.fit_mode`] === 'cover' ? 'cover' : 'contain'
-}
-
-function resetDisplayControls() {
-  rotation.value = 0
-  mirror.value = false
-  flip.value = false
-  fitMode.value = 'contain'
-}
-
-function normalizedRotation(raw?: string) {
-  const value = Number(raw)
-  return [0, 90, 180, 270].includes(value) ? value : 0
-}
-
-function boolSetting(raw?: string) {
-  return raw === 'true' || raw === '1' || raw === 'yes' || raw === 'on'
 }
 
 function closeManualModal() {
   if (busy.value !== 'manual') showManualModal.value = false
 }
 
-async function save() {
-  if (!selectedSlot.value || !form.device_id) return
-  saving.value = true
-  try {
-    if (form.username || form.stream_name) {
-      await api.saveDeviceCredentials(form.device_id, { username: form.username, stream: form.stream_name })
-    }
-    await api.saveBinding({
-      slot_id: selectedSlot.value,
-      device_id: form.device_id,
-      label: form.label,
-      username: form.username,
-      stream_name: form.stream_name,
-      enabled: true
-    })
-    await saveDisplaySettings(false)
-    toast.value = 'Zuordnung gespeichert'
-    setTimeout(() => (toast.value = ''), 2200)
-    await load()
-  } catch (err) {
-    error.value = err instanceof Error ? err.message : 'Speichern fehlgeschlagen.'
-  } finally {
-    saving.value = false
-  }
-}
-
-async function saveDisplay() {
-  if (!form.device_id) return
-  saving.value = true
-  error.value = ''
-  try {
-    await saveDisplaySettings(true)
-    toast.value = 'Anzeige gespeichert'
-    setTimeout(() => (toast.value = ''), 2200)
-  } catch (err) {
-    error.value = err instanceof Error ? err.message : 'Anzeige konnte nicht gespeichert werden.'
-  } finally {
-    saving.value = false
-  }
-}
-
-async function saveDisplaySettings(updateLocal: boolean) {
-  if (!form.device_id) return
-  const deviceID = form.device_id
-  const values: Record<string, string> = {
-    [`camera.display.${deviceID}.rotation`]: String(normalizedRotation(String(rotation.value))),
-    [`camera.display.${deviceID}.mirror`]: String(mirror.value),
-    [`camera.display.${deviceID}.flip`]: String(flip.value),
-    [`camera.display.${deviceID}.fit_mode`]: fitMode.value
-  }
-  await api.saveSettings(values)
-  if (updateLocal) Object.assign(settings.value, values)
-}
-
-async function remove() {
-  if (!selectedSlot.value) return
-  try {
-    await api.removeBinding(selectedSlot.value)
-    toast.value = 'Platz geleert'
-    setTimeout(() => (toast.value = ''), 2200)
-    await load()
-  } catch (err) {
-    error.value = err instanceof Error ? err.message : 'Entfernen fehlgeschlagen.'
-  }
-}
-
-async function render() {
-  busy.value = 'render'
-  try {
-    const result = await api.renderGo2RTC()
-    rendered.value = result.redacted_yaml
-    renderInfo.value = `${result.rendered_streams} Stream(s)`
-    toast.value = `${result.rendered_streams} Stream(s) erzeugt`
-    setTimeout(() => (toast.value = ''), 2200)
-  } catch (err) {
-    error.value = err instanceof Error ? err.message : 'go2rtc-Erzeugung fehlgeschlagen.'
-  } finally {
-    busy.value = ''
-  }
-}
-
-async function restartGo2rtc() {
-  busy.value = 'restart'
-  try {
-    await api.restartGo2RTC()
-    toast.value = 'go2rtc neu gestartet'
-    setTimeout(() => (toast.value = ''), 2200)
-  } catch (err) {
-    error.value = err instanceof Error ? err.message : 'Neustart fehlgeschlagen.'
-  } finally {
-    busy.value = ''
-  }
-}
-
 onMounted(load)
 </script>
+
+<style scoped>
+.device-card-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 8px;
+}
+</style>

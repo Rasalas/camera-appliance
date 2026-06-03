@@ -8,7 +8,7 @@
 
       <nav class="nav">
         <RouterLink to="/">Kameras<span class="nav-key">1</span></RouterLink>
-        <RouterLink v-if="canAdmin" to="/einrichtung">Einrichtung<span class="nav-key">2</span></RouterLink>
+        <RouterLink v-if="canAdmin" to="/einrichtung">Geräte<span class="nav-key">2</span></RouterLink>
         <RouterLink v-if="canAdmin" to="/system">System<span class="nav-key">3</span></RouterLink>
       </nav>
 
