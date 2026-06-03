@@ -19,10 +19,11 @@ Layout-Bedienung) und ein linien-/cardlastiges Design.
   - **Clean** (Standard): nur Kacheln; ein automatisch ausblendendes Steuer-Cluster
     (erscheint bei Mausbewegung) bietet Bearbeiten, Vollbild und Verwaltung.
   - **Spotlight**: Klick auf eine Kamera vergrößert sie, erneuter Klick/Esc zurück.
-  - **Bearbeiten** (nur Admin): freies Raster — Kameras per Drag verschieben/tauschen, auf
-    Zonen platzieren, Spalten/Zeilen frei skalieren; Zuschnitt per Zoom (Rad) und Pan
-    (Shift+Ziehen) direkt an der Kachel. Gesten: Ziehen = verschieben/tauschen,
-    Trenner ziehen = Größe.
+  - **Bearbeiten** (nur Admin): Split-Pane-Editor nach VSCode-Vorbild. Layout ist ein
+    binärer Split-Baum (Leaf = Kamera, Split = Zeile/Spalte mit Verhältnis). Eine Kamera an
+    den **Rand** einer anderen ziehen teilt deren Fläche (neuer Split), auf die **Mitte** =
+    tauschen; **Trenner** an jeder Teilung ziehen = Größe. Zuschnitt per Zoom (Rad) und Pan
+    (Shift+Ziehen) direkt an der Kachel. Persistiert als JSON unter `viewer.layout.mosaic`.
   - **Vollbild** schaltet sämtliche Bedienelemente ab (Kiosk).
 - Operative Steuerung (Discovery, go2rtc erzeugen/neu starten, Performance-Modus) liegt
   **nur noch auf den Admin-Seiten**, nicht mehr im Viewer.
@@ -38,9 +39,10 @@ Layout-Bedienung) und ein linien-/cardlastiges Design.
 
 - Die Kameraansicht nutzt den vollen Bildschirm ohne Chrome.
 - Die benannten Kiosk-Layout-Presets aus [011] (2x2, 4 plus groß, Vertikal plus Raster,
-  Große Ansicht) entfallen in der Bedienung zugunsten **eines einzigen frei konfigurierbaren
-  Rasters**. Die zugrunde liegende Custom-Layout-Engine aus [011] bleibt technisch erhalten
-  und trägt das freie Raster; Min-/Max-Grenzen der Sektionsgrößen wurden gelockert.
+  Große Ansicht) und die alte Custom-Grid-/Zonen-Bedienung entfallen zugunsten des
+  **Split-Pane-Editors**. Damit lassen sich beliebige Anordnungen (inkl. 4+1) intuitiv durch
+  Andocken und Trenner-Ziehen bauen — ohne Vorlagen. Das Layout wird unabhängig von der
+  ViewerLayout-Berechnung des Backends als Split-Baum (`viewer.layout.mosaic`) gespeichert.
 - Bestandskameras ohne explizite Anzeige-Einstellung zeigen ab jetzt das ganze Bild
   (`contain`) statt formatfüllend (`cover`).
 - Weniger Redundanz: Scan/Render/Restart und Ereignisprotokoll haben je eine Heimat.

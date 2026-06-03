@@ -43,6 +43,9 @@ func TestViewerReportsOnlineAliasWithoutLeakingSecrets(t *testing.T) {
 	if slot.Playback == nil || !strings.Contains(slot.Playback.PageURL, "src=cam1") {
 		t.Fatalf("expected go2rtc playback URL for cam1, got %+v", slot.Playback)
 	}
+	if strings.Contains(slot.Playback.PageURL, "webrtc") || !strings.Contains(slot.Playback.PageURL, "mode=mse%2Cmp4%2Cmjpeg") {
+		t.Fatalf("expected MSE-first kiosk playback URL, got %+v", slot.Playback)
+	}
 	data, _ := json.Marshal(viewer)
 	if strings.Contains(string(data), "secret") {
 		t.Fatalf("viewer response leaked secret: %s", data)

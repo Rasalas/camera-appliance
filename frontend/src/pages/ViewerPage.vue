@@ -5,101 +5,87 @@
     @pointermove="revealControls"
     @mouseleave="scheduleHideControls"
   >
-    <section class="viewer-grid" :class="layoutClass" :style="layoutGridStyle">
-    <article
-      v-for="slot in visibleSlots"
-      :key="slot.alias"
-      class="viewer-tile"
-      :class="[tileClass(slot), { large: isFocusTile(slot), portrait: isPortraitTile(slot), reorderable: canReorderLayout, dragging: draggedSlotAlias === slot.alias, 'drop-target': dropSlotAlias === slot.alias && draggedSlotAlias !== slot.alias }]"
-      :style="layoutTileStyle(slot)"
-      :data-slot-alias="slot.alias"
-    >
-      <div class="viewer-frame-wrap">
-        <div
-          v-if="shouldRenderPlayer(slot)"
-          class="viewer-frame-transform"
-          :class="displayClass(slot)"
-          :style="displayStyle(slot)"
-        >
-          <iframe
-            class="viewer-frame"
-            :src="slot.playback?.page_url || ''"
-            :title="slot.label"
-            :loading="iframeLoading(slot)"
-            allow="autoplay; fullscreen; picture-in-picture"
-            @load="markFrameReady(slot.alias)"
-          />
-        </div>
-        <div v-else class="viewer-placeholder" :class="{ paused: isPausedByPerformance(slot) }">
-          <div class="placeholder-mark">{{ slot.alias }}</div>
-          <div>{{ placeholderMessage(slot) }}</div>
-        </div>
-        <div v-if="isPausedByPerformance(slot)" class="viewer-cover performance-cover">
-          <span>Standby</span>
-        </div>
-        <div v-if="effectiveState(slot) === 'connecting'" class="viewer-cover">
-          <span class="loader-dot" />
-          <span>Verbindet</span>
-        </div>
-      </div>
-
+    <section ref="gridEl" class="mosaic">
       <div
-        class="tile-surface"
-        :title="editing ? undefined : 'Klicken zum Vergrößern'"
-        @click="onTileClick(slot)"
-        @pointerdown="onTilePointerDown($event, slot)"
-        @wheel="onTileWheel($event, slot)"
-      />
-
-      <div v-if="editing" class="tile-edit">
-        <span class="tile-tag">{{ slot.alias }} · {{ slot.label }}</span>
-        <div v-if="slot.binding?.device_id" class="tile-edit-actions">
-          <button class="btn icon sm" type="button" title="90° drehen" @click.stop="rotateTile(slot)">⟳</button>
-          <button
-            class="btn sm"
-            type="button"
-            :title="effectiveDisplay(slot).fit_mode === 'cover' ? 'Ganzes Bild zeigen' : 'Format füllen'"
-            @click.stop="toggleFitTile(slot)"
-          >{{ effectiveDisplay(slot).fit_mode === 'cover' ? 'Füllen' : 'Ganz' }}</button>
-          <button class="btn icon sm" type="button" title="Hineinzoomen" @click.stop="zoomTile(slot, -1)">＋</button>
-          <button class="btn icon sm" type="button" title="Herauszoomen" @click.stop="zoomTile(slot, 1)">－</button>
-          <button class="btn icon sm" type="button" title="Zuschnitt zurücksetzen" @click.stop="resetTile(slot)">⟲</button>
-        </div>
-      </div>
-    </article>
-    <div v-if="editing && activeLayoutID === 'custom' && draggedSlotAlias" class="viewer-drop-zones" aria-hidden="true">
-      <button
-        v-for="zone in customDropZones"
-        :key="zone.id"
-        class="viewer-drop-zone"
-        :class="[`zone-${zone.id}`, { active: dropZoneID === zone.id }]"
-        type="button"
-        :data-layout-zone="zone.id"
+        v-for="pane in panes"
+        :key="pane.alias"
+        class="mosaic-pane"
+        :style="paneStyle(pane)"
       >
-        {{ zone.label }}
-      </button>
-    </div>
-    <template v-if="editing">
-      <button
-        v-for="grabber in grabberStyles"
-        :key="grabber.handle"
-        class="viewer-layout-grabber"
-        type="button"
-        :style="grabber.style"
-        title="Layout-Breite ziehen"
-        @pointerdown="startLayoutDrag($event, grabber.handle)"
-      />
-      <button
-        v-for="grabber in customGrabberStyles"
-        :key="grabber.handle"
-        class="viewer-layout-grabber floating"
-        :class="grabber.kind === 'column' ? 'custom-col' : 'custom-row'"
-        type="button"
-        :style="grabber.style"
-        :title="grabber.kind === 'column' ? 'Spaltenbreite ziehen' : 'Zeilenhöhe ziehen'"
-        @pointerdown="startCustomLayoutDrag($event, grabber.kind, grabber.index)"
-      />
-    </template>
+        <article
+          class="viewer-tile"
+          :class="[tileClass(pane.slot), { dragging: dragSourceAlias === pane.alias }]"
+          :data-slot-alias="pane.alias"
+        >
+          <div class="viewer-frame-wrap">
+            <div
+              v-if="shouldRenderPlayer(pane.slot)"
+              class="viewer-frame-transform"
+              :class="displayClass(pane.slot)"
+              :style="displayStyle(pane.slot)"
+            >
+              <iframe
+                class="viewer-frame"
+                :src="frameSrc(pane.slot)"
+                :title="pane.slot.label"
+                :loading="iframeLoading(pane.slot)"
+                allow="autoplay; fullscreen; picture-in-picture"
+                @load="markFrameReady(pane.alias)"
+              />
+            </div>
+            <div v-else class="viewer-placeholder" :class="{ paused: isPausedByPerformance(pane.slot) }">
+              <div class="placeholder-mark">{{ pane.alias }}</div>
+              <div>{{ placeholderMessage(pane.slot) }}</div>
+            </div>
+            <div v-if="isPausedByPerformance(pane.slot)" class="viewer-cover performance-cover">
+              <span>Standby</span>
+            </div>
+            <div v-if="effectiveState(pane.slot) === 'connecting'" class="viewer-cover">
+              <span class="loader-dot" />
+              <span>Verbindet</span>
+            </div>
+          </div>
+
+          <div
+            class="tile-surface"
+            :title="editing ? undefined : 'Klicken zum Vergrößern'"
+            @click="onTileClick(pane.alias)"
+            @pointerdown="onTilePointerDown($event, pane.slot)"
+            @wheel="onTileWheel($event, pane.slot)"
+          />
+
+          <div v-if="editing" class="tile-edit">
+            <span class="tile-tag">{{ pane.alias }} · {{ pane.slot.label }}</span>
+            <div v-if="pane.slot.binding?.device_id" class="tile-edit-actions">
+              <button class="btn icon sm" type="button" title="90° drehen" @click.stop="rotateTile(pane.slot)">⟳</button>
+              <button
+                class="btn sm"
+                type="button"
+                :title="effectiveDisplay(pane.slot).fit_mode === 'cover' ? 'Ganzes Bild zeigen' : 'Format füllen'"
+                @click.stop="toggleFitTile(pane.slot)"
+              >{{ effectiveDisplay(pane.slot).fit_mode === 'cover' ? 'Füllen' : 'Ganz' }}</button>
+              <button class="btn icon sm" type="button" title="Hineinzoomen" @click.stop="zoomTile(pane.slot, -1)">＋</button>
+              <button class="btn icon sm" type="button" title="Herauszoomen" @click.stop="zoomTile(pane.slot, 1)">－</button>
+              <button class="btn icon sm" type="button" title="Zuschnitt zurücksetzen" @click.stop="resetTile(pane.slot)">⟲</button>
+            </div>
+          </div>
+        </article>
+      </div>
+
+      <template v-if="editing && !spotlightAlias">
+        <button
+          v-for="gutter in gutters"
+          :key="gutter.id"
+          class="mosaic-gutter"
+          :class="gutter.dir"
+          type="button"
+          :style="gutterStyle(gutter)"
+          :title="gutter.dir === 'row' ? 'Breite ziehen' : 'Höhe ziehen'"
+          @pointerdown="startGutterDrag($event, gutter)"
+        />
+      </template>
+
+      <div v-if="dockTarget" class="mosaic-dock" :style="dockOverlayStyle" aria-hidden="true" />
     </section>
 
     <transition name="hud">
@@ -115,7 +101,7 @@
 
     <transition name="hud">
       <div v-if="editing" class="viewer-edit-hint">
-        Ziehen = verschieben &amp; tauschen · auf Zone ziehen = platzieren · Trenner ziehen = Größe · Rad = Zoom · Shift+Ziehen = Ausschnitt
+        Kamera an einen <b>Rand</b> ziehen = Fläche teilen · auf die <b>Mitte</b> = tauschen · <b>Trenner</b> ziehen = Größe · <b>Rad</b> = Zoom · <b>Shift+Ziehen</b> = Ausschnitt
       </div>
     </transition>
 
@@ -123,723 +109,464 @@
       <div v-if="error" class="viewer-error" @click="error = ''">{{ error }}</div>
     </transition>
   </div>
-
-  <div class="toast-host">
-    <transition name="page"><div v-if="toast" class="toast" :key="toast">{{ toast }}</div></transition>
-  </div>
 </template>
 
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { api } from '../api/client'
-import type {
-  AuthStatus,
-  CameraDisplay,
-  StreamPath,
-  ViewerCustomLayout,
-  ViewerCustomLayoutCell,
-  ViewerLayoutID,
-  ViewerLayoutMode,
-  ViewerLayoutOption,
-  ViewerPerformanceMode,
-  ViewerPerformanceOption,
-  ViewerResponse,
-  ViewerSlot,
-  ViewerSlotState
-} from '../types'
+import type { AuthStatus, CameraDisplay, ViewerResponse, ViewerSlot, ViewerSlotState } from '../types'
 
-type LayoutDraft = {
-  id: ViewerLayoutID
-  mode: ViewerLayoutMode
-  focus_slot_id: string
-  slot_order: string[]
-  split_percent: number
-  gap_px: number
-  custom: ViewerCustomLayout
-}
+// --- Mosaic layout model -----------------------------------------------------
+// A binary split tree, like VSCode editor groups. A leaf shows one camera; a
+// split divides its area into two children (row = side by side, col = stacked)
+// with a ratio for the first child. Cameras dock onto a pane's edge to create a
+// new split, or onto the centre to swap.
+type MosaicLeaf = { type: 'leaf'; slot: string }
+type MosaicSplit = { type: 'split'; dir: 'row' | 'col'; ratio: number; a: MosaicNode; b: MosaicNode }
+type MosaicNode = MosaicLeaf | MosaicSplit
+type Rect = { x: number; y: number; w: number; h: number }
+type Side = 'left' | 'right' | 'top' | 'bottom' | 'center'
+type PaneRect = { alias: string; rect: Rect }
+type GutterRect = { id: string; path: string; dir: 'row' | 'col'; rect: Rect; line: Rect }
 
-type DropZoneID = 'left' | 'middle' | 'right' | 'top' | 'bottom'
-type CustomGrabberKind = 'column' | 'row'
-
-const fallbackPerformanceOptions: ViewerPerformanceOption[] = [
-  { id: 'quality', name: 'Qualität', description: 'Alle sichtbaren Streams sofort live laden.' },
-  { id: 'balanced', name: 'Balanciert', description: 'Nebenansichten lazy laden und primäre Ansicht priorisieren.' },
-  { id: 'low', name: 'Niedrig', description: 'Nur die primäre Ansicht live laden, Nebenansichten pausieren.' },
-  { id: 'diagnostic', name: 'Diagnose', description: 'Alle Streams live laden und Producer/Consumer sichtbar machen.' }
-]
-const defaultCustomColumns = [1, 1]
-const defaultCustomRows = [1, 1, 1]
-const fallbackLayoutOptions: ViewerLayoutOption[] = [
-  { id: 'grid_2x2', name: '2x2', description: 'Vier gleich große Kameras im Raster.' },
-  { id: 'four_plus_large', name: '4 plus groß', description: 'Vier Raster-Kameras mit einer prominenten Ansicht.' },
-  { id: 'vertical_plus_grid', name: 'Vertikal plus Raster', description: 'Eine hochformatige Kamera neben einem Raster.' },
-  { id: 'large_only', name: 'Große Ansicht', description: 'Nur die prominente Kamera bildschirmfüllend.' },
-  { id: 'custom', name: 'Frei', description: 'Kameras per Drag-and-drop auf Zonen und Größen legen.' }
-]
-const customDropZones: Array<{ id: DropZoneID; label: string }> = [
-  { id: 'left', label: 'Links' },
-  { id: 'middle', label: 'Mitte' },
-  { id: 'right', label: 'Rechts' },
-  { id: 'top', label: 'Oben' },
-  { id: 'bottom', label: 'Unten' }
-]
-
-const route = useRoute()
-const router = useRouter()
 const viewer = ref<ViewerResponse>()
 const auth = ref<AuthStatus>()
 const loading = ref(true)
-const busy = ref<'' | 'load' | 'scan' | 'render' | 'restart'>('')
-const layoutBusy = ref(false)
-const performanceBusy = ref(false)
-const performanceMode = ref<ViewerPerformanceMode>('quality')
-const layoutDraft = ref<LayoutDraft>({
-  id: 'four_plus_large',
-  mode: 'auto',
-  focus_slot_id: 'cam5',
-  slot_order: [],
-  split_percent: 58,
-  gap_px: 10,
-  custom: { columns: defaultCustomColumns, rows: defaultCustomRows, cells: [] }
-})
+const busy = ref(false)
 const error = ref('')
-const toast = ref('')
 const frameReady = ref<Record<string, boolean>>({})
-const draggedSlotAlias = ref('')
-const dropSlotAlias = ref('')
-const dropZoneID = ref<DropZoneID | ''>('')
+const performanceMode = ref<'quality' | 'balanced' | 'low' | 'diagnostic'>('quality')
 
-// Viewer chrome state: clean by default, edit reveals layout/crop tools,
-// spotlight enlarges a single camera, fullscreen suppresses all chrome.
+// Chrome state: clean by default; edit reveals split tools; spotlight enlarges a
+// single camera; fullscreen suppresses all chrome.
 const editing = ref(false)
 const spotlightAlias = ref('')
 const controlsVisible = ref(false)
 const isFullscreen = ref(false)
 const displayOverrides = ref<Record<string, CameraDisplay>>({})
+
+// Layout tree + live drag state.
+const mosaic = ref<MosaicNode>()
+const gridEl = ref<HTMLElement>()
+const dragSourceAlias = ref('')
+const dockTarget = ref('')
+const dockSide = ref<Side>('center')
+
 let refreshTimer = 0
 let controlsTimer = 0
 let displaySaveTimer = 0
+let mosaicSaveTimer = 0
 let onAuthChanged: (() => void) | undefined
 let onFullscreenChange: (() => void) | undefined
 let onKey: ((e: KeyboardEvent) => void) | undefined
-let stopPointerTileDrag: (() => void) | undefined
+let stopDrag: (() => void) | undefined
 let stopCropPan: (() => void) | undefined
 
 const slots = computed(() => viewer.value?.slots ?? [])
-const orderedSlots = computed(() => orderSlotsByAlias(slots.value, layoutDraft.value.slot_order))
-const onlineCount = computed(() => slots.value.filter((slot) => effectiveState(slot) === 'online').length)
-const blockingSlots = computed(() => slots.value.filter((slot) => !['online', 'connecting'].includes(effectiveState(slot))))
-const blockingCount = computed(() => blockingSlots.value.length)
-const canAdmin = computed(() => auth.value ? (!auth.value.enabled || auth.value.role === 'admin') : false)
-const canReorderLayout = computed(() => editing.value && canAdmin.value && !layoutBusy.value && visibleSlots.value.length > 1)
+const slotByAlias = computed(() => new Map(slots.value.map((slot) => [slot.alias, slot])))
+const canAdmin = computed(() => (auth.value ? !auth.value.enabled || auth.value.role === 'admin' : false))
+
 const rootClass = computed(() => ({
   editing: editing.value,
   spotlight: !!spotlightAlias.value,
   fullscreen: isFullscreen.value,
-  'chrome-idle': !controlsVisible.value && !editing.value
+  docking: !!dragSourceAlias.value
 }))
 const showHud = computed(() => !isFullscreen.value && (controlsVisible.value || editing.value))
-const layoutOptions = computed(() => viewer.value?.layout.options?.length ? viewer.value.layout.options : fallbackLayoutOptions)
-const performanceOptions = computed(() => viewer.value?.performance.options?.length ? viewer.value.performance.options : fallbackPerformanceOptions)
-const performanceName = computed(() => performanceOptions.value.find((option) => option.id === performanceMode.value)?.name || 'Qualität')
-const diagnosticMode = computed(() => performanceMode.value === 'diagnostic')
-const activeLayoutID = computed(() => normalizedLayoutID(layoutDraft.value.id))
-const layoutMode = computed(() => layoutDraft.value.mode)
-const splitLayout = computed(() => activeLayoutID.value === 'four_plus_large' || activeLayoutID.value === 'vertical_plus_grid')
-const focusSide = computed<'left' | 'middle' | 'right'>(() => {
-  if (layoutMode.value === 'focus_left') return 'left'
-  if (layoutMode.value === 'focus_middle') return 'middle'
-  return 'right'
+
+// --- Tree geometry -----------------------------------------------------------
+
+function computeRects(node: MosaicNode, rect: Rect, path: string, leaves: PaneRect[], gutters: GutterRect[]) {
+  if (node.type === 'leaf') {
+    leaves.push({ alias: node.slot, rect })
+    return
+  }
+  const ratio = clamp(node.ratio, 0.05, 0.95)
+  if (node.dir === 'row') {
+    const aw = rect.w * ratio
+    const aRect = { x: rect.x, y: rect.y, w: aw, h: rect.h }
+    const bRect = { x: rect.x + aw, y: rect.y, w: rect.w - aw, h: rect.h }
+    gutters.push({ id: path, path, dir: 'row', rect, line: { x: rect.x + aw, y: rect.y, w: 0, h: rect.h } })
+    computeRects(node.a, aRect, path + 'a', leaves, gutters)
+    computeRects(node.b, bRect, path + 'b', leaves, gutters)
+  } else {
+    const ah = rect.h * ratio
+    const aRect = { x: rect.x, y: rect.y, w: rect.w, h: ah }
+    const bRect = { x: rect.x, y: rect.y + ah, w: rect.w, h: rect.h - ah }
+    gutters.push({ id: path, path, dir: 'col', rect, line: { x: rect.x, y: rect.y + ah, w: rect.w, h: 0 } })
+    computeRects(node.a, aRect, path + 'a', leaves, gutters)
+    computeRects(node.b, bRect, path + 'b', leaves, gutters)
+  }
+}
+
+const geometry = computed(() => {
+  const leaves: PaneRect[] = []
+  const gutters: GutterRect[] = []
+  if (mosaic.value) computeRects(mosaic.value, { x: 0, y: 0, w: 100, h: 100 }, '', leaves, gutters)
+  return { leaves, gutters }
 })
-const visibleSlots = computed(() => {
+
+const panes = computed(() => {
+  const map = slotByAlias.value
   if (spotlightAlias.value) {
-    const target = orderedSlots.value.find((slot) => slot.alias === spotlightAlias.value)
-    if (target) return [target]
+    const slot = map.get(spotlightAlias.value)
+    return slot ? [{ alias: spotlightAlias.value, slot, rect: { x: 0, y: 0, w: 100, h: 100 } }] : []
   }
-  const focus = focusSlotID()
-  if (activeLayoutID.value === 'large_only') {
-    return orderedSlots.value.filter((slot) => slot.alias === focus).slice(0, 1)
-  }
-  if (activeLayoutID.value === 'custom') {
-    const byAlias = new Map(orderedSlots.value.map((slot) => [slot.alias, slot]))
-    const seen = new Set<string>()
-    const placed: ViewerSlot[] = []
-    for (const cell of normalizedCustomLayout(layoutDraft.value.custom).cells) {
-      const slot = byAlias.get(cell.slot_id)
-      if (!slot || seen.has(slot.alias)) continue
-      placed.push(slot)
-      seen.add(slot.alias)
-    }
-    return [...placed, ...orderedSlots.value.filter((slot) => !seen.has(slot.alias))]
-  }
-  if (activeLayoutID.value === 'grid_2x2') {
-    return preferredGridSlots(focus).slice(0, 4)
-  }
-  const focusSlot = orderedSlots.value.find((slot) => slot.alias === focus)
-  const grid = preferredGridSlots(focus).slice(0, 4)
-  return focusSlot ? [focusSlot, ...grid] : grid
+  return geometry.value.leaves
+    .filter((leaf) => map.has(leaf.alias))
+    .map((leaf) => ({ alias: leaf.alias, slot: map.get(leaf.alias) as ViewerSlot, rect: leaf.rect }))
 })
-const layoutClass = computed(() => {
-  if (spotlightAlias.value) return { 'layout-spotlight': true }
-  return {
-    [`layout-${activeLayoutID.value}`]: true,
-    'layout-focus': splitLayout.value,
-    'layout-focus-left': splitLayout.value && focusSide.value === 'left',
-    'layout-focus-middle': splitLayout.value && focusSide.value === 'middle',
-    'layout-focus-right': splitLayout.value && focusSide.value === 'right'
-  }
-})
-const layoutGridStyle = computed(() => {
-  if (spotlightAlias.value) {
-    return { gridTemplateColumns: 'minmax(0, 1fr)', gridTemplateRows: 'minmax(0, 1fr)' }
-  }
-  if (activeLayoutID.value === 'custom') {
-    const custom = normalizedCustomLayout(layoutDraft.value.custom)
-    return {
-      gridTemplateColumns: custom.columns.map((column) => `${column}fr`).join(' '),
-      gridTemplateRows: custom.rows.map((row) => `minmax(180px, ${row}fr)`).join(' '),
-      gap: `${clamp(layoutDraft.value.gap_px || 10, 2, 20)}px`
-    }
-  }
-  if (!splitLayout.value) return {}
-  const split = clamp(layoutDraft.value.split_percent || 58, 12, 88)
-  const focus = 100 - split
-  const gap = clamp(layoutDraft.value.gap_px || 10, 2, 20)
-  let columns = focusSide.value === 'right'
-    ? `${split / 2}fr ${split / 2}fr 6px ${focus}fr`
-    : `${focus}fr 6px ${split / 2}fr ${split / 2}fr`
-  if (focusSide.value === 'middle') {
-    columns = `${split / 2}fr 6px ${focus}fr 6px ${split / 2}fr`
-  }
-  return {
-    gridTemplateColumns: columns,
-    gridTemplateRows: 'minmax(220px, 1fr) minmax(220px, 1fr)',
-    gap: `${gap}px`
-  }
-})
-const grabberStyles = computed(() => {
-  if (!splitLayout.value) return []
-  if (focusSide.value === 'middle') {
-    return [
-      { handle: 'middle_left' as const, style: { gridColumn: '2', gridRow: '1 / span 2' } },
-      { handle: 'middle_right' as const, style: { gridColumn: '4', gridRow: '1 / span 2' } }
-    ]
-  }
-  return [{
-    handle: 'single' as const,
-    style: {
-      gridColumn: focusSide.value === 'right' ? '3' : '2',
-      gridRow: '1 / span 2'
-    }
-  }]
-})
-const customGrabberStyles = computed(() => {
-  if (activeLayoutID.value !== 'custom') return []
-  const custom = normalizedCustomLayout(layoutDraft.value.custom)
-  const columnTotal = sum(custom.columns)
-  const rowTotal = sum(custom.rows)
-  let left = 0
-  let top = 0
-  const grabbers: Array<{ handle: string; kind: CustomGrabberKind; index: number; style: Record<string, string> }> = []
-  for (let index = 0; index < custom.columns.length - 1; index += 1) {
-    left += custom.columns[index]
-    grabbers.push({
-      handle: `column-${index}`,
-      kind: 'column',
-      index,
-      style: { left: `${(left / columnTotal) * 100}%` }
-    })
-  }
-  for (let index = 0; index < custom.rows.length - 1; index += 1) {
-    top += custom.rows[index]
-    grabbers.push({
-      handle: `row-${index}`,
-      kind: 'row',
-      index,
-      style: { top: `${(top / rowTotal) * 100}%` }
-    })
-  }
-  return grabbers
-})
+const gutters = computed(() => geometry.value.gutters)
+
 const primaryLiveAlias = computed(() => {
-  if (!visibleSlots.value.length) return ''
-  if (activeLayoutID.value === 'custom') {
-    return prominentCustomSlot(normalizedCustomLayout(layoutDraft.value.custom)) || visibleSlots.value[0].alias
-  }
-  if (splitLayout.value || activeLayoutID.value === 'large_only') return focusSlotID()
-  return visibleSlots.value[0]?.alias || ''
-})
-const activePlayerCount = computed(() => visibleSlots.value.filter((slot) => shouldRenderPlayer(slot)).length)
-const totalConsumers = computed(() => slots.value.reduce((total, slot) => total + (slot.stream?.consumers ?? 0), 0))
-const checkedAt = computed(() => {
-  if (!viewer.value?.checked_at) return '—'
-  return new Date(viewer.value.checked_at).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })
-})
-
-function isPlayable(slot: ViewerSlot) {
-  return slot.state === 'online' || slot.state === 'connecting'
-}
-
-function shouldRenderPlayer(slot: ViewerSlot) {
-  if (!slot.playback?.page_url || !isPlayable(slot)) return false
-  if (performanceMode.value === 'low') return slot.alias === primaryLiveAlias.value
-  return true
-}
-
-function isPausedByPerformance(slot: ViewerSlot) {
-  return performanceMode.value === 'low' && !!slot.playback?.page_url && isPlayable(slot) && slot.alias !== primaryLiveAlias.value
-}
-
-function iframeLoading(slot: ViewerSlot): 'eager' | 'lazy' {
-  if (performanceMode.value === 'balanced' && slot.alias !== primaryLiveAlias.value) return 'lazy'
-  return 'eager'
-}
-
-function placeholderMessage(slot: ViewerSlot) {
-  if (isPausedByPerformance(slot)) return 'Im Low-Modus pausiert.'
-  return slot.message
-}
-
-function effectiveState(slot: ViewerSlot): ViewerSlotState {
-  if ((slot.state === 'online' || slot.state === 'connecting') && shouldRenderPlayer(slot) && !frameReady.value[slot.alias]) {
-    return 'connecting'
-  }
-  return slot.state
-}
-
-function markFrameReady(alias: string) {
-  frameReady.value = { ...frameReady.value, [alias]: true }
-}
-
-function stateLabel(state: ViewerSlotState) {
-  const labels: Record<ViewerSlotState, string> = {
-    unassigned: 'leer',
-    connecting: 'verbindet',
-    online: 'live',
-    offline: 'offline',
-    credentials_failed: 'login',
-    stream_unavailable: 'stream'
-  }
-  return labels[state]
-}
-
-function stateClass(state: ViewerSlotState) {
-  if (state === 'online') return 'live'
-  if (state === 'connecting' || state === 'stream_unavailable') return 'warn'
-  if (state === 'offline' || state === 'credentials_failed') return 'down'
-  return ''
-}
-
-function tileClass(slot: ViewerSlot) {
-  const state = effectiveState(slot)
-  return {
-    on: state === 'online',
-    connecting: state === 'connecting',
-    empty: state === 'unassigned',
-    paused: isPausedByPerformance(slot),
-    off: state === 'offline' || state === 'credentials_failed' || state === 'stream_unavailable'
-  }
-}
-
-function resultClass(slot: ViewerSlot) {
-  return slot.state === 'unassigned' ? '' : 'err'
-}
-
-function diagLabel(key: string) {
-  const labels: Record<string, string> = {
-    assignment: 'Slot',
-    network: 'Netz',
-    path: 'Pfad',
-    credentials: 'Login',
-    go2rtc: 'go2rtc',
-    stream: 'Stream'
-  }
-  return labels[key] || key
-}
-
-function visibleDiagnostics(slot: ViewerSlot) {
-  const diagnostics = slot.diagnostics ?? []
-  return diagnosticMode.value ? diagnostics : diagnostics.slice(0, 5)
-}
-
-function streamStatusLabel(slot: ViewerSlot) {
-  const stream = slot.stream
-  if (!stream?.configured) return 'nicht konfiguriert'
-  return `${stream.producers ?? 0} Producer · ${stream.consumers ?? 0} Consumer`
-}
-
-function playerStateLabel(slot: ViewerSlot) {
-  if (!shouldRenderPlayer(slot)) return stateLabel(effectiveState(slot))
-  if (frameReady.value[slot.alias]) return 'Player geladen'
-  return 'Player lädt'
-}
-
-function pathLabel(slot: ViewerSlot) {
-  if (!slot.path) return 'kein Pfad'
-  const base = slot.path.kind === 'direct' ? 'direkt' : `Relay ${slot.path.label}`
-  const stability = pathStabilityLabel(slot.path)
-  return stability ? `${base} · ${stability}` : base
-}
-
-function pathStabilityLabel(path: StreamPath) {
-  const labels: Record<string, string> = {
-    stable: 'stabil',
-    warming: 'erholt sich',
-    failing: 'instabil',
-    unstable: 'wechselbereit',
-    failed: 'offline'
-  }
-  return labels[path.stability] || ''
-}
-
-async function load() {
-  busy.value = busy.value || 'load'
-  error.value = ''
-  try {
-    viewer.value = await api.viewer()
-    syncLayoutDraft()
-    syncPerformanceDraft()
-  } catch (err) {
-    error.value = err instanceof Error ? err.message : 'Viewer konnte nicht geladen werden.'
-  } finally {
-    loading.value = false
-    if (busy.value === 'load') busy.value = ''
-  }
-}
-
-function syncPerformanceDraft() {
-  const routeMode = routePerformanceMode()
-  performanceMode.value = routeMode || normalizedPerformanceMode(viewer.value?.performance?.mode)
-}
-
-function syncLayoutDraft() {
-  if (!viewer.value?.layout) return
-  const serverLayout = viewer.value.layout
-  // The viewer is free-form only: always use the custom layout so cameras can be
-  // placed, swapped and resized arbitrarily (named presets were removed). Until a
-  // free layout has actually been saved (server id === 'custom'), start from an even
-  // grid rather than the backend's placeholder custom block.
-  const hasSavedCustom = serverLayout.id === 'custom' && !!serverLayout.custom?.cells?.length
-  layoutDraft.value = {
-    id: 'custom',
-    mode: 'custom',
-    focus_slot_id: serverLayout.focus_slot_id || defaultFocusSlotID(),
-    slot_order: serverLayout.slot_order?.length ? serverLayout.slot_order : slots.value.map((slot) => slot.alias),
-    split_percent: serverLayout.split_percent || defaultSplitPercent('custom'),
-    gap_px: serverLayout.gap_px || 8,
-    custom: normalizedCustomLayout(hasSavedCustom ? serverLayout.custom : defaultCustomLayoutForSlots(serverLayout.focus_slot_id || defaultFocusSlotID()))
-  }
-}
-
-function defaultFocusSlotID() {
-  return slots.value.find((slot) => slot.slot.role === 'large')?.alias || slots.value[slots.value.length - 1]?.alias || 'cam5'
-}
-
-function focusSlotID() {
-  const configured = layoutDraft.value.focus_slot_id || defaultFocusSlotID()
-  return slots.value.some((slot) => slot.alias === configured) ? configured : defaultFocusSlotID()
-}
-
-function preferredGridSlots(excludeAlias: string) {
-  const regular = orderedSlots.value.filter((slot) => slot.alias !== excludeAlias && slot.slot.role !== 'large')
-  const fallback = orderedSlots.value.filter((slot) => slot.alias !== excludeAlias && slot.slot.role === 'large')
-  return [...regular, ...fallback]
-}
-
-function normalizedCustomLayout(layout?: ViewerCustomLayout): ViewerCustomLayout {
-  const fallback = defaultCustomLayoutForSlots()
-  const source = layout?.cells?.length ? layout : fallback
-  const columns = normalizedCustomWeights(source.columns, defaultCustomColumns, 1, 6)
-  const rows = normalizedCustomWeights(source.rows, defaultCustomRows, 1, 4)
-  const slotAliases = new Set(slots.value.map((slot) => slot.alias))
-  const seen = new Set<string>()
-  const occupied = new Set<string>()
-  const cells: ViewerCustomLayoutCell[] = []
-
-  for (const cell of source.cells || []) {
-    if (!slotAliases.has(cell.slot_id) || seen.has(cell.slot_id)) continue
-    const normalized = normalizedCustomCell(cell, columns.length, rows.length)
-    const coordinates = customCellCoordinates(normalized)
-    if (coordinates.some((coordinate) => occupied.has(coordinate))) continue
-    for (const coordinate of coordinates) occupied.add(coordinate)
-    seen.add(normalized.slot_id)
-    cells.push(normalized)
-  }
-
-  return {
-    columns,
-    rows,
-    cells: fillMissingCustomCells(cells, columns.length, rows.length)
-  }
-}
-
-function normalizedCustomWeights(values: number[] | undefined, fallback: number[], minLength: number, maxLength: number) {
-  const source = Array.isArray(values) && values.length >= minLength && values.length <= maxLength ? values : fallback
-  const weights = source.map((value) => clamp(Math.round(Number(value) || 0), 1, 100))
-  const total = sum(weights)
-  if (total > 0 && total < 20) {
-    return weights.map((value) => clamp(Math.round((value / total) * 100), 1, 100))
-  }
-  return weights
-}
-
-function normalizedCustomCell(cell: ViewerCustomLayoutCell, columnCount: number, rowCount: number): ViewerCustomLayoutCell {
-  const column = clamp(Math.round(cell.column || 1), 1, columnCount)
-  const row = clamp(Math.round(cell.row || 1), 1, rowCount)
-  return {
-    slot_id: cell.slot_id,
-    column,
-    row,
-    column_span: clamp(Math.round(cell.column_span || 1), 1, columnCount - column + 1),
-    row_span: clamp(Math.round(cell.row_span || 1), 1, rowCount - row + 1)
-  }
-}
-
-function defaultCustomLayoutForSlots(focusAlias = focusSlotID(), _side: 'left' | 'middle' | 'right' = 'right') {
-  // Even free-form grid: every camera gets its own equal cell, focus first.
-  const columns = [...defaultCustomColumns]
-  const rows = [...defaultCustomRows]
-  const order = normalizedSlotOrder()
-  const ordered = [focusAlias, ...order.filter((alias) => alias !== focusAlias)]
-  const capacity = columns.length * rows.length
-  const cells: ViewerCustomLayoutCell[] = []
-  ordered.slice(0, capacity).forEach((alias, index) => {
-    cells.push({
-      slot_id: alias,
-      column: (index % columns.length) + 1,
-      row: Math.floor(index / columns.length) + 1,
-      column_span: 1,
-      row_span: 1
-    })
-  })
-  return { columns, rows, cells }
-}
-
-function customLeadCell(slotAlias: string, zone: DropZoneID, columnCount: number, rowCount: number): ViewerCustomLayoutCell {
-  if (zone === 'left') {
-    return { slot_id: slotAlias, column: 1, row: 1, column_span: 1, row_span: rowCount }
-  }
-  if (zone === 'middle') {
-    const span = columnCount >= 4 ? 2 : 1
-    const column = columnCount >= 4 ? 2 : Math.max(1, Math.ceil(columnCount / 2))
-    return { slot_id: slotAlias, column, row: 1, column_span: span, row_span: rowCount }
-  }
-  if (zone === 'top') {
-    return { slot_id: slotAlias, column: 1, row: 1, column_span: columnCount, row_span: 1 }
-  }
-  if (zone === 'bottom') {
-    return { slot_id: slotAlias, column: 1, row: rowCount, column_span: columnCount, row_span: 1 }
-  }
-  return { slot_id: slotAlias, column: columnCount, row: 1, column_span: 1, row_span: rowCount }
-}
-
-function buildCustomLayoutWithLead(sourceAlias: string, zone: DropZoneID) {
-  const current = normalizedCustomLayout(layoutDraft.value.custom)
-  const columns = current.columns.length === defaultCustomColumns.length ? current.columns : defaultCustomColumns
-  const rows = current.rows.length === defaultCustomRows.length ? current.rows : defaultCustomRows
-  const leadCell = customLeadCell(sourceAlias, zone, columns.length, rows.length)
-  return customLayoutFromLead(sourceAlias, leadCell, columns, rows)
-}
-
-function customLayoutFromLead(sourceAlias: string, leadCell: ViewerCustomLayoutCell, columns: number[], rows: number[]): ViewerCustomLayout {
-  const occupied = new Set(customCellCoordinates(leadCell))
-  const positions = freeCustomPositions(occupied, columns.length, rows.length)
-  const fallbackPosition = { column: 1, row: 1, column_span: 1, row_span: 1 }
-  const cells: ViewerCustomLayoutCell[] = [leadCell]
-  let index = 0
-  for (const alias of normalizedSlotOrder()) {
-    if (alias === sourceAlias) continue
-    const position = positions[index % Math.max(positions.length, 1)] || fallbackPosition
-    cells.push({ slot_id: alias, ...position })
-    index += 1
-  }
-  return { columns: [...columns], rows: [...rows], cells }
-}
-
-function fillMissingCustomCells(cells: ViewerCustomLayoutCell[], columnCount: number, rowCount: number) {
-  const seen = new Set(cells.map((cell) => cell.slot_id))
-  const occupied = new Set(cells.flatMap((cell) => customCellCoordinates(cell)))
-  const positions = freeCustomPositions(occupied, columnCount, rowCount)
-  const fallbackPosition = { column: 1, row: 1, column_span: 1, row_span: 1 }
-  const completed = [...cells]
-  let index = 0
-  for (const slot of orderedSlots.value) {
-    if (seen.has(slot.alias)) continue
-    const position = positions[index % Math.max(positions.length, 1)] || fallbackPosition
-    completed.push({ slot_id: slot.alias, ...position })
-    index += 1
-  }
-  return completed
-}
-
-function freeCustomPositions(occupied: Set<string>, columnCount: number, rowCount: number) {
-  const positions: Array<Omit<ViewerCustomLayoutCell, 'slot_id'>> = []
-  for (let row = 1; row <= rowCount; row += 1) {
-    for (let column = 1; column <= columnCount; column += 1) {
-      if (!occupied.has(`${column}:${row}`)) {
-        positions.push({ column, row, column_span: 1, row_span: 1 })
-      }
-    }
-  }
-  return positions
-}
-
-function customCellCoordinates(cell: ViewerCustomLayoutCell) {
-  const coordinates: string[] = []
-  for (let row = cell.row; row < cell.row + cell.row_span; row += 1) {
-    for (let column = cell.column; column < cell.column + cell.column_span; column += 1) {
-      coordinates.push(`${column}:${row}`)
-    }
-  }
-  return coordinates
-}
-
-function customCellForAlias(alias: string) {
-  return normalizedCustomLayout(layoutDraft.value.custom).cells.find((cell) => cell.slot_id === alias)
-}
-
-function swapCustomCells(sourceAlias: string, targetAlias: string): ViewerCustomLayout {
-  const custom = normalizedCustomLayout(layoutDraft.value.custom)
-  const source = custom.cells.find((cell) => cell.slot_id === sourceAlias)
-  const target = custom.cells.find((cell) => cell.slot_id === targetAlias)
-  if (!source || !target) return custom
-  const sourceGeometry = customCellGeometry(source)
-  const targetGeometry = customCellGeometry(target)
-  return {
-    ...custom,
-    cells: custom.cells.map((cell) => {
-      if (cell.slot_id === sourceAlias) return { slot_id: sourceAlias, ...targetGeometry }
-      if (cell.slot_id === targetAlias) return { slot_id: targetAlias, ...sourceGeometry }
-      return cell
-    })
-  }
-}
-
-function customCellGeometry(cell: ViewerCustomLayoutCell) {
-  return {
-    column: cell.column,
-    row: cell.row,
-    column_span: cell.column_span,
-    row_span: cell.row_span
-  }
-}
-
-function prominentCustomSlot(custom: ViewerCustomLayout) {
+  if (spotlightAlias.value) return spotlightAlias.value
   let alias = ''
   let area = 0
-  for (const cell of custom.cells) {
-    const cellArea = cell.column_span * cell.row_span
-    if (cellArea > area) {
-      alias = cell.slot_id
-      area = cellArea
+  for (const leaf of geometry.value.leaves) {
+    const size = leaf.rect.w * leaf.rect.h
+    if (size > area) {
+      area = size
+      alias = leaf.alias
     }
   }
   return alias
-}
+})
 
-function orderSlotsByAlias(items: ViewerSlot[], order: string[]) {
-  const byAlias = new Map(items.map((slot) => [slot.alias, slot]))
-  const seen = new Set<string>()
-  const ordered: ViewerSlot[] = []
-  for (const alias of order) {
-    const slot = byAlias.get(alias)
-    if (!slot || seen.has(alias)) continue
-    ordered.push(slot)
-    seen.add(alias)
+function paneStyle(pane: PaneRect) {
+  return {
+    left: `${pane.rect.x}%`,
+    top: `${pane.rect.y}%`,
+    width: `${pane.rect.w}%`,
+    height: `${pane.rect.h}%`
   }
-  for (const slot of items) {
-    if (!seen.has(slot.alias)) ordered.push(slot)
+}
+
+function gutterStyle(gutter: GutterRect) {
+  if (gutter.dir === 'row') {
+    return { left: `${gutter.line.x}%`, top: `${gutter.rect.y}%`, height: `${gutter.rect.h}%` }
   }
-  return ordered
+  return { top: `${gutter.line.y}%`, left: `${gutter.rect.x}%`, width: `${gutter.rect.w}%` }
 }
 
-function normalizedSlotOrder() {
-  return orderSlotsByAlias(slots.value, layoutDraft.value.slot_order).map((slot) => slot.alias)
+const dockOverlayStyle = computed(() => {
+  const leaf = geometry.value.leaves.find((item) => item.alias === dockTarget.value)
+  if (!leaf) return { display: 'none' }
+  const { x, y, w, h } = leaf.rect
+  const side = dockSide.value
+  let rect = { x, y, w, h }
+  if (side === 'left') rect = { x, y, w: w / 2, h }
+  else if (side === 'right') rect = { x: x + w / 2, y, w: w / 2, h }
+  else if (side === 'top') rect = { x, y, w, h: h / 2 }
+  else if (side === 'bottom') rect = { x, y: y + h / 2, w, h: h / 2 }
+  return { left: `${rect.x}%`, top: `${rect.y}%`, width: `${rect.w}%`, height: `${rect.h}%`, display: 'block' }
+})
+
+// --- Tree transforms (immutable) --------------------------------------------
+
+function leaf(slot: string): MosaicLeaf {
+  return { type: 'leaf', slot }
 }
 
-function swappedSlotOrder(sourceAlias: string, targetAlias: string) {
-  const order = normalizedSlotOrder()
-  const sourceIndex = order.indexOf(sourceAlias)
-  const targetIndex = order.indexOf(targetAlias)
-  if (sourceIndex === -1 || targetIndex === -1) return order
-  ;[order[sourceIndex], order[targetIndex]] = [order[targetIndex], order[sourceIndex]]
-  return order
+function treeSlots(node: MosaicNode | undefined, out: string[] = []): string[] {
+  if (!node) return out
+  if (node.type === 'leaf') out.push(node.slot)
+  else {
+    treeSlots(node.a, out)
+    treeSlots(node.b, out)
+  }
+  return out
 }
 
-function gridSideForAlias(alias: string, focusAlias: string): 'left' | 'right' {
-  if (focusSide.value === 'left') return 'right'
-  if (focusSide.value === 'right') return 'left'
-  const index = preferredGridSlots(focusAlias).findIndex((slot) => slot.alias === alias)
-  return index >= 2 ? 'right' : 'left'
+function balancedTree(aliases: string[]): MosaicNode {
+  if (aliases.length <= 1) return leaf(aliases[0] || 'cam1')
+  const mid = Math.ceil(aliases.length / 2)
+  const dir: 'row' | 'col' = aliases.length > 2 ? 'row' : 'col'
+  return { type: 'split', dir, ratio: mid / aliases.length, a: balancedColumn(aliases.slice(0, mid)), b: balancedColumn(aliases.slice(mid)) }
 }
 
-function focusModeForSide(side: 'left' | 'middle' | 'right'): ViewerLayoutMode {
-  if (side === 'left') return 'focus_left'
-  if (side === 'middle') return 'focus_middle'
-  return 'focus_right'
+function balancedColumn(aliases: string[]): MosaicNode {
+  if (aliases.length <= 1) return leaf(aliases[0] || 'cam1')
+  const mid = Math.ceil(aliases.length / 2)
+  return { type: 'split', dir: 'col', ratio: mid / aliases.length, a: balancedColumn(aliases.slice(0, mid)), b: balancedColumn(aliases.slice(mid)) }
 }
 
-function tileAliasFromPoint(x: number, y: number) {
-  const element = document.elementFromPoint(x, y)
-  if (!(element instanceof HTMLElement)) return ''
-  return element.closest<HTMLElement>('.viewer-tile')?.dataset.slotAlias || ''
+function removeSlot(node: MosaicNode, slot: string): MosaicNode | null {
+  if (node.type === 'leaf') return node.slot === slot ? null : node
+  const a = removeSlot(node.a, slot)
+  const b = removeSlot(node.b, slot)
+  if (a === null) return b
+  if (b === null) return a
+  return { ...node, a, b }
 }
 
-function layoutZoneFromPoint(x: number, y: number): DropZoneID | '' {
-  const element = document.elementFromPoint(x, y)
-  if (!(element instanceof HTMLElement)) return ''
-  const zone = element.closest<HTMLElement>('[data-layout-zone]')?.dataset.layoutZone
-  return zone === 'left' || zone === 'middle' || zone === 'right' || zone === 'top' || zone === 'bottom' ? zone : ''
+function splitAtLeaf(node: MosaicNode, targetSlot: string, source: MosaicLeaf, side: Side): MosaicNode {
+  if (node.type === 'leaf') {
+    if (node.slot !== targetSlot) return node
+    if (side === 'left') return { type: 'split', dir: 'row', ratio: 0.5, a: source, b: node }
+    if (side === 'right') return { type: 'split', dir: 'row', ratio: 0.5, a: node, b: source }
+    if (side === 'top') return { type: 'split', dir: 'col', ratio: 0.5, a: source, b: node }
+    if (side === 'bottom') return { type: 'split', dir: 'col', ratio: 0.5, a: node, b: source }
+    return node
+  }
+  return { ...node, a: splitAtLeaf(node.a, targetSlot, source, side), b: splitAtLeaf(node.b, targetSlot, source, side) }
 }
 
-function layoutTileStyle(slot: ViewerSlot) {
-  if (spotlightAlias.value) return {}
-  if (activeLayoutID.value === 'custom') {
-    const cell = customCellForAlias(slot.alias)
-    if (!cell) return {}
-    return {
-      gridColumn: `${cell.column} / span ${cell.column_span}`,
-      gridRow: `${cell.row} / span ${cell.row_span}`
+function swapSlots(node: MosaicNode, a: string, b: string): MosaicNode {
+  if (node.type === 'leaf') {
+    if (node.slot === a) return leaf(b)
+    if (node.slot === b) return leaf(a)
+    return node
+  }
+  return { ...node, a: swapSlots(node.a, a, b), b: swapSlots(node.b, a, b) }
+}
+
+function setRatioAtPath(node: MosaicNode, path: string, ratio: number): MosaicNode {
+  if (path === '') {
+    return node.type === 'split' ? { ...node, ratio: clamp(ratio, 0.05, 0.95) } : node
+  }
+  if (node.type !== 'split') return node
+  const head = path[0]
+  const rest = path.slice(1)
+  if (head === 'a') return { ...node, a: setRatioAtPath(node.a, rest, ratio) }
+  return { ...node, b: setRatioAtPath(node.b, rest, ratio) }
+}
+
+function reconcileTree(tree: MosaicNode | undefined, aliases: string[]): MosaicNode {
+  if (!aliases.length) return leaf('cam1')
+  let next: MosaicNode | undefined = tree
+  for (const slot of treeSlots(next)) {
+    if (!aliases.includes(slot)) {
+      next = next ? removeSlot(next, slot) ?? undefined : undefined
     }
   }
-  if (!splitLayout.value) return {}
-  const focus = focusSlotID()
-  if (slot.alias === focus) {
-    if (focusSide.value === 'middle') {
-      return { gridColumn: '3', gridRow: '1 / span 2' }
-    }
-    return {
-      gridColumn: focusSide.value === 'right' ? '4' : '1',
-      gridRow: '1 / span 2'
+  for (const alias of aliases) {
+    if (!treeSlots(next).includes(alias)) {
+      next = next ? { type: 'split', dir: 'row', ratio: 0.7, a: next, b: leaf(alias) } : leaf(alias)
     }
   }
-  const rest = preferredGridSlots(focus)
-  const index = Math.max(0, rest.findIndex((candidate) => candidate.alias === slot.alias))
-  if (focusSide.value === 'middle') {
-    return {
-      gridColumn: index < 2 ? '1' : '5',
-      gridRow: String((index % 2) + 1)
-    }
-  }
-  const col = index % 2
-  const row = Math.floor(index / 2) + 1
-  if (focusSide.value === 'right') {
-    return { gridColumn: String(col + 1), gridRow: String(row) }
-  }
-  return { gridColumn: String(col + 3), gridRow: String(row) }
+  return next ?? balancedTree(aliases)
 }
 
-function isFocusTile(slot: ViewerSlot) {
-  if (activeLayoutID.value === 'custom') {
-    const cell = customCellForAlias(slot.alias)
-    return !!cell && (cell.column_span > 1 || cell.row_span > 1)
-  }
-  return splitLayout.value && slot.alias === focusSlotID()
+// --- Mosaic interactions -----------------------------------------------------
+
+function setTree(node: MosaicNode) {
+  mosaic.value = node
+  scheduleMosaicSave()
 }
 
-function isPortraitTile(slot: ViewerSlot) {
-  return activeLayoutID.value === 'vertical_plus_grid' && slot.alias === focusSlotID()
+function onTileClick(alias: string) {
+  if (editing.value) return
+  toggleSpotlight(alias)
+}
+
+function onTilePointerDown(event: PointerEvent, slot: ViewerSlot) {
+  if (!editing.value || event.button !== 0 || spotlightAlias.value) return
+  const target = event.target
+  if (target instanceof HTMLElement && target.closest('button,a,select,input')) return
+  if (event.shiftKey && slot.binding?.device_id) {
+    startCropPan(event, slot)
+  } else {
+    startPaneDrag(event, slot.alias)
+  }
+}
+
+function onTileWheel(event: WheelEvent, slot: ViewerSlot) {
+  if (!editing.value || !slot.binding?.device_id) return
+  event.preventDefault()
+  zoomTile(slot, event.deltaY > 0 ? 1 : -1)
+}
+
+function startPaneDrag(event: PointerEvent, alias: string) {
+  if (treeSlots(mosaic.value).length < 2) return
+  const startX = event.clientX
+  const startY = event.clientY
+  let active = false
+  stopDrag?.()
+  event.preventDefault()
+
+  const move = (moveEvent: PointerEvent) => {
+    if (!active && Math.hypot(moveEvent.clientX - startX, moveEvent.clientY - startY) < 8) return
+    active = true
+    dragSourceAlias.value = alias
+    const hit = hitTest(moveEvent.clientX, moveEvent.clientY)
+    dockTarget.value = hit && hit.alias !== alias ? hit.alias : ''
+    dockSide.value = hit?.side ?? 'center'
+    moveEvent.preventDefault()
+  }
+  const up = () => {
+    const targetAlias = dockTarget.value
+    const side = dockSide.value
+    const wasActive = active
+    stopDrag?.()
+    stopDrag = undefined
+    endPaneDrag()
+    if (wasActive && targetAlias) applyDock(alias, targetAlias, side)
+  }
+  stopDrag = () => {
+    window.removeEventListener('pointermove', move)
+    window.removeEventListener('pointerup', up)
+  }
+  window.addEventListener('pointermove', move)
+  window.addEventListener('pointerup', up)
+}
+
+function endPaneDrag() {
+  dragSourceAlias.value = ''
+  dockTarget.value = ''
+  dockSide.value = 'center'
+}
+
+function hitTest(clientX: number, clientY: number): { alias: string; side: Side } | undefined {
+  const el = gridEl.value
+  if (!el) return undefined
+  const box = el.getBoundingClientRect()
+  const px = ((clientX - box.left) / box.width) * 100
+  const py = ((clientY - box.top) / box.height) * 100
+  const target = geometry.value.leaves.find((item) =>
+    px >= item.rect.x && px <= item.rect.x + item.rect.w && py >= item.rect.y && py <= item.rect.y + item.rect.h
+  )
+  if (!target) return undefined
+  const lx = (px - target.rect.x) / target.rect.w
+  const ly = (py - target.rect.y) / target.rect.h
+  const distances: Array<{ side: Side; d: number }> = [
+    { side: 'left', d: lx },
+    { side: 'right', d: 1 - lx },
+    { side: 'top', d: ly },
+    { side: 'bottom', d: 1 - ly }
+  ]
+  distances.sort((a, b) => a.d - b.d)
+  const side: Side = distances[0].d < 0.28 ? distances[0].side : 'center'
+  return { alias: target.alias, side }
+}
+
+function applyDock(sourceAlias: string, targetAlias: string, side: Side) {
+  if (!mosaic.value || sourceAlias === targetAlias) return
+  if (side === 'center') {
+    setTree(swapSlots(mosaic.value, sourceAlias, targetAlias))
+    return
+  }
+  const withoutSource = removeSlot(mosaic.value, sourceAlias)
+  if (!withoutSource) return
+  setTree(splitAtLeaf(withoutSource, targetAlias, leaf(sourceAlias), side))
+}
+
+function startGutterDrag(event: PointerEvent, gutter: GutterRect) {
+  const el = gridEl.value
+  if (!el || !mosaic.value) return
+  event.preventDefault()
+  stopDrag?.()
+  const box = el.getBoundingClientRect()
+  const move = (moveEvent: PointerEvent) => {
+    if (!mosaic.value) return
+    let ratio: number
+    if (gutter.dir === 'row') {
+      const px = ((moveEvent.clientX - box.left) / box.width) * 100
+      ratio = (px - gutter.rect.x) / gutter.rect.w
+    } else {
+      const py = ((moveEvent.clientY - box.top) / box.height) * 100
+      ratio = (py - gutter.rect.y) / gutter.rect.h
+    }
+    mosaic.value = setRatioAtPath(mosaic.value, gutter.path, ratio)
+    moveEvent.preventDefault()
+  }
+  const up = () => {
+    stopDrag?.()
+    stopDrag = undefined
+    scheduleMosaicSave()
+  }
+  stopDrag = () => {
+    window.removeEventListener('pointermove', move)
+    window.removeEventListener('pointerup', up)
+  }
+  window.addEventListener('pointermove', move)
+  window.addEventListener('pointerup', up)
+}
+
+function scheduleMosaicSave() {
+  if (!canAdmin.value) return
+  window.clearTimeout(mosaicSaveTimer)
+  mosaicSaveTimer = window.setTimeout(() => void saveMosaic(), 400)
+}
+
+async function saveMosaic() {
+  if (!canAdmin.value || !mosaic.value) return
+  try {
+    await api.saveSettings({ 'viewer.layout.mosaic': JSON.stringify(mosaic.value) })
+  } catch (err) {
+    error.value = err instanceof Error ? err.message : 'Layout konnte nicht gespeichert werden.'
+  }
+}
+
+function parseMosaic(raw: string | undefined): MosaicNode | undefined {
+  if (!raw) return undefined
+  try {
+    return normalizeNode(JSON.parse(raw))
+  } catch {
+    return undefined
+  }
+}
+
+function normalizeNode(value: unknown): MosaicNode | undefined {
+  if (!value || typeof value !== 'object') return undefined
+  const node = value as Record<string, unknown>
+  if (node.type === 'leaf' && typeof node.slot === 'string') return leaf(node.slot)
+  if (node.type === 'split' && (node.dir === 'row' || node.dir === 'col')) {
+    const a = normalizeNode(node.a)
+    const b = normalizeNode(node.b)
+    if (!a || !b) return undefined
+    const ratio = typeof node.ratio === 'number' ? clamp(node.ratio, 0.05, 0.95) : 0.5
+    return { type: 'split', dir: node.dir, ratio, a, b }
+  }
+  return undefined
+}
+
+// --- Chrome: controls auto-hide, spotlight, edit, fullscreen -----------------
+
+function revealControls() {
+  controlsVisible.value = true
+  window.clearTimeout(controlsTimer)
+  if (editing.value) return
+  controlsTimer = window.setTimeout(() => {
+    controlsVisible.value = false
+  }, 2600)
+}
+
+function scheduleHideControls() {
+  if (editing.value) return
+  window.clearTimeout(controlsTimer)
+  controlsTimer = window.setTimeout(() => {
+    controlsVisible.value = false
+  }, 600)
+}
+
+function toggleEdit() {
+  editing.value = !editing.value
+  spotlightAlias.value = ''
+  controlsVisible.value = true
+  if (!editing.value) window.clearTimeout(controlsTimer)
+}
+
+function toggleSpotlight(alias: string) {
+  spotlightAlias.value = spotlightAlias.value === alias ? '' : alias
+}
+
+async function toggleFullscreen() {
+  try {
+    if (document.fullscreenElement) await document.exitFullscreen()
+    else await document.documentElement.requestFullscreen()
+  } catch {
+    isFullscreen.value = !isFullscreen.value
+  }
+}
+
+function syncFullscreen() {
+  isFullscreen.value = !!document.fullscreenElement
+}
+
+// --- Camera display (transform + inline crop) --------------------------------
+
+function effectiveDisplay(slot: ViewerSlot): CameraDisplay {
+  return displayOverrides.value[slot.alias] ?? normalizedDisplay(slot.display)
 }
 
 function displayClass(slot: ViewerSlot) {
@@ -848,10 +575,6 @@ function displayClass(slot: ViewerSlot) {
     'fit-contain': display.fit_mode === 'contain',
     'rotated-quarter': display.rotation === 90 || display.rotation === 270
   }
-}
-
-function effectiveDisplay(slot: ViewerSlot): CameraDisplay {
-  return displayOverrides.value[slot.alias] ?? normalizedDisplay(slot.display)
 }
 
 function displayStyle(slot: ViewerSlot) {
@@ -888,393 +611,6 @@ function normalizedDisplay(display?: CameraDisplay): CameraDisplay {
     }
   }
 }
-
-function normalizedLayoutID(raw?: string): ViewerLayoutID {
-  if (raw === 'grid_2x2' || raw === 'four_plus_large' || raw === 'vertical_plus_grid' || raw === 'large_only' || raw === 'custom') return raw
-  return 'four_plus_large'
-}
-
-function layoutIDFromMode(raw?: string): ViewerLayoutID {
-  if (raw === 'grid_2x2' || raw === 'vertical_plus_grid' || raw === 'large_only' || raw === 'custom') return raw
-  return 'four_plus_large'
-}
-
-function normalizedLayoutMode(raw: string | undefined, id: ViewerLayoutID): ViewerLayoutMode {
-  if (id === 'four_plus_large' || id === 'vertical_plus_grid') {
-    if (raw === 'focus_left' || raw === 'focus_middle' || raw === 'focus_right') return raw
-    return id === 'vertical_plus_grid' ? 'focus_right' : 'auto'
-  }
-  if (id === 'custom') return 'custom'
-  return id
-}
-
-function defaultSplitPercent(id: ViewerLayoutID) {
-  return id === 'vertical_plus_grid' ? 64 : 58
-}
-
-function normalizedPerformanceMode(raw?: string): ViewerPerformanceMode {
-  if (raw === 'balanced' || raw === 'low' || raw === 'diagnostic') return raw
-  return 'quality'
-}
-
-function routeLayoutID(): ViewerLayoutID | undefined {
-  const raw = Array.isArray(route.query.layout) ? route.query.layout[0] : route.query.layout
-  if (!raw) return undefined
-  return normalizedLayoutID(raw)
-}
-
-function routeFocusMode(): ViewerLayoutMode | undefined {
-  const raw = Array.isArray(route.query.side) ? route.query.side[0] : route.query.side
-  if (raw === 'left') return 'focus_left'
-  if (raw === 'middle') return 'focus_middle'
-  if (raw === 'right') return 'focus_right'
-  return undefined
-}
-
-function routePerformanceMode(): ViewerPerformanceMode | undefined {
-  const raw = Array.isArray(route.query.perf) ? route.query.perf[0] : route.query.perf
-  if (!raw) return undefined
-  return normalizedPerformanceMode(raw)
-}
-
-async function setLayoutFromEvent(event: Event) {
-  const target = event.target as HTMLSelectElement
-  await setLayoutID(normalizedLayoutID(target.value))
-}
-
-async function setLayoutID(id: ViewerLayoutID) {
-  const focus = focusSlotID()
-  const custom = id === 'custom'
-    ? (layoutDraft.value.id === 'custom' && layoutDraft.value.custom.cells.length ? normalizedCustomLayout(layoutDraft.value.custom) : defaultCustomLayoutForSlots(focus, focusSide.value))
-    : layoutDraft.value.custom
-  layoutDraft.value = {
-    ...layoutDraft.value,
-    id,
-    mode: normalizedLayoutMode(layoutDraft.value.mode, id),
-    split_percent: layoutDraft.value.split_percent || defaultSplitPercent(id),
-    focus_slot_id: focus,
-    custom
-  }
-  await applyLayoutChange()
-}
-
-function startTilePointerDrag(event: PointerEvent, slot: ViewerSlot) {
-  if (!canReorderLayout.value || event.button !== 0) return
-
-  const startX = event.clientX
-  const startY = event.clientY
-  let active = false
-  stopPointerTileDrag?.()
-
-  const move = (moveEvent: PointerEvent) => {
-    const distance = Math.hypot(moveEvent.clientX - startX, moveEvent.clientY - startY)
-    if (!active && distance < 8) return
-    active = true
-    draggedSlotAlias.value = slot.alias
-    if (activeLayoutID.value === 'custom') {
-      const zone = layoutZoneFromPoint(moveEvent.clientX, moveEvent.clientY)
-      dropZoneID.value = zone
-      if (zone) {
-        dropSlotAlias.value = ''
-        moveEvent.preventDefault()
-        return
-      }
-    }
-    dropZoneID.value = ''
-    const targetAlias = tileAliasFromPoint(moveEvent.clientX, moveEvent.clientY)
-    dropSlotAlias.value = targetAlias && targetAlias !== slot.alias ? targetAlias : ''
-    moveEvent.preventDefault()
-  }
-  const up = () => {
-    const targetAlias = dropSlotAlias.value
-    const targetZone = dropZoneID.value
-    stopPointerTileDrag?.()
-    stopPointerTileDrag = undefined
-    if (active && activeLayoutID.value === 'custom' && targetZone) {
-      void applyCustomZoneDrop(slot.alias, targetZone)
-      return
-    }
-    if (active && targetAlias) {
-      void applyTileDrop(slot.alias, targetAlias)
-      return
-    }
-    endTileDrag()
-  }
-  stopPointerTileDrag = () => {
-    window.removeEventListener('pointermove', move)
-    window.removeEventListener('pointerup', up)
-  }
-  window.addEventListener('pointermove', move)
-  window.addEventListener('pointerup', up)
-}
-
-async function applyTileDrop(sourceAlias: string, targetAlias: string) {
-  endTileDrag()
-  if (!canAdmin.value || !sourceAlias || sourceAlias === targetAlias) return
-
-  if (activeLayoutID.value === 'custom') {
-    const custom = swapCustomCells(sourceAlias, targetAlias)
-    layoutDraft.value = {
-      ...layoutDraft.value,
-      mode: 'custom',
-      focus_slot_id: prominentCustomSlot(custom) || focusSlotID(),
-      slot_order: swappedSlotOrder(sourceAlias, targetAlias),
-      custom
-    }
-    await saveLayout()
-    return
-  }
-
-  const currentFocus = focusSlotID()
-  let nextFocus = currentFocus
-  let nextMode = layoutDraft.value.mode
-  let nextOrder = normalizedSlotOrder()
-  if (splitLayout.value && sourceAlias === currentFocus) {
-    nextMode = focusModeForSide(gridSideForAlias(targetAlias, currentFocus))
-  } else {
-    nextOrder = swappedSlotOrder(sourceAlias, targetAlias)
-  }
-  if ((splitLayout.value || activeLayoutID.value === 'large_only') && sourceAlias === currentFocus) {
-    nextFocus = currentFocus
-  } else if ((splitLayout.value || activeLayoutID.value === 'large_only') && targetAlias === currentFocus) {
-    nextFocus = sourceAlias
-  }
-
-  layoutDraft.value = {
-    ...layoutDraft.value,
-    mode: nextMode,
-    focus_slot_id: nextFocus,
-    slot_order: nextOrder
-  }
-  await saveLayout()
-}
-
-async function applyCustomZoneDrop(sourceAlias: string, zone: DropZoneID) {
-  endTileDrag()
-  if (!canAdmin.value || !sourceAlias) return
-
-  const custom = buildCustomLayoutWithLead(sourceAlias, zone)
-  layoutDraft.value = {
-    ...layoutDraft.value,
-    id: 'custom',
-    mode: 'custom',
-    focus_slot_id: sourceAlias,
-    slot_order: custom.cells.map((cell) => cell.slot_id),
-    custom
-  }
-  await saveLayout()
-}
-
-function endTileDrag() {
-  draggedSlotAlias.value = ''
-  dropSlotAlias.value = ''
-  dropZoneID.value = ''
-}
-
-async function setFocusSide(mode: 'focus_left' | 'focus_middle' | 'focus_right') {
-  layoutDraft.value = { ...layoutDraft.value, mode, focus_slot_id: focusSlotID() }
-  await applyLayoutChange()
-}
-
-async function applyLayoutChange() {
-  if (canAdmin.value) {
-    await saveLayout()
-    return
-  }
-  await updateLayoutRoute()
-}
-
-async function updateLayoutRoute() {
-  const query: Record<string, string> = {
-    ...(Object.fromEntries(Object.entries(route.query).filter(([, value]) => typeof value === 'string')) as Record<string, string>),
-    layout: activeLayoutID.value
-  }
-  if (splitLayout.value && (layoutMode.value === 'focus_left' || layoutMode.value === 'focus_right')) {
-    query.side = layoutMode.value === 'focus_left' ? 'left' : 'right'
-  } else if (splitLayout.value && layoutMode.value === 'focus_middle') {
-    query.side = 'middle'
-  } else {
-    delete query.side
-  }
-  if (performanceMode.value !== 'quality') {
-    query.perf = performanceMode.value
-  } else {
-    delete query.perf
-  }
-  await router.replace({ path: route.path, query })
-}
-
-async function saveLayout() {
-  if (!canAdmin.value) return
-  layoutBusy.value = true
-  error.value = ''
-  try {
-    await api.saveSettings({
-      'viewer.layout.id': activeLayoutID.value,
-      'viewer.layout.mode': layoutDraft.value.mode,
-      'viewer.layout.focus_slot_id': focusSlotID(),
-      'viewer.layout.slot_order': normalizedSlotOrder().join(','),
-      'viewer.layout.split_percent': String(clamp(layoutDraft.value.split_percent, 12, 88)),
-      'viewer.layout.gap_px': String(clamp(layoutDraft.value.gap_px, 2, 20)),
-      'viewer.layout.custom': JSON.stringify(normalizedCustomLayout(layoutDraft.value.custom))
-    })
-    await updateLayoutRoute()
-    await load()
-  } catch (err) {
-    error.value = err instanceof Error ? err.message : 'Layout konnte nicht gespeichert werden.'
-  } finally {
-    layoutBusy.value = false
-  }
-}
-
-function startLayoutDrag(event: PointerEvent, handle: 'single' | 'middle_left' | 'middle_right') {
-  if (!splitLayout.value || !canAdmin.value) return
-  const grid = (event.currentTarget as HTMLElement).closest('.viewer-grid')
-  if (!(grid instanceof HTMLElement)) return
-  event.preventDefault()
-  const rect = grid.getBoundingClientRect()
-  const pointerId = event.pointerId
-  ;(event.currentTarget as HTMLElement).setPointerCapture(pointerId)
-  const move = (moveEvent: PointerEvent) => {
-    const relative = clamp(Math.round(((moveEvent.clientX - rect.left) / rect.width) * 100), 8, 92)
-    if (focusSide.value === 'middle') {
-      const focusWidth = handle === 'middle_left'
-        ? clamp((50 - relative) * 2, 12, 84)
-        : clamp((relative - 50) * 2, 12, 84)
-      layoutDraft.value.split_percent = clamp(100 - focusWidth, 12, 88)
-      return
-    }
-    layoutDraft.value.split_percent = focusSide.value === 'right' ? clamp(relative, 12, 88) : clamp(100 - relative, 12, 88)
-  }
-  const up = async () => {
-    window.removeEventListener('pointermove', move)
-    window.removeEventListener('pointerup', up)
-    await saveLayout()
-  }
-  window.addEventListener('pointermove', move)
-  window.addEventListener('pointerup', up)
-}
-
-function startCustomLayoutDrag(event: PointerEvent, kind: CustomGrabberKind, index: number) {
-  if (activeLayoutID.value !== 'custom' || !canAdmin.value || layoutBusy.value) return
-  const grid = (event.currentTarget as HTMLElement).closest('.viewer-grid')
-  if (!(grid instanceof HTMLElement)) return
-  event.preventDefault()
-  const rect = grid.getBoundingClientRect()
-  const pointerId = event.pointerId
-  ;(event.currentTarget as HTMLElement).setPointerCapture(pointerId)
-  const move = (moveEvent: PointerEvent) => {
-    const custom = normalizedCustomLayout(layoutDraft.value.custom)
-    const weights = kind === 'column' ? [...custom.columns] : [...custom.rows]
-    if (index < 0 || index >= weights.length - 1) return
-    const total = sum(weights)
-    const pairTotal = weights[index] + weights[index + 1]
-    if (pairTotal < 2 || total <= 0) return
-    const axisSize = kind === 'column' ? rect.width : rect.height
-    const axisPosition = kind === 'column' ? moveEvent.clientX - rect.left : moveEvent.clientY - rect.top
-    const pointerWeight = clamp(Math.round((axisPosition / axisSize) * total), 0, total)
-    const beforePair = sum(weights.slice(0, index))
-    const minWeight = Math.max(1, Math.min(Math.round(total * 0.03), Math.floor(pairTotal / 2)))
-    const nextWeight = clamp(pointerWeight - beforePair, minWeight, pairTotal - minWeight)
-    weights[index] = nextWeight
-    weights[index + 1] = pairTotal - nextWeight
-    layoutDraft.value = {
-      ...layoutDraft.value,
-      custom: {
-        ...custom,
-        columns: kind === 'column' ? weights : custom.columns,
-        rows: kind === 'row' ? weights : custom.rows
-      }
-    }
-    moveEvent.preventDefault()
-  }
-  const up = async () => {
-    window.removeEventListener('pointermove', move)
-    window.removeEventListener('pointerup', up)
-    await saveLayout()
-  }
-  window.addEventListener('pointermove', move)
-  window.addEventListener('pointerup', up)
-}
-
-function clamp(value: number, min: number, max: number) {
-  if (!Number.isFinite(value)) return min
-  return Math.min(max, Math.max(min, value))
-}
-
-function sum(values: number[]) {
-  return values.reduce((total, value) => total + value, 0)
-}
-
-// --- Viewer chrome: controls auto-hide, spotlight, edit, fullscreen ----------
-
-function revealControls() {
-  controlsVisible.value = true
-  window.clearTimeout(controlsTimer)
-  if (editing.value) return
-  controlsTimer = window.setTimeout(() => {
-    controlsVisible.value = false
-  }, 2600)
-}
-
-function scheduleHideControls() {
-  if (editing.value) return
-  window.clearTimeout(controlsTimer)
-  controlsTimer = window.setTimeout(() => {
-    controlsVisible.value = false
-  }, 600)
-}
-
-function toggleEdit() {
-  editing.value = !editing.value
-  spotlightAlias.value = ''
-  controlsVisible.value = true
-  if (!editing.value) window.clearTimeout(controlsTimer)
-}
-
-function toggleSpotlight(alias: string) {
-  spotlightAlias.value = spotlightAlias.value === alias ? '' : alias
-}
-
-async function toggleFullscreen() {
-  try {
-    if (document.fullscreenElement) {
-      await document.exitFullscreen()
-    } else {
-      await document.documentElement.requestFullscreen()
-    }
-  } catch {
-    // Fullscreen can be blocked; fall back to in-page state only.
-    isFullscreen.value = !isFullscreen.value
-  }
-}
-
-// --- Tile gestures -----------------------------------------------------------
-
-function onTileClick(slot: ViewerSlot) {
-  if (editing.value) return
-  toggleSpotlight(slot.alias)
-}
-
-function onTilePointerDown(event: PointerEvent, slot: ViewerSlot) {
-  if (!editing.value || event.button !== 0) return
-  const target = event.target
-  if (target instanceof HTMLElement && target.closest('button,a,select,input')) return
-  // Plain drag moves/swaps the camera; Shift+drag pans the crop window.
-  if (event.shiftKey && slot.binding?.device_id) {
-    startCropPan(event, slot)
-  } else {
-    startTilePointerDrag(event, slot)
-  }
-}
-
-function onTileWheel(event: WheelEvent, slot: ViewerSlot) {
-  if (!editing.value || !slot.binding?.device_id) return
-  event.preventDefault()
-  zoomTile(slot, event.deltaY > 0 ? 1 : -1)
-}
-
-// --- Inline display editing (rotation / fit / zoom / pan) --------------------
 
 function setDisplayOverride(slot: ViewerSlot, display: CameraDisplay) {
   displayOverrides.value = { ...displayOverrides.value, [slot.alias]: display }
@@ -1325,8 +661,7 @@ function resetTile(slot: ViewerSlot) {
 function startCropPan(event: PointerEvent, slot: ViewerSlot) {
   const base = effectiveDisplay(slot)
   if (base.crop.width >= 100 && base.crop.height >= 100) return
-  const tile = (event.currentTarget as HTMLElement)
-  const rect = tile.getBoundingClientRect()
+  const rect = (event.currentTarget as HTMLElement).getBoundingClientRect()
   const startX = event.clientX
   const startY = event.clientY
   let moved = false
@@ -1383,6 +718,90 @@ async function persistDisplay(slot: ViewerSlot) {
   }
 }
 
+// --- Stream / state helpers --------------------------------------------------
+
+function isPlayable(slot: ViewerSlot) {
+  return slot.state === 'online' || slot.state === 'connecting'
+}
+
+function shouldRenderPlayer(slot: ViewerSlot) {
+  if (!slot.playback?.page_url || !isPlayable(slot)) return false
+  if (performanceMode.value === 'low') return slot.alias === primaryLiveAlias.value
+  return true
+}
+
+function isPausedByPerformance(slot: ViewerSlot) {
+  return performanceMode.value === 'low' && !!slot.playback?.page_url && isPlayable(slot) && slot.alias !== primaryLiveAlias.value
+}
+
+function iframeLoading(slot: ViewerSlot): 'eager' | 'lazy' {
+  if (performanceMode.value === 'balanced' && slot.alias !== primaryLiveAlias.value) return 'lazy'
+  return 'eager'
+}
+
+function frameSrc(slot: ViewerSlot) {
+  const url = slot.playback?.page_url
+  if (!url) return ''
+  return `${url}&fit=${effectiveDisplay(slot).fit_mode}`
+}
+
+function placeholderMessage(slot: ViewerSlot) {
+  if (isPausedByPerformance(slot)) return 'Im Low-Modus pausiert.'
+  return slot.message
+}
+
+function effectiveState(slot: ViewerSlot): ViewerSlotState {
+  if ((slot.state === 'online' || slot.state === 'connecting') && shouldRenderPlayer(slot) && !frameReady.value[slot.alias]) {
+    return 'connecting'
+  }
+  return slot.state
+}
+
+function markFrameReady(alias: string) {
+  frameReady.value = { ...frameReady.value, [alias]: true }
+}
+
+function tileClass(slot: ViewerSlot) {
+  const state = effectiveState(slot)
+  return {
+    on: state === 'online',
+    connecting: state === 'connecting',
+    empty: state === 'unassigned',
+    paused: isPausedByPerformance(slot),
+    off: state === 'offline' || state === 'credentials_failed' || state === 'stream_unavailable'
+  }
+}
+
+function clamp(value: number, min: number, max: number) {
+  if (!Number.isFinite(value)) return min
+  return Math.min(max, Math.max(min, value))
+}
+
+// --- Loading -----------------------------------------------------------------
+
+async function load() {
+  busy.value = true
+  error.value = ''
+  try {
+    const viewerData = await api.viewer()
+    viewer.value = viewerData
+    performanceMode.value = normalizedPerformanceMode(viewerData.performance?.mode)
+    const aliases = viewerData.slots.map((slot) => slot.alias)
+    mosaic.value = reconcileTree(parseMosaic(viewerData.layout?.mosaic), aliases)
+    if (spotlightAlias.value && !aliases.includes(spotlightAlias.value)) spotlightAlias.value = ''
+  } catch (err) {
+    error.value = err instanceof Error ? err.message : 'Viewer konnte nicht geladen werden.'
+  } finally {
+    loading.value = false
+    busy.value = false
+  }
+}
+
+function normalizedPerformanceMode(raw?: string): 'quality' | 'balanced' | 'low' | 'diagnostic' {
+  if (raw === 'balanced' || raw === 'low' || raw === 'diagnostic') return raw
+  return 'quality'
+}
+
 async function refreshAuth() {
   try {
     auth.value = await api.authStatus()
@@ -1391,23 +810,9 @@ async function refreshAuth() {
   }
 }
 
-watch(
-  () => [route.query.layout, route.query.side, route.query.perf],
-  () => {
-    syncLayoutDraft()
-    syncPerformanceDraft()
-  }
-)
-
-function syncFullscreen() {
-  isFullscreen.value = !!document.fullscreenElement
-}
-
 onMounted(() => {
   void refreshAuth()
-  onAuthChanged = () => {
-    void refreshAuth()
-  }
+  onAuthChanged = () => void refreshAuth()
   window.addEventListener('auth-changed', onAuthChanged)
   onFullscreenChange = () => syncFullscreen()
   document.addEventListener('fullscreenchange', onFullscreenChange)
@@ -1424,11 +829,12 @@ onMounted(() => {
 })
 
 onBeforeUnmount(() => {
-  stopPointerTileDrag?.()
+  stopDrag?.()
   stopCropPan?.()
   window.clearInterval(refreshTimer)
   window.clearTimeout(controlsTimer)
   window.clearTimeout(displaySaveTimer)
+  window.clearTimeout(mosaicSaveTimer)
   if (onAuthChanged) window.removeEventListener('auth-changed', onAuthChanged)
   if (onFullscreenChange) document.removeEventListener('fullscreenchange', onFullscreenChange)
   if (onKey) window.removeEventListener('keydown', onKey)
@@ -1441,33 +847,28 @@ onBeforeUnmount(() => {
   position: relative;
   min-height: 100vh;
   height: 100vh;
-  padding: 14px;
   background: var(--bg);
   overflow: hidden;
 }
-.viewer-root.fullscreen { padding: 0; }
 
-.viewer-root .viewer-grid {
-  height: 100%;
+.mosaic {
+  position: absolute;
+  inset: 9px;
+}
+.viewer-root.fullscreen .mosaic { inset: 0; }
+
+.mosaic-pane {
+  position: absolute;
+}
+.mosaic-pane > .viewer-tile {
+  position: absolute;
+  inset: 5px;
   min-height: 0;
 }
-/* override the static min-heights from the shared stylesheet for full-bleed */
-.viewer-root :deep(.viewer-grid.layout-focus),
-.viewer-root :deep(.viewer-grid.layout-large_only),
-.viewer-root :deep(.viewer-grid.layout-vertical_plus_grid),
-.viewer-root :deep(.viewer-grid.layout-custom) {
-  min-height: 0;
-  height: 100%;
+.viewer-root.editing .mosaic-pane > .viewer-tile {
+  box-shadow: inset 0 0 0 1px var(--hairline-strong);
 }
-.viewer-root :deep(.viewer-grid.layout-spotlight) {
-  height: 100%;
-}
-.viewer-root :deep(.viewer-tile) {
-  min-height: 0;
-}
-.viewer-root :deep(.viewer-tile.portrait) {
-  min-height: 0;
-}
+.viewer-tile.dragging { opacity: .5; }
 
 /* transparent layer above the iframe so the tile is clickable/draggable */
 .tile-surface {
@@ -1475,23 +876,47 @@ onBeforeUnmount(() => {
   inset: 0;
   z-index: 2;
 }
-.viewer-root:not(.editing) .tile-surface {
-  cursor: zoom-in;
+.viewer-root:not(.editing) .tile-surface { cursor: zoom-in; }
+.viewer-root.spotlight .tile-surface { cursor: zoom-out; }
+.viewer-root.editing .tile-surface { cursor: grab; }
+.viewer-root.editing .tile-surface:active { cursor: grabbing; }
+
+/* resize handles sitting on each split line */
+.mosaic-gutter {
+  position: absolute;
+  z-index: 6;
+  border: 0;
+  padding: 0;
+  background: transparent;
 }
-.viewer-root.spotlight .tile-surface {
-  cursor: zoom-out;
+.mosaic-gutter::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  margin: auto;
+  border-radius: 999px;
+  background: rgba(181, 232, 83, .25);
+  opacity: 0;
+  transition: opacity .12s ease, background .12s ease;
 }
-.viewer-root.editing .tile-surface {
-  cursor: grab;
-}
-.viewer-root.editing .tile-surface:active {
-  cursor: grabbing;
+.mosaic-gutter.row { width: 14px; transform: translateX(-50%); cursor: col-resize; }
+.mosaic-gutter.row::after { width: 3px; height: 36px; top: 50%; transform: translateY(-50%); }
+.mosaic-gutter.col { height: 14px; transform: translateY(-50%); cursor: row-resize; }
+.mosaic-gutter.col::after { height: 3px; width: 36px; left: 50%; transform: translateX(-50%); }
+.mosaic-gutter:hover::after, .mosaic-gutter:active::after { opacity: 1; background: var(--live); }
+
+/* dock preview while dragging a camera onto another */
+.mosaic-dock {
+  position: absolute;
+  z-index: 7;
+  border-radius: var(--radius-tile);
+  border: 1px solid rgba(181, 232, 83, .7);
+  background: rgba(181, 232, 83, .16);
+  pointer-events: none;
+  transition: left .08s ease, top .08s ease, width .08s ease, height .08s ease;
 }
 
-/* edit-mode framing + per-tile tools */
-.viewer-root.editing :deep(.viewer-tile) {
-  box-shadow: inset 0 0 0 1px var(--hairline-strong);
-}
+/* edit-mode per-tile tools */
 .tile-edit {
   position: absolute;
   inset: 8px 8px auto 8px;
@@ -1525,10 +950,10 @@ onBeforeUnmount(() => {
   padding: 3px;
 }
 
-/* auto-hiding control cluster — appears on mouse move, fades when idle */
+/* auto-hiding control cluster */
 .viewer-hud {
   position: absolute;
-  z-index: 8;
+  z-index: 9;
   left: 50%;
   bottom: 18px;
   transform: translateX(-50%);
@@ -1543,7 +968,6 @@ onBeforeUnmount(() => {
   box-shadow: 0 12px 40px rgba(0, 0, 0, .5);
   backdrop-filter: blur(8px);
 }
-.viewer-hud .layout-select { min-height: 30px; }
 
 .viewer-edit-hint {
   position: absolute;
@@ -1551,23 +975,24 @@ onBeforeUnmount(() => {
   top: 14px;
   left: 50%;
   transform: translateX(-50%);
-  max-width: 92%;
+  max-width: 94%;
   padding: 6px 14px;
   border-radius: 999px;
   background: rgba(12, 12, 14, .82);
   backdrop-filter: blur(8px);
   color: var(--ink-mute);
   font-size: 10.5px;
-  letter-spacing: .04em;
+  letter-spacing: .03em;
   text-align: center;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
+.viewer-edit-hint b { color: var(--ink-soft); font-weight: 500; }
 
 .viewer-error {
   position: absolute;
-  z-index: 9;
+  z-index: 10;
   top: 16px;
   left: 50%;
   transform: translateX(-50%);

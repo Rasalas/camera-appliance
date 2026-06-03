@@ -28,6 +28,7 @@ const (
 	viewerLayoutSettingGap       = "viewer.layout.gap_px"
 	viewerLayoutSettingSlotOrder = "viewer.layout.slot_order"
 	viewerLayoutSettingCustom    = "viewer.layout.custom"
+	viewerLayoutSettingMosaic    = "viewer.layout.mosaic"
 )
 
 type CameraDisplay struct {
@@ -55,6 +56,7 @@ type ViewerLayout struct {
 	GapPX        int                  `json:"gap_px"`
 	Cells        []ViewerLayoutCell   `json:"cells"`
 	Custom       ViewerCustomLayout   `json:"custom"`
+	Mosaic       string               `json:"mosaic"`
 	Options      []ViewerLayoutOption `json:"options"`
 }
 
@@ -114,6 +116,7 @@ func viewerLayoutFromSettings(settings map[string]string, slots []config.Slot) V
 		GapPX:        boundedIntSetting(settings, viewerLayoutSettingGap, 10, 2, 20),
 		Cells:        viewerLayoutCells(id, focus, orderedSlots),
 		Custom:       custom,
+		Mosaic:       strings.TrimSpace(settings[viewerLayoutSettingMosaic]),
 		Options:      DefaultViewerLayoutOptions(),
 	}
 }

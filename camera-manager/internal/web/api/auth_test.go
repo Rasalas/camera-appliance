@@ -86,6 +86,64 @@ func TestLogoutInvalidatesSession(t *testing.T) {
 	}
 }
 
+func TestGo2RTCAssetProxyServesAllowedPlayerModule(t *testing.T) {
+	go2rtc := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/video-stream.js" {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "text/javascript")
+		_, _ = w.Write([]byte("import {VideoRTC} from './video-rtc.js';\ncustomElements.define('video-stream', class extends HTMLElement {});\n"))
+	}))
+	defer go2rtc.Close()
+
+	a := newAuthTestApp(t)
+	a.Config.Go2RTCURL = go2rtc.URL
+	handler := New(a).Handler()
+
+	req := httptest.NewRequest(http.MethodGet, "/go2rtc/video-stream.js", nil)
+	res := httptest.NewRecorder()
+	handler.ServeHTTP(res, req)
+	if res.Code != http.StatusOK {
+		t.Fatalf("expected proxied asset, got %d: %s", res.Code, res.Body.String())
+	}
+	if got := res.Header().Get("Content-Type"); got != "text/javascript; charset=utf-8" {
+		t.Fatalf("expected javascript content type, got %q", got)
+	}
+	if body := res.Body.String(); len(body) < 6 || body[:6] != "import" {
+		t.Fatalf("expected javascript body, got %q", body)
+	}
+}
+
+func TestGo2RTCWebSocketProxyUsesGo2RTCOrigin(t *testing.T) {
+	var seenPath, seenQuery, seenOrigin, seenHost string
+	go2rtc := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		seenPath = r.URL.Path
+		seenQuery = r.URL.RawQuery
+		seenOrigin = r.Header.Get("Origin")
+		seenHost = r.Host
+		writeJSON(w, map[string]string{"status": "ok"}, http.StatusOK)
+	}))
+	defer go2rtc.Close()
+
+	a := newAuthTestApp(t)
+	a.Config.Go2RTCURL = go2rtc.URL
+	handler := New(a).Handler()
+
+	req := httptest.NewRequest(http.MethodGet, "/go2rtc/api/ws?src=cam1", nil)
+	res := httptest.NewRecorder()
+	handler.ServeHTTP(res, req)
+	if res.Code != http.StatusOK {
+		t.Fatalf("expected proxied websocket endpoint, got %d: %s", res.Code, res.Body.String())
+	}
+	if seenPath != "/api/ws" || seenQuery != "src=cam1" {
+		t.Fatalf("unexpected proxied target path/query: %s?%s", seenPath, seenQuery)
+	}
+	if seenOrigin != go2rtc.URL || seenHost == "" {
+		t.Fatalf("expected go2rtc origin and host, got origin=%q host=%q", seenOrigin, seenHost)
+	}
+}
+
 func newAuthTestApp(t *testing.T) *app.App {
 	t.Helper()
 	ctx := context.Background()

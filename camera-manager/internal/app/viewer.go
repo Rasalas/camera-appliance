@@ -9,7 +9,6 @@ import (
 	"net/http"
 	"net/url"
 	"os"
-	"path"
 	"strings"
 	"time"
 
@@ -474,10 +473,9 @@ func go2rtcStreamPageURL(baseURL, alias string) string {
 		return ""
 	}
 	parsed.User = nil
-	parsed.Path = path.Join(parsed.Path, "stream.html")
-	query := parsed.Query()
-	query.Set("src", alias)
-	query.Set("mode", "webrtc,mse,mp4,mjpeg")
-	parsed.RawQuery = query.Encode()
-	return parsed.String()
+	q := url.Values{}
+	q.Set("src", alias)
+	q.Set("base", strings.TrimRight(parsed.String(), "/"))
+	q.Set("mode", "mse,mp4,mjpeg")
+	return "/embed.html?" + q.Encode()
 }

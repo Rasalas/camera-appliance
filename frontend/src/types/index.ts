@@ -250,6 +250,7 @@ export interface ViewerLayout {
   gap_px: number
   cells: ViewerLayoutCell[]
   custom: ViewerCustomLayout
+  mosaic?: string
   options: ViewerLayoutOption[]
 }
 
