@@ -3,7 +3,7 @@
     class="viewer-root"
     :class="rootClass"
     @pointermove="revealControls"
-    @mouseleave="scheduleHideControls"
+    @mouseleave="onRootMouseLeave"
   >
     <section ref="gridEl" class="mosaic">
       <div
@@ -14,7 +14,7 @@
       >
         <article
           class="viewer-tile"
-          :class="[tileClass(pane.slot), { dragging: dragSourceAlias === pane.alias }]"
+          :class="[tileClass(pane.slot), { dragging: dragSourceAlias === pane.alias, audible: isAudible(pane.alias) }]"
           :data-slot-alias="pane.alias"
         >
           <div class="viewer-frame-wrap">
@@ -26,6 +26,7 @@
             >
               <iframe
                 class="viewer-frame"
+                :ref="(el) => setFrameRef(pane.alias, el)"
                 :src="frameSrc(pane.slot)"
                 :title="pane.slot.label"
                 :loading="iframeLoading(pane.slot)"
@@ -50,6 +51,8 @@
             class="tile-surface"
             :title="editing ? undefined : 'Klicken zum Vergrößern'"
             @click="onTileClick(pane.alias)"
+            @pointerenter="onTileAudioEnter(pane.slot)"
+            @pointerleave="onTileAudioLeave(pane.alias)"
             @pointerdown="onTilePointerDown($event, pane.slot)"
             @wheel="onTileWheel($event, pane.slot)"
           />
@@ -99,6 +102,7 @@
           <button class="btn sm" :class="{ live: editing }" type="button" @click="toggleEdit">{{ editing ? 'Fertig' : 'Bearbeiten' }}</button>
         </template>
         <button class="btn sm" type="button" @click="toggleFullscreen">{{ isFullscreen ? 'Vollbild aus' : 'Vollbild' }}</button>
+        <button class="btn sm" :class="{ live: audioHoverEnabled, ghost: !audioHoverEnabled }" type="button" @click="toggleHoverAudio">{{ audioHoverEnabled ? 'Ton Hover' : 'Ton aus' }}</button>
         <RouterLink v-if="canAdmin" class="btn sm ghost" to="/einrichtung">Verwaltung</RouterLink>
         <RouterLink v-else-if="auth?.enabled && !auth.authenticated" class="btn sm ghost" to="/login">Login</RouterLink>
       </div>
@@ -141,6 +145,8 @@ const busy = ref(false)
 const error = ref('')
 const frameReady = ref<Record<string, boolean>>({})
 const performanceMode = ref<'quality' | 'balanced' | 'low' | 'diagnostic'>('quality')
+const audioHoverEnabled = ref(true)
+const audioAlias = ref('')
 
 // Chrome state: clean by default; edit reveals split tools; spotlight enlarges a
 // single camera; fullscreen suppresses all chrome.
@@ -167,6 +173,8 @@ let onFullscreenChange: (() => void) | undefined
 let onKey: ((e: KeyboardEvent) => void) | undefined
 let stopDrag: (() => void) | undefined
 let stopCropPan: (() => void) | undefined
+const frameEls: Record<string, HTMLIFrameElement> = {}
+const AUDIO_SETTING_KEY = 'camera-appliance.viewer.audioHoverEnabled'
 
 const slots = computed(() => viewer.value?.slots ?? [])
 const slotByAlias = computed(() => new Map(slots.value.map((slot) => [slot.alias, slot])))
@@ -583,6 +591,11 @@ function scheduleHideControls() {
   }, 600)
 }
 
+function onRootMouseLeave() {
+  scheduleHideControls()
+  muteAllAudio()
+}
+
 function toggleEdit() {
   editing.value = !editing.value
   spotlightAlias.value = ''
@@ -605,6 +618,54 @@ async function toggleFullscreen() {
 
 function syncFullscreen() {
   isFullscreen.value = !!document.fullscreenElement
+}
+
+// --- Audio hover -------------------------------------------------------------
+
+function setFrameRef(alias: string, el: unknown) {
+  if (el instanceof HTMLIFrameElement) {
+    frameEls[alias] = el
+    window.setTimeout(() => syncAudioState(), 0)
+  } else {
+    delete frameEls[alias]
+  }
+}
+
+function onTileAudioEnter(slot: ViewerSlot) {
+  if (editing.value || !audioHoverEnabled.value || !shouldRenderPlayer(slot)) return
+  audioAlias.value = slot.alias
+  syncAudioState()
+}
+
+function onTileAudioLeave(alias: string) {
+  if (audioAlias.value !== alias) return
+  audioAlias.value = ''
+  syncAudioState()
+}
+
+function isAudible(alias: string) {
+  return audioHoverEnabled.value && audioAlias.value === alias
+}
+
+function toggleHoverAudio() {
+  audioHoverEnabled.value = !audioHoverEnabled.value
+  window.localStorage.setItem(AUDIO_SETTING_KEY, audioHoverEnabled.value ? 'true' : 'false')
+  if (!audioHoverEnabled.value) audioAlias.value = ''
+  syncAudioState()
+}
+
+function muteAllAudio() {
+  audioAlias.value = ''
+  syncAudioState()
+}
+
+function syncAudioState() {
+  for (const [alias, frame] of Object.entries(frameEls)) {
+    frame.contentWindow?.postMessage({
+      type: 'camera-audio',
+      muted: !audioHoverEnabled.value || alias !== audioAlias.value
+    }, window.location.origin)
+  }
 }
 
 // --- Camera display (transform + inline crop) --------------------------------
@@ -803,6 +864,7 @@ function effectiveState(slot: ViewerSlot): ViewerSlotState {
 
 function markFrameReady(alias: string) {
   frameReady.value = { ...frameReady.value, [alias]: true }
+  syncAudioState()
 }
 
 function tileClass(slot: ViewerSlot) {
@@ -857,6 +919,7 @@ async function refreshAuth() {
 }
 
 onMounted(() => {
+  audioHoverEnabled.value = window.localStorage.getItem(AUDIO_SETTING_KEY) !== 'false'
   void refreshAuth()
   onAuthChanged = () => void refreshAuth()
   window.addEventListener('auth-changed', onAuthChanged)
@@ -875,6 +938,7 @@ onMounted(() => {
 })
 
 onBeforeUnmount(() => {
+  muteAllAudio()
   stopDrag?.()
   stopCropPan?.()
   window.clearInterval(refreshTimer)
@@ -926,6 +990,12 @@ onBeforeUnmount(() => {
   box-shadow: inset 0 0 0 1px var(--hairline-strong);
 }
 .viewer-tile.dragging { opacity: .5; }
+.viewer-tile.audible {
+  box-shadow:
+    inset 0 0 0 2px var(--live),
+    0 0 0 1px rgba(181, 232, 83, .25),
+    0 0 22px rgba(181, 232, 83, .22);
+}
 
 /* transparent layer above the iframe so the tile is clickable/draggable */
 .tile-surface {

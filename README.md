@@ -20,9 +20,11 @@ Project decisions are documented in [docs/decisions](docs/decisions/README.md).
 make dev
 ```
 
-This builds the Vue frontend, builds the Go binary, uses local dev state in `./data`, and serves the admin UI at:
+This starts a local go2rtc helper, builds the Vue frontend, builds the Go binary, uses local dev state in `./data`, and serves the admin UI at:
 
 - [http://127.0.0.1:8091](http://127.0.0.1:8091)
+
+On macOS, go2rtc runs natively from `./bin/go2rtc` because Docker Desktop containers may not reach LAN cameras reliably. On other platforms, the Makefile falls back to a local Docker helper container.
 
 For frontend hot reload:
 
@@ -37,6 +39,8 @@ Useful development commands:
 ```bash
 make test
 make build
+make dev-go2rtc
+make stop-dev-go2rtc
 make status
 make discover
 make render-go2rtc

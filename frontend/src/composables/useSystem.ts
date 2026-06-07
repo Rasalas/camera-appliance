@@ -315,8 +315,8 @@ function addRelay(draft: { id: string; name: string; host: string; sshTarget: st
   settings[relaySettingKey(id, 'type')] = 'ssh_local_forward'
   settings[relaySettingKey(id, 'host')] = draft.host.trim()
   settings[relaySettingKey(id, 'bind_host')] = '127.0.0.1'
-  settings[relaySettingKey(id, 'ssh_target')] = draft.sshTarget.trim()
-  settings[relaySettingKey(id, 'auto_start')] = settings[relaySettingKey(id, 'auto_start')] || 'false'
+  settings[relaySettingKey(id, 'ssh_target')] = draft.sshTarget.trim() || id
+  settings[relaySettingKey(id, 'auto_start')] = settings[relaySettingKey(id, 'auto_start')] || 'true'
   return id
 }
 

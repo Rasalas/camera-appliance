@@ -424,6 +424,7 @@ func startSSHRelayProcess(ctx context.Context, relay ManagedRelay, logPath strin
 	cmd := exec.Command("ssh", args...)
 	cmd.Stdout = logFile
 	cmd.Stderr = logFile
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	if err := cmd.Start(); err != nil {
 		_ = logFile.Close()
 		return 0, err
@@ -447,6 +448,9 @@ func sshRelayArgs(relay ManagedRelay) ([]string, error) {
 	}
 	seenLocalPorts := map[string]bool{}
 	for _, endpoint := range relay.Endpoints {
+		if strings.TrimSpace(endpoint.LocalPort) == "" {
+			continue
+		}
 		if err := validatePort("lokaler Relay-Port", endpoint.LocalPort); err != nil {
 			return nil, err
 		}

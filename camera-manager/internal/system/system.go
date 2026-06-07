@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"os"
 	"os/exec"
 	"strings"
 	"time"
@@ -35,11 +36,14 @@ func Check(ctx context.Context, cfg config.Config) Status {
 }
 
 func RestartGo2RTC(ctx context.Context, cfg config.Config) error {
-	return dockerCompose(ctx, cfg, "restart", "go2rtc")
+	if os.Getenv("CAMERA_APPLIANCE_DEV_GO2RTC_NATIVE") == "1" {
+		return restartNativeDevGo2RTC(ctx, cfg)
+	}
+	return dockerCompose(ctx, cfg, "up", "-d", "--force-recreate", "go2rtc")
 }
 
 func RestartStack(ctx context.Context, cfg config.Config) error {
-	return dockerCompose(ctx, cfg, "restart", "go2rtc", "camera-manager")
+	return ApplyStack(ctx, cfg)
 }
 
 func ApplyStack(ctx context.Context, cfg config.Config) error {
@@ -67,6 +71,15 @@ func dockerCompose(ctx context.Context, cfg config.Config, args ...string) error
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("docker %v failed: %w: %s", full, err, string(out))
+	}
+	return nil
+}
+
+func restartNativeDevGo2RTC(ctx context.Context, cfg config.Config) error {
+	cmd := exec.CommandContext(ctx, "make", "-C", cfg.ConfigDir, "dev-go2rtc")
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("make dev-go2rtc failed: %w: %s", err, string(out))
 	}
 	return nil
 }

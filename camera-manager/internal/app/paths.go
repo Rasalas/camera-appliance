@@ -262,13 +262,17 @@ func relayDefinitions(settings map[string]string) []RelayDefinition {
 		if name == "" {
 			name = id
 		}
+		sshTarget := strings.TrimSpace(settings[prefix+"ssh_target"])
+		if sshTarget == "" {
+			sshTarget = id
+		}
 		relays = append(relays, RelayDefinition{
 			ID:        id,
 			Name:      name,
 			Type:      relayType(settings[prefix+"type"]),
 			Host:      strings.TrimSpace(settings[prefix+"host"]),
 			BindHost:  relayBindHost(settings[prefix+"bind_host"]),
-			SSHTarget: strings.TrimSpace(settings[prefix+"ssh_target"]),
+			SSHTarget: sshTarget,
 			AutoStart: boolSetting(settings, prefix+"auto_start", false),
 			Enabled:   true,
 		})

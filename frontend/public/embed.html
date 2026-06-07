@@ -6,6 +6,9 @@
 <style>
   html,body{margin:0;height:100%;background:#000;overflow:hidden}
   video-stream{display:block;width:100%;height:100%}
+  video-stream .mode{display:none!important}
+  video-stream::part(mode){display:none!important}
+  video-stream::part(label){display:none!important}
   video{width:100%!important;height:100%!important;object-fit:var(--fit,cover);background:#000}
   /* Chromium: native Video-Chrome ausblenden (Video ist hier same-origin) */
   video::-webkit-media-controls,
@@ -16,17 +19,37 @@
   const p = new URLSearchParams(location.search);
   const src = p.get('src');
   const mode = p.get('mode') || 'mse,mp4,mjpeg';
+  let muted = true;
   document.documentElement.style.setProperty('--fit', p.get('fit') === 'contain' ? 'contain' : 'cover');
   if (src) {
     await import('/go2rtc/video-stream.js'); // registriert <video-stream> same-origin
     const el = document.createElement('video-stream');
     el.background = true;            // Stream nicht pausieren, wenn iframe versteckt
+    el.muted = true;
     el.mode = mode;
     el.src = '/go2rtc/api/ws?src=' + encodeURIComponent(src);
     document.body.appendChild(el);
     // Native Controls cross-browser zuverlässig abschalten (auch Firefox):
-    const strip = () => { const v = el.video; if (v) { v.controls = false; v.removeAttribute('controls'); v.style.pointerEvents = 'none'; } };
+    const strip = () => {
+      const v = el.video || el.querySelector?.('video');
+      if (v) {
+        v.controls = false;
+        v.muted = muted;
+        v.removeAttribute('controls');
+        v.style.pointerEvents = 'none';
+        if (!muted) v.play?.().catch?.(() => undefined);
+      }
+      for (const node of el.querySelectorAll?.('*') || []) {
+        if (node.textContent?.trim() === 'MSE') node.style.display = 'none';
+      }
+    };
     strip();
-    new MutationObserver(strip).observe(el, { childList: true, subtree: true });
+    new MutationObserver(strip).observe(document.body, { childList: true, subtree: true });
+    window.addEventListener('message', (event) => {
+      if (event.origin !== location.origin || event.data?.type !== 'camera-audio') return;
+      muted = event.data.muted !== false;
+      el.muted = muted;
+      strip();
+    });
   }
 </script></body></html>

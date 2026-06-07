@@ -168,3 +168,25 @@ func TestSSHRelayArgsRejectsDuplicateLocalPorts(t *testing.T) {
 		t.Fatal("expected duplicate local port error")
 	}
 }
+
+func TestSSHRelayArgsSkipsEndpointsWithoutLocalPort(t *testing.T) {
+	relay := ManagedRelay{
+		RelayDefinition: RelayDefinition{Type: RelayTypeSSHLocalForward, BindHost: "127.0.0.1", SSHTarget: "nas"},
+		Endpoints: []RelayEndpoint{
+			{DeviceID: "dev1", LocalPort: "15541", BindHost: "127.0.0.1", TargetHost: "192.168.1.20", TargetPort: "554"},
+			{DeviceID: "dev2", BindHost: "127.0.0.1", TargetHost: "192.168.1.21", TargetPort: "554"},
+		},
+	}
+
+	args, err := sshRelayArgs(relay)
+	if err != nil {
+		t.Fatal(err)
+	}
+	joined := strings.Join(args, " ")
+	if !strings.Contains(joined, "-L 127.0.0.1:15541:192.168.1.20:554") {
+		t.Fatalf("expected configured forward, got %s", joined)
+	}
+	if strings.Contains(joined, "192.168.1.21") {
+		t.Fatalf("unexpected forward for endpoint without local port: %s", joined)
+	}
+}
