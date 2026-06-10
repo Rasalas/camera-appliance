@@ -1316,6 +1316,20 @@ pre.code {
   font-size: 11px;
 }
 
+/* ---------- Advanced (collapsed fine-tuning) --------------------------- */
+details.advanced > summary {
+  cursor: pointer;
+  list-style: none;
+  padding: 6px 0;
+  font-size: 10.5px;
+  text-transform: uppercase;
+  letter-spacing: .14em;
+  color: var(--ink-mute);
+}
+details.advanced > summary::-webkit-details-marker { display: none; }
+details.advanced > summary::before { content: "▸ "; color: var(--ink-dim); }
+details.advanced[open] > summary::before { content: "▾ "; }
+
 /* ---------- Misc ------------------------------------------------------ */
 .mono-dim { color: var(--ink-dim); }
 .mono-mute { color: var(--ink-mute); }

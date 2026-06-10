@@ -147,6 +147,7 @@ release: build
 	  ./ "$(RELEASE_DIR)/$(RELEASE_NAME)/"; \
 	printf '{\n  "version": "%s",\n  "commit": "%s",\n  "build_time": "%s"\n}\n' "$(VERSION)" "$(COMMIT)" "$(BUILD_TIME)" > "$(RELEASE_DIR)/$(RELEASE_NAME)/manifest.json"; \
 	tar -czf "$(RELEASE_DIR)/$(RELEASE_NAME).tar.gz" -C "$(RELEASE_DIR)" "$(RELEASE_NAME)"; \
+	cp "$(RELEASE_DIR)/$(RELEASE_NAME).tar.gz" "$(RELEASE_DIR)/camera-appliance-latest.tar.gz"; \
 	echo "$(RELEASE_DIR)/$(RELEASE_NAME).tar.gz"
 
 test:

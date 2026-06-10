@@ -14,14 +14,29 @@ The helper scripts resolve the appliance root automatically. Override with `CAME
 The production install path is:
 
 ```bash
-sudo bin/install --user customer --enable-systemd --enable-kiosk --install-desktop-launchers
+curl -fsSL https://raw.githubusercontent.com/Rasalas/camera-appliance/main/install.sh | sudo bash -s -- --user customer --enable-kiosk
 ```
 
-This installs:
+The bootstrap downloads the latest public release archive and delegates to:
+
+- `camera-appliance install` for a fresh laptop.
+- `camera-appliance update` when `/opt/camera-appliance/bin/camera-appliance` already exists.
+
+A direct install from an already downloaded release archive is also supported:
+
+```bash
+sudo ./bin/camera-appliance install --archive /path/to/camera-appliance-latest.tar.gz --user customer --enable-systemd --enable-kiosk --install-desktop-launchers
+```
+
+Install sets up:
 
 - `camera-appliance.service`: starts the Docker Compose stack after Docker and network-online.
 - `camera-kiosk.service`: user service that waits for `http://127.0.0.1:8091/api/status` before opening the viewer.
 - Desktop launchers for manual open, status, rediscovery, and restart.
+- `/etc/camera-appliance/secrets.env`, only when it does not already exist.
+- `/var/lib/camera-appliance/generated/go2rtc.yaml`, only when it does not already exist.
+
+Firewall rules are not changed. UI/API and go2rtc bind to localhost by default; normal kiosk operation needs no incoming ports.
 
 Useful recovery commands:
 
@@ -61,7 +76,7 @@ Build a release archive on the development machine:
 make release VERSION=0.1.0
 ```
 
-The archive is written to `.release/` and contains the install tree, `bin/camera-appliance`, `frontend/dist`, `compose.yaml`, `systemd/`, and `manifest.json`. The release target excludes `.private`, `.git`, `data`, `node_modules`, `.env`, `local.env`, and `secrets.env`.
+The archive is written to `.release/` and contains the install tree, `bin/camera-appliance`, `frontend/dist`, `compose.yaml`, `systemd/`, `install.sh`, and `manifest.json`. The release target also writes `.release/camera-appliance-latest.tar.gz` for the bootstrap URL. It excludes `.private`, `.git`, `data`, `node_modules`, `.env`, `local.env`, and `secrets.env`.
 
 Apply a local archive on the customer appliance:
 

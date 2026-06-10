@@ -132,13 +132,13 @@
           <details class="advanced">
             <summary>Feinjustage</summary>
             <div class="field" style="margin-top: 12px;">
-              <span class="lbl">Pfad-Policy</span>
+              <span class="lbl">Verbindungsweg</span>
               <select v-model="pathPolicy">
-                <option value="auto">Auto</option>
-                <option value="prefer_direct">Direkt bevorzugen</option>
-                <option value="prefer_relay">Relay bevorzugen</option>
+                <option value="auto">Automatisch (empfohlen)</option>
+                <option value="relay_only">Muss über Relay</option>
                 <option value="direct_only">Nur direkt</option>
-                <option value="relay_only">Nur Relay</option>
+                <option v-if="pathPolicy === 'prefer_direct'" value="prefer_direct">Direkt bevorzugen (alt)</option>
+                <option v-if="pathPolicy === 'prefer_relay'" value="prefer_relay">Relay bevorzugen (alt)</option>
               </select>
             </div>
             <div class="crop-grid" style="margin-top: 12px;">
@@ -526,16 +526,4 @@ onMounted(async () => {
   background: rgba(7, 7, 9, .62);
   backdrop-filter: blur(6px);
 }
-details.advanced > summary {
-  cursor: pointer;
-  list-style: none;
-  padding: 6px 0;
-  font-size: 10.5px;
-  text-transform: uppercase;
-  letter-spacing: .14em;
-  color: var(--ink-mute);
-}
-details.advanced > summary::-webkit-details-marker { display: none; }
-details.advanced > summary::before { content: "▸ "; color: var(--ink-dim); }
-details.advanced[open] > summary::before { content: "▾ "; }
 </style>

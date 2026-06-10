@@ -8,6 +8,8 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+
+	"camera-appliance/camera-manager/internal/state"
 )
 
 func TestSSHRelayArgsBuildsLocalForwards(t *testing.T) {
@@ -166,6 +168,88 @@ func TestSSHRelayArgsRejectsDuplicateLocalPorts(t *testing.T) {
 	}
 	if _, err := sshRelayArgs(relay); err == nil {
 		t.Fatal("expected duplicate local port error")
+	}
+}
+
+func TestStreamPathCandidatesAutoAssignRelayPortFromSlot(t *testing.T) {
+	settings := map[string]string{
+		"camera.relay.ids":      "nas",
+		"camera.relay.nas.host": "host.docker.internal",
+	}
+	binding := state.Binding{
+		DeviceID: "dev1",
+		SlotID:   "cam2",
+		Device:   &state.Device{ID: "dev1", LastIP: "192.168.1.20"},
+	}
+
+	paths := streamPathCandidates(binding, settings)
+	if len(paths) != 2 {
+		t.Fatalf("expected direct + auto relay path, got %+v", paths)
+	}
+	relayPath := paths[1]
+	if relayPath.Kind != PathKindRelay || relayPath.Host != "host.docker.internal" {
+		t.Fatalf("unexpected relay path: %+v", relayPath)
+	}
+	if want := strconv.Itoa(relayPortBaseDefault + 1); relayPath.Port != want {
+		t.Fatalf("expected auto port %s for cam2, got %s", want, relayPath.Port)
+	}
+
+	settings["camera.relay_endpoint.dev1.nas.port"] = "15541"
+	paths = streamPathCandidates(binding, settings)
+	if len(paths) != 2 || paths[1].Port != "15541" {
+		t.Fatalf("expected explicit port to win over auto port, got %+v", paths)
+	}
+
+	noSlot := state.Binding{DeviceID: "dev1", Device: binding.Device}
+	delete(settings, "camera.relay_endpoint.dev1.nas.port")
+	if paths = streamPathCandidates(noSlot, settings); len(paths) != 1 {
+		t.Fatalf("expected no auto relay path without slot, got %+v", paths)
+	}
+}
+
+func TestRelayEndpointsSkipDirectOnlyCameras(t *testing.T) {
+	settings := map[string]string{
+		"camera.relay.ids":        "nas",
+		"camera.relay.nas.host":   "host.docker.internal",
+		"camera.path_policy.dev1": PathPolicyDirectOnly,
+	}
+	bindings := []state.Binding{
+		{DeviceID: "dev1", SlotID: "cam1", Device: &state.Device{ID: "dev1", LastIP: "192.168.1.20"}},
+		{DeviceID: "dev2", SlotID: "cam2", Device: &state.Device{ID: "dev2", LastIP: "192.168.1.21"}},
+	}
+
+	relays := managedRelaysFromSettings(settings, bindings)
+	if len(relays) != 1 {
+		t.Fatalf("expected one relay, got %+v", relays)
+	}
+	endpoints := relays[0].Endpoints
+	if len(endpoints) != 1 || endpoints[0].DeviceID != "dev2" {
+		t.Fatalf("expected only dev2 endpoint, got %+v", endpoints)
+	}
+	if want := strconv.Itoa(relayPortBaseDefault + 1); endpoints[0].LocalPort != want {
+		t.Fatalf("expected auto port %s, got %+v", want, endpoints[0])
+	}
+}
+
+func TestSSHRelayArgsSkipsEndpointsWithoutTargetHost(t *testing.T) {
+	relay := ManagedRelay{
+		RelayDefinition: RelayDefinition{Type: RelayTypeSSHLocalForward, BindHost: "127.0.0.1", SSHTarget: "nas"},
+		Endpoints: []RelayEndpoint{
+			{DeviceID: "dev1", LocalPort: "15541", BindHost: "127.0.0.1", TargetHost: "192.168.1.20", TargetPort: "554"},
+			{DeviceID: "dev2", LocalPort: "15542", BindHost: "127.0.0.1", TargetPort: "554"},
+		},
+	}
+
+	args, err := sshRelayArgs(relay)
+	if err != nil {
+		t.Fatal(err)
+	}
+	joined := strings.Join(args, " ")
+	if !strings.Contains(joined, "-L 127.0.0.1:15541:192.168.1.20:554") {
+		t.Fatalf("expected configured forward, got %s", joined)
+	}
+	if strings.Contains(joined, "15542") {
+		t.Fatalf("unexpected forward for endpoint without target host: %s", joined)
 	}
 }
 

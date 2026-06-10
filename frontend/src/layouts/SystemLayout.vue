@@ -34,7 +34,8 @@ const { settings, error, toast, versionLabel, loadAll } = useSystem()
 const tabs = [
   { to: '/system/allgemein', label: 'Allgemein' },
   { to: '/system/zugriff', label: 'Zugriff' },
-  { to: '/system/netzwerk', label: 'Netzwerk & Relays' },
+  { to: '/system/netzwerk', label: 'Netzwerk & Relay' },
+  { to: '/system/identitaeten', label: 'Identitäten' },
   { to: '/system/wartung', label: 'Wartung' }
 ]
 const activeLabel = computed(() => tabs.find((tab) => route.path.startsWith(tab.to))?.label || 'System')

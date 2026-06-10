@@ -221,8 +221,11 @@ func relayEndpointsFromSettings(settings map[string]string, bindings []state.Bin
 		if binding.DeviceID == "" {
 			continue
 		}
+		if pathPolicy(binding.DeviceID, settings) == PathPolicyDirectOnly {
+			continue
+		}
 		prefix := "camera.relay_endpoint." + binding.DeviceID + "." + relay.ID + "."
-		localHost, localPort := relayEndpoint(settings, binding.DeviceID, relay)
+		localHost, localPort := relayEndpoint(settings, binding, relay)
 		targetHost := strings.TrimSpace(settings[prefix+"target_host"])
 		if targetHost == "" && binding.Device != nil {
 			targetHost = strings.TrimSpace(binding.Device.LastIP)
@@ -448,14 +451,13 @@ func sshRelayArgs(relay ManagedRelay) ([]string, error) {
 	}
 	seenLocalPorts := map[string]bool{}
 	for _, endpoint := range relay.Endpoints {
-		if strings.TrimSpace(endpoint.LocalPort) == "" {
+		// Incomplete endpoints (no port, no target IP yet) are skipped so one
+		// unconfigured camera never blocks the tunnel for the others.
+		if strings.TrimSpace(endpoint.LocalPort) == "" || endpoint.TargetHost == "" {
 			continue
 		}
 		if err := validatePort("lokaler Relay-Port", endpoint.LocalPort); err != nil {
 			return nil, err
-		}
-		if endpoint.TargetHost == "" {
-			return nil, fmt.Errorf("%s: Ziel-IP fehlt", endpoint.DeviceID)
 		}
 		if err := validatePort("Ziel-Port", endpoint.TargetPort); err != nil {
 			return nil, err

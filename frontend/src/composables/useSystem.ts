@@ -366,7 +366,7 @@ export function useSystem() {
     // helpers
     setBool, boolSetting, formatTime, watchdogDate, levelClass, passwordSourceLabel, sanitizeID,
     relaySettingKey, relayEndpointKey, pathPolicyKey, relayName, relayHost, relayAutoStart, relayStatusFor,
-    relayStateLabel, relayStateClass, relayEndpointStateLabel, relayEndpointStateClass, legacyRelayHost, legacyRelayPort,
+    relayStateLabel, relayStateClass, relayEndpointStatus, relayEndpointStateLabel, relayEndpointStateClass, legacyRelayHost, legacyRelayPort,
     normalizedViewerPerformanceMode
   }
 }

@@ -11,7 +11,10 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"os/exec"
+	"os/user"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -43,6 +46,19 @@ type Result struct {
 	Warning         string       `json:"warning,omitempty"`
 }
 
+type InstallResult struct {
+	InstallDir        string   `json:"install_dir"`
+	Version           Manifest `json:"version"`
+	AppliedFiles      []string `json:"applied_files,omitempty"`
+	SecretsCreated    bool     `json:"secrets_created"`
+	Go2RTCInitialized bool     `json:"go2rtc_initialized"`
+	SystemdEnabled    bool     `json:"systemd_enabled"`
+	KioskEnabled      bool     `json:"kiosk_enabled"`
+	DesktopInstalled  bool     `json:"desktop_installed"`
+	Started           bool     `json:"started"`
+	Warnings          []string `json:"warnings,omitempty"`
+}
+
 type Options struct {
 	Config         config.Config
 	Archive        string
@@ -55,6 +71,22 @@ type Options struct {
 	HTTPClient     *http.Client
 	Now            func() time.Time
 	BackupOverride string
+}
+
+type InstallOptions struct {
+	Config                  config.Config
+	Archive                 string
+	URL                     string
+	SourceDir               string
+	InstallDir              string
+	UserName                string
+	EnableSystemd           bool
+	EnableKiosk             bool
+	InstallDesktopLaunchers bool
+	NoStart                 bool
+	HTTPClient              *http.Client
+	AllowNonRoot            bool
+	SkipCommandChecks       bool
 }
 
 type RollbackOptions struct {
@@ -191,6 +223,105 @@ func Rollback(ctx context.Context, opts RollbackOptions) (Result, error) {
 	return result, nil
 }
 
+func Install(ctx context.Context, opts InstallOptions) (InstallResult, error) {
+	if !opts.AllowNonRoot && os.Geteuid() != 0 {
+		return InstallResult{}, errors.New("install must run as root; use sudo")
+	}
+	cfg := opts.Config
+	if cfg.ConfigDir == "" {
+		cfg.ConfigDir = config.DefaultConfigDir
+	}
+	if cfg.StateDir == "" {
+		cfg.StateDir = config.DefaultStateDir
+	}
+	if cfg.BindAddr == "" {
+		cfg.BindAddr = config.DefaultBindAddr
+	}
+	if cfg.Go2RTCURL == "" {
+		cfg.Go2RTCURL = config.DefaultGo2RTCURL
+	}
+	if cfg.Go2RTCRTSPURL == "" {
+		cfg.Go2RTCRTSPURL = config.DefaultGo2RTCRTSP
+	}
+	if cfg.ComposeFile == "" {
+		cfg.ComposeFile = config.DefaultComposeFile
+	}
+
+	installDir, err := cleanInstallDir(opts.InstallDir)
+	if err != nil {
+		return InstallResult{}, err
+	}
+	releaseRoot, manifest, cleanup, err := installReleaseRoot(ctx, opts)
+	if err != nil {
+		return InstallResult{}, err
+	}
+	defer cleanup()
+
+	if !opts.SkipCommandChecks {
+		if err := requireInstallCommands(opts); err != nil {
+			return InstallResult{}, err
+		}
+	}
+
+	result := InstallResult{
+		InstallDir: installDir,
+		Version:    manifest,
+		Warnings: []string{
+			"Secrets werden nicht überschrieben. Prüfe /etc/camera-appliance/secrets.env vor Kundeneinsatz.",
+			"Firewall-Regeln wurden nicht geändert; der normale Kiosk-Betrieb benötigt keine eingehenden Ports.",
+		},
+	}
+	if err := createRuntimeDirs(cfg, opts.AllowNonRoot); err != nil {
+		return result, err
+	}
+	secretsCreated, err := ensureSecretsFile(releaseRoot, cfg.ConfigDir)
+	if err != nil {
+		return result, err
+	}
+	result.SecretsCreated = secretsCreated
+	go2rtcInitialized, err := ensureGo2RTCConfig(cfg)
+	if err != nil {
+		return result, err
+	}
+	result.Go2RTCInitialized = go2rtcInitialized
+
+	applied, err := applyRelease(ctx, releaseRoot, installDir)
+	if err != nil {
+		return result, err
+	}
+	result.AppliedFiles = applied
+
+	if opts.EnableSystemd {
+		if err := installSystemd(ctx, installDir, opts.NoStart); err != nil {
+			return result, err
+		}
+		result.SystemdEnabled = true
+		result.Started = !opts.NoStart
+	} else if !opts.NoStart {
+		result.Warnings = append(result.Warnings, "Systemd wurde nicht aktiviert. Starte manuell mit: cd "+installDir+" && sudo docker compose up -d --build")
+	}
+
+	if opts.EnableKiosk {
+		if opts.UserName == "" {
+			return result, errors.New("--enable-kiosk requires --user USER")
+		}
+		if err := installKiosk(ctx, installDir, opts.UserName, opts.NoStart); err != nil {
+			return result, err
+		}
+		result.KioskEnabled = true
+	}
+	if opts.InstallDesktopLaunchers {
+		if opts.UserName == "" {
+			return result, errors.New("--install-desktop-launchers requires --user USER")
+		}
+		if err := installDesktopLaunchers(installDir, opts.UserName); err != nil {
+			return result, err
+		}
+		result.DesktopInstalled = true
+	}
+	return result, nil
+}
+
 func HTTPHealthcheck(cfg config.Config) func(context.Context) error {
 	return func(ctx context.Context) error {
 		managerBase := managerBaseURL(cfg.BindAddr)
@@ -279,6 +410,120 @@ func downloadArchive(ctx context.Context, opts Options) (string, func(), error) 
 		return "", nil, err
 	}
 	return file.Name(), func() { _ = os.Remove(file.Name()) }, nil
+}
+
+func downloadInstallArchive(ctx context.Context, opts InstallOptions) (string, func(), error) {
+	return downloadArchive(ctx, Options{URL: opts.URL, HTTPClient: opts.HTTPClient})
+}
+
+func installReleaseRoot(ctx context.Context, opts InstallOptions) (string, Manifest, func(), error) {
+	if opts.SourceDir != "" {
+		root, manifest, err := findReleaseRoot(opts.SourceDir)
+		return root, manifest, func() {}, err
+	}
+	if err := validateSource(opts.Archive, opts.URL); err != nil {
+		return "", Manifest{}, func() {}, err
+	}
+	archivePath := opts.Archive
+	cleanupArchive := func() {}
+	var err error
+	if opts.URL != "" {
+		archivePath, cleanupArchive, err = downloadInstallArchive(ctx, opts)
+		if err != nil {
+			return "", Manifest{}, cleanupArchive, err
+		}
+	}
+	stageDir, err := os.MkdirTemp("", "camera-appliance-install-")
+	if err != nil {
+		cleanupArchive()
+		return "", Manifest{}, cleanupArchive, err
+	}
+	cleanup := func() {
+		_ = os.RemoveAll(stageDir)
+		cleanupArchive()
+	}
+	if err := extractReleaseArchive(ctx, archivePath, stageDir); err != nil {
+		cleanup()
+		return "", Manifest{}, func() {}, err
+	}
+	root, manifest, err := findReleaseRoot(stageDir)
+	if err != nil {
+		cleanup()
+		return "", Manifest{}, func() {}, err
+	}
+	return root, manifest, cleanup, nil
+}
+
+func requireInstallCommands(opts InstallOptions) error {
+	for _, name := range []string{"docker"} {
+		if _, err := exec.LookPath(name); err != nil {
+			return fmt.Errorf("%s is required; install Docker before running camera-appliance install", name)
+		}
+	}
+	if err := runCommand(context.Background(), "", "docker", "compose", "version"); err != nil {
+		return errors.New("Docker Compose plugin is required; install docker-compose-plugin")
+	}
+	if opts.EnableSystemd || opts.EnableKiosk {
+		if _, err := exec.LookPath("systemctl"); err != nil {
+			return errors.New("systemctl is required for --enable-systemd or --enable-kiosk")
+		}
+	}
+	if opts.EnableKiosk {
+		if _, err := exec.LookPath("runuser"); err != nil {
+			return errors.New("runuser is required for --enable-kiosk")
+		}
+	}
+	return nil
+}
+
+func createRuntimeDirs(cfg config.Config, skipSystemLog bool) error {
+	dirs := []string{
+		cfg.ConfigDir,
+		cfg.GeneratedDir(),
+		cfg.BackupDir(),
+		filepath.Join(cfg.StateDir, "logs"),
+	}
+	if !skipSystemLog {
+		dirs = append(dirs, "/var/log/camera-appliance")
+	}
+	for _, dir := range dirs {
+		if err := os.MkdirAll(dir, 0o750); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func ensureSecretsFile(releaseRoot, configDir string) (bool, error) {
+	target := filepath.Join(configDir, "secrets.env")
+	if pathExists(target) {
+		return false, nil
+	}
+	source := filepath.Join(releaseRoot, ".env.example")
+	if !pathExists(source) {
+		return false, fmt.Errorf("release is missing .env.example")
+	}
+	if err := copyFile(source, target, 0o600); err != nil {
+		return false, err
+	}
+	if err := os.Chmod(target, 0o600); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+func ensureGo2RTCConfig(cfg config.Config) (bool, error) {
+	target := cfg.Go2RTCConfigPath()
+	if pathExists(target) {
+		return false, nil
+	}
+	if err := os.MkdirAll(filepath.Dir(target), 0o750); err != nil {
+		return false, err
+	}
+	if err := os.WriteFile(target, []byte("streams: {}\n"), 0o600); err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 func extractReleaseArchive(ctx context.Context, archivePath, dst string) error {
@@ -548,6 +793,131 @@ func copyFile(src, dst string, mode os.FileMode) error {
 		return copyErr
 	}
 	return closeErr
+}
+
+func installSystemd(ctx context.Context, installDir string, noStart bool) error {
+	unit := filepath.Join(installDir, "systemd", "camera-appliance.service")
+	if !pathExists(unit) {
+		return fmt.Errorf("systemd unit not found: %s", unit)
+	}
+	if err := copyFile(unit, "/etc/systemd/system/camera-appliance.service", 0o644); err != nil {
+		return err
+	}
+	if err := runCommand(ctx, "", "systemctl", "daemon-reload"); err != nil {
+		return err
+	}
+	args := []string{"enable", "camera-appliance.service"}
+	if !noStart {
+		args = []string{"enable", "--now", "camera-appliance.service"}
+	}
+	return runCommand(ctx, "", "systemctl", args...)
+}
+
+func installKiosk(ctx context.Context, installDir, userName string, noStart bool) error {
+	account, err := lookupInstallUser(userName)
+	if err != nil {
+		return err
+	}
+	unit := filepath.Join(installDir, "systemd", "camera-kiosk.service")
+	if !pathExists(unit) {
+		return fmt.Errorf("kiosk unit not found: %s", unit)
+	}
+	userSystemdDir := filepath.Join(account.HomeDir, ".config", "systemd", "user")
+	wantsDir := filepath.Join(userSystemdDir, "default.target.wants")
+	if err := os.MkdirAll(wantsDir, 0o750); err != nil {
+		return err
+	}
+	target := filepath.Join(userSystemdDir, "camera-kiosk.service")
+	if err := copyFile(unit, target, 0o644); err != nil {
+		return err
+	}
+	link := filepath.Join(wantsDir, "camera-kiosk.service")
+	_ = os.Remove(link)
+	if err := os.Symlink("../camera-kiosk.service", link); err != nil {
+		return err
+	}
+	if err := chownTree(filepath.Join(account.HomeDir, ".config", "systemd"), account.UID, account.GID); err != nil {
+		return err
+	}
+	_ = runCommand(ctx, "", "loginctl", "enable-linger", userName)
+	if noStart {
+		return nil
+	}
+	_ = runCommand(ctx, "", "runuser", "-u", userName, "--", "systemctl", "--user", "daemon-reload")
+	_ = runCommand(ctx, "", "runuser", "-u", userName, "--", "systemctl", "--user", "restart", "camera-kiosk.service")
+	return nil
+}
+
+func installDesktopLaunchers(installDir, userName string) error {
+	account, err := lookupInstallUser(userName)
+	if err != nil {
+		return err
+	}
+	desktopDir := filepath.Join(account.HomeDir, "Desktop")
+	if err := os.MkdirAll(desktopDir, 0o750); err != nil {
+		return err
+	}
+	entries, err := os.ReadDir(filepath.Join(installDir, "desktop"))
+	if err != nil {
+		return err
+	}
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".desktop") {
+			continue
+		}
+		target := filepath.Join(desktopDir, entry.Name())
+		if err := copyFile(filepath.Join(installDir, "desktop", entry.Name()), target, 0o755); err != nil {
+			return err
+		}
+		if err := os.Chown(target, account.UID, account.GID); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+type installUser struct {
+	HomeDir string
+	UID     int
+	GID     int
+}
+
+func lookupInstallUser(userName string) (installUser, error) {
+	account, err := user.Lookup(userName)
+	if err != nil {
+		return installUser{}, err
+	}
+	uid, err := strconv.Atoi(account.Uid)
+	if err != nil {
+		return installUser{}, err
+	}
+	gid, err := strconv.Atoi(account.Gid)
+	if err != nil {
+		return installUser{}, err
+	}
+	if account.HomeDir == "" || !pathExists(account.HomeDir) {
+		return installUser{}, fmt.Errorf("user home not found for %s", userName)
+	}
+	return installUser{HomeDir: account.HomeDir, UID: uid, GID: gid}, nil
+}
+
+func chownTree(root string, uid, gid int) error {
+	return filepath.WalkDir(root, func(path string, entry os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		return os.Chown(path, uid, gid)
+	})
+}
+
+func runCommand(ctx context.Context, dir, name string, args ...string) error {
+	cmd := exec.CommandContext(ctx, name, args...)
+	cmd.Dir = dir
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("%s %s failed: %w: %s", name, strings.Join(args, " "), err, strings.TrimSpace(string(out)))
+	}
+	return nil
 }
 
 func restartAndCheck(ctx context.Context, noRestart bool, restart func(context.Context) error, healthcheck func(context.Context) error) error {

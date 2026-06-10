@@ -5,6 +5,7 @@ import SystemLayout from '../layouts/SystemLayout.vue'
 import SystemGeneralPage from '../pages/system/GeneralPage.vue'
 import SystemAccessPage from '../pages/system/AccessPage.vue'
 import SystemNetworkPage from '../pages/system/NetworkPage.vue'
+import SystemIdentitiesPage from '../pages/system/IdentitiesPage.vue'
 import SystemMaintenancePage from '../pages/system/MaintenancePage.vue'
 import DeviceDetailsPage from '../pages/DeviceDetailsPage.vue'
 import LoginPage from '../pages/LoginPage.vue'
@@ -26,6 +27,7 @@ const router = createRouter({
         { path: 'allgemein', name: 'system-general', component: SystemGeneralPage },
         { path: 'zugriff', name: 'system-access', component: SystemAccessPage },
         { path: 'netzwerk', name: 'system-network', component: SystemNetworkPage },
+        { path: 'identitaeten', name: 'system-identities', component: SystemIdentitiesPage },
         { path: 'wartung', name: 'system-maintenance', component: SystemMaintenancePage }
       ]
     },

@@ -1,13 +1,19 @@
 # Setup
 
 1. Install Linux Mint updates.
-2. Install Docker, Docker Compose plugin, Go, Node.js/npm, and rsync.
-3. Clone or copy the repository.
-4. Run `sudo bin/install --user customer --enable-systemd --enable-kiosk --install-desktop-launchers`.
-   - `--enable-systemd` installs and starts `camera-appliance.service`.
+2. Make sure the release archive is publicly reachable from GitHub Releases.
+3. Run the bootstrap installer:
+
+   ```bash
+   curl -fsSL https://raw.githubusercontent.com/Rasalas/camera-appliance/main/install.sh | sudo bash -s -- --user customer --enable-kiosk
+   ```
+
+   - The bootstrap installs missing apt bootstrap dependencies where possible.
+   - On a fresh laptop it downloads the release and calls `camera-appliance install`.
+   - On an existing appliance it calls `camera-appliance update`.
    - `--enable-kiosk` installs a user service that opens the browser after the local API is reachable.
-   - `--target-dir /path` can override the default `/opt/camera-appliance`.
    - `--no-start` installs and enables services without starting them immediately.
+   - Firewall rules are not changed; normal kiosk operation uses localhost bindings only.
 5. Edit `/etc/camera-appliance/secrets.env` and set the real Tapo camera password.
    Alternatively set the camera password later in the local UI under **System**. The app first tries the OS keyring via `secret-tool` and falls back to `/etc/camera-appliance/local.env`.
 6. Check `bin/status` or `camera-appliance status`.

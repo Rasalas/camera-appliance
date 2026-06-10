@@ -47,7 +47,6 @@
                 :title="`${pane.slot.label} HD`"
                 loading="eager"
                 allow="autoplay; fullscreen; picture-in-picture"
-                @load="markHDFrameReady(pane.alias)"
               />
             </div>
             <div v-if="!shouldRenderPlayer(pane.slot)" class="viewer-placeholder" :class="{ paused: isPausedByPerformance(pane.slot) }">
@@ -200,6 +199,7 @@ let mosaicSaveTimer = 0
 let onAuthChanged: (() => void) | undefined
 let onFullscreenChange: (() => void) | undefined
 let onKey: ((e: KeyboardEvent) => void) | undefined
+let onMessage: ((e: MessageEvent) => void) | undefined
 let stopDrag: (() => void) | undefined
 let stopCropPan: (() => void) | undefined
 const frameEls: Record<string, HTMLIFrameElement> = {}
@@ -921,6 +921,13 @@ function isHDFrameReady(alias: string) {
   return hdFrameReady.value[alias] === true
 }
 
+function handleEmbedMessage(event: MessageEvent) {
+  if (event.origin !== window.location.origin || event.data?.type !== 'camera-stream-ready') return
+  const src = typeof event.data.src === 'string' ? event.data.src : ''
+  if (!src.endsWith('_stream1')) return
+  markHDFrameReady(src.slice(0, -'_stream1'.length))
+}
+
 function tileClass(slot: ViewerSlot) {
   const state = effectiveState(slot)
   return {
@@ -980,6 +987,8 @@ onMounted(() => {
   window.addEventListener('auth-changed', onAuthChanged)
   onFullscreenChange = () => syncFullscreen()
   document.addEventListener('fullscreenchange', onFullscreenChange)
+  onMessage = (event) => handleEmbedMessage(event)
+  window.addEventListener('message', onMessage)
   onKey = (event: KeyboardEvent) => {
     if (event.key !== 'Escape') return
     if (spotlightAlias.value) spotlightAlias.value = ''
@@ -1003,6 +1012,7 @@ onBeforeUnmount(() => {
   window.clearTimeout(mosaicSaveTimer)
   if (onAuthChanged) window.removeEventListener('auth-changed', onAuthChanged)
   if (onFullscreenChange) document.removeEventListener('fullscreenchange', onFullscreenChange)
+  if (onMessage) window.removeEventListener('message', onMessage)
   if (onKey) window.removeEventListener('keydown', onKey)
 })
 </script>

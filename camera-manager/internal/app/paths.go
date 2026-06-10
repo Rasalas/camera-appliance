@@ -30,6 +30,11 @@ const (
 
 	defaultPathFailThreshold     = 2
 	defaultPathRecoveryThreshold = 2
+
+	// Auto-assigned relay forward ports: relay n uses base+20n, slot m adds m-1,
+	// so cameras get relay paths without per-camera endpoint setup.
+	relayPortBaseDefault = 18554
+	relayPortBaseSpacing = 20
 )
 
 type RelayDefinition struct {
@@ -39,6 +44,7 @@ type RelayDefinition struct {
 	Host      string `json:"host"`
 	BindHost  string `json:"bind_host,omitempty"`
 	SSHTarget string `json:"ssh_target,omitempty"`
+	PortBase  int    `json:"port_base"`
 	AutoStart bool   `json:"auto_start"`
 	Enabled   bool   `json:"enabled"`
 }
@@ -249,7 +255,7 @@ func streamPathCandidates(binding state.Binding, settings map[string]string) []S
 		})
 	}
 	for _, relay := range relayDefinitions(settings) {
-		host, port := relayEndpoint(settings, binding.DeviceID, relay)
+		host, port := relayEndpoint(settings, binding, relay)
 		if host == "" || port == "" {
 			continue
 		}
@@ -281,7 +287,7 @@ func streamPathCandidates(binding state.Binding, settings map[string]string) []S
 
 func relayDefinitions(settings map[string]string) []RelayDefinition {
 	var relays []RelayDefinition
-	for _, id := range settingList(settings[relayIDsKey]) {
+	for index, id := range settingList(settings[relayIDsKey]) {
 		prefix := "camera.relay." + id + "."
 		if settings[prefix+"enabled"] == "false" {
 			continue
@@ -301,7 +307,8 @@ func relayDefinitions(settings map[string]string) []RelayDefinition {
 			Host:      strings.TrimSpace(settings[prefix+"host"]),
 			BindHost:  relayBindHost(settings[prefix+"bind_host"]),
 			SSHTarget: sshTarget,
-			AutoStart: boolSetting(settings, prefix+"auto_start", false),
+			PortBase:  intSetting(settings, prefix+"port_base", relayPortBaseDefault+relayPortBaseSpacing*index, 1024, 65000),
+			AutoStart: boolSetting(settings, prefix+"auto_start", true),
 			Enabled:   true,
 		})
 	}
@@ -324,8 +331,8 @@ func relayBindHost(raw string) string {
 	return value
 }
 
-func relayEndpoint(settings map[string]string, deviceID string, relay RelayDefinition) (string, string) {
-	prefix := "camera.relay_endpoint." + deviceID + "." + relay.ID + "."
+func relayEndpoint(settings map[string]string, binding state.Binding, relay RelayDefinition) (string, string) {
+	prefix := "camera.relay_endpoint." + binding.DeviceID + "." + relay.ID + "."
 	host := strings.TrimSpace(settings[prefix+"host"])
 	if host == "" {
 		host = relay.Host
@@ -335,9 +342,42 @@ func relayEndpoint(settings map[string]string, deviceID string, relay RelayDefin
 		port = strings.TrimSpace(settings["camera.relay."+relay.ID+".default_port"])
 	}
 	if port == "" {
+		port = relayAutoPort(relay, binding.SlotID)
+	}
+	if port == "" {
 		return "", ""
 	}
 	return host, port
+}
+
+// relayAutoPort derives a stable local forward port from the camera's slot
+// (cam1 → PortBase, cam2 → PortBase+1, …); without a slot there is no auto port.
+func relayAutoPort(relay RelayDefinition, slotID string) string {
+	slot := slotNumber(slotID)
+	if slot <= 0 || relay.PortBase <= 0 {
+		return ""
+	}
+	port := relay.PortBase + slot - 1
+	if port > 65535 {
+		return ""
+	}
+	return strconv.Itoa(port)
+}
+
+func slotNumber(slotID string) int {
+	trimmed := strings.TrimSpace(slotID)
+	start := len(trimmed)
+	for start > 0 && trimmed[start-1] >= '0' && trimmed[start-1] <= '9' {
+		start--
+	}
+	if start == len(trimmed) {
+		return 0
+	}
+	number, err := strconv.Atoi(trimmed[start:])
+	if err != nil || number <= 0 {
+		return 0
+	}
+	return number
 }
 
 func orderStreamPaths(paths []StreamPath, policy, lastPathID string) []StreamPath {

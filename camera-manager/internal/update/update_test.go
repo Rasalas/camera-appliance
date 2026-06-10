@@ -142,6 +142,45 @@ func TestRollbackRestoresLastSnapshot(t *testing.T) {
 	}
 }
 
+func TestInstallCopiesReleaseAndInitializesRuntimeFiles(t *testing.T) {
+	ctx := context.Background()
+	cfg := newTestConfig(t)
+	installDir := t.TempDir()
+	archive := newReleaseArchive(t, map[string]string{
+		"camera-appliance/manifest.json":        `{"version":"1.2.3","commit":"abc123"}`,
+		"camera-appliance/.env.example":         "TAPO_CAMERA_PASSWORD=change-me\nADMIN_SESSION_SECRET=change-me\n",
+		"camera-appliance/bin/camera-appliance": "new",
+		"camera-appliance/compose.yaml":         "services: {}\n",
+	})
+	if err := os.Remove(cfg.Go2RTCConfigPath()); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := Install(ctx, InstallOptions{
+		Config:            cfg,
+		Archive:           archive,
+		InstallDir:        installDir,
+		NoStart:           true,
+		AllowNonRoot:      true,
+		SkipCommandChecks: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := readFile(t, filepath.Join(installDir, "bin", "camera-appliance")); got != "new" {
+		t.Fatalf("expected installed binary, got %q", got)
+	}
+	if got := readFile(t, filepath.Join(cfg.ConfigDir, "secrets.env")); !strings.Contains(got, "change-me") {
+		t.Fatalf("expected copied secrets template, got %q", got)
+	}
+	if got := readFile(t, cfg.Go2RTCConfigPath()); got != "streams: {}\n" {
+		t.Fatalf("expected initial go2rtc config, got %q", got)
+	}
+	if !result.SecretsCreated || !result.Go2RTCInitialized {
+		t.Fatalf("expected created runtime files, got %+v", result)
+	}
+}
+
 func newTestConfig(t *testing.T) config.Config {
 	t.Helper()
 	dir := t.TempDir()

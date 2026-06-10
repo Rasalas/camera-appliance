@@ -30,6 +30,12 @@
     el.src = '/go2rtc/api/ws?src=' + encodeURIComponent(src);
     document.body.appendChild(el);
     // Native Controls cross-browser zuverlässig abschalten (auch Firefox):
+    let readySent = false;
+    const notifyReady = () => {
+      if (readySent) return;
+      readySent = true;
+      window.parent?.postMessage({ type: 'camera-stream-ready', src }, location.origin);
+    };
     const strip = () => {
       const v = el.video || el.querySelector?.('video');
       if (v) {
@@ -38,6 +44,9 @@
         v.removeAttribute('controls');
         v.style.pointerEvents = 'none';
         if (!muted) v.play?.().catch?.(() => undefined);
+        if (v.readyState >= 2) notifyReady();
+        v.addEventListener('loadeddata', notifyReady, { once: true });
+        v.addEventListener('playing', notifyReady, { once: true });
       }
       for (const node of el.querySelectorAll?.('*') || []) {
         if (node.textContent?.trim() === 'MSE') node.style.display = 'none';

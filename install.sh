@@ -1,0 +1,189 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+DEFAULT_RELEASE_URL="https://github.com/Rasalas/camera-appliance/releases/latest/download/camera-appliance-latest.tar.gz"
+DEFAULT_INSTALLER_URL="https://raw.githubusercontent.com/Rasalas/camera-appliance/main/install.sh"
+RELEASE_URL="${CAMERA_APPLIANCE_RELEASE_URL:-$DEFAULT_RELEASE_URL}"
+INSTALL_DIR="/opt/camera-appliance"
+USER_NAME="${SUDO_USER:-${USER:-}}"
+ENABLE_KIOSK=0
+INSTALL_DESKTOP=1
+ENABLE_SYSTEMD=1
+NO_START=0
+
+usage() {
+  cat <<'USAGE'
+Usage:
+  curl -fsSL https://raw.githubusercontent.com/Rasalas/camera-appliance/main/install.sh | sudo bash -s -- [options]
+
+Options:
+  --url URL                         Release archive URL
+  --user USER                       Linux desktop/kiosk user
+  --install-dir DIR                 Install directory (default: /opt/camera-appliance)
+  --enable-kiosk                    Enable kiosk browser user service
+  --no-desktop-launchers            Do not install desktop launchers
+  --no-systemd                      Do not install/enable camera-appliance.service
+  --no-start                        Install/enable services without starting them
+  -h, --help                        Show this help
+
+Hinweis:
+  Das Skript installiert nur die Bootstrap-Abhängigkeiten, lädt ein Release und ruft dann
+  camera-appliance install oder camera-appliance update auf. Firewall-Regeln werden nicht geändert.
+USAGE
+}
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --url)
+      RELEASE_URL="${2:-}"
+      shift 2
+      ;;
+    --user)
+      USER_NAME="${2:-}"
+      shift 2
+      ;;
+    --install-dir)
+      INSTALL_DIR="${2:-}"
+      shift 2
+      ;;
+    --enable-kiosk)
+      ENABLE_KIOSK=1
+      shift
+      ;;
+    --no-desktop-launchers)
+      INSTALL_DESKTOP=0
+      shift
+      ;;
+    --no-systemd)
+      ENABLE_SYSTEMD=0
+      shift
+      ;;
+    --no-start)
+      NO_START=1
+      shift
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    *)
+      echo "Unbekannte Option: $1" >&2
+      usage >&2
+      exit 2
+      ;;
+  esac
+done
+
+if [[ "${EUID:-$(id -u)}" -ne 0 ]]; then
+  echo "Bitte mit sudo/root ausführen. Beispiel:" >&2
+  echo "  curl -fsSL $DEFAULT_INSTALLER_URL | sudo bash -s -- --user customer --enable-kiosk" >&2
+  exit 1
+fi
+
+if [[ -z "$RELEASE_URL" ]]; then
+  echo "--url darf nicht leer sein." >&2
+  exit 2
+fi
+
+need_or_install() {
+  local missing=()
+  for command_name in curl tar docker; do
+    if ! command -v "$command_name" >/dev/null 2>&1; then
+      missing+=("$command_name")
+    fi
+  done
+  if docker compose version >/dev/null 2>&1; then
+    :
+  else
+    missing+=("docker-compose-plugin")
+  fi
+  if [[ "${#missing[@]}" -eq 0 ]]; then
+    return 0
+  fi
+  if command -v apt-get >/dev/null 2>&1; then
+    echo "Installiere fehlende Bootstrap-Abhängigkeiten: ${missing[*]}"
+    apt-get update
+    apt-get install -y ca-certificates curl tar docker.io docker-compose-plugin
+    systemctl enable --now docker >/dev/null 2>&1 || true
+    return 0
+  fi
+  echo "Fehlende Abhängigkeiten: ${missing[*]}" >&2
+  echo "Bitte curl, tar, Docker und das Docker Compose Plugin installieren und erneut ausführen." >&2
+  exit 1
+}
+
+find_release_binary() {
+  local root="$1"
+  local binary
+  binary="$(find "$root" -path '*/bin/camera-appliance' -type f -perm -111 | head -n 1 || true)"
+  if [[ -z "$binary" ]]; then
+    binary="$(find "$root" -path '*/bin/camera-appliance' -type f | head -n 1 || true)"
+  fi
+  if [[ -z "$binary" ]]; then
+    echo "Release enthält kein bin/camera-appliance Binary." >&2
+    exit 1
+  fi
+  chmod +x "$binary"
+  printf '%s\n' "$binary"
+}
+
+need_or_install
+
+tmp_dir="$(mktemp -d)"
+cleanup() {
+  rm -rf "$tmp_dir"
+}
+trap cleanup EXIT
+
+archive="$tmp_dir/camera-appliance-release.tar.gz"
+extract_dir="$tmp_dir/release"
+mkdir -p "$extract_dir"
+
+echo "Lade camera-appliance Release:"
+echo "  $RELEASE_URL"
+curl -fL "$RELEASE_URL" -o "$archive"
+tar -xzf "$archive" -C "$extract_dir"
+release_binary="$(find_release_binary "$extract_dir")"
+
+install_common_args=(--install-dir "$INSTALL_DIR")
+if [[ -n "$USER_NAME" ]]; then
+  install_common_args+=(--user "$USER_NAME")
+fi
+if [[ "$NO_START" -eq 1 ]]; then
+  install_common_args+=(--no-start)
+fi
+update_args=(--install-dir "$INSTALL_DIR")
+if [[ "$NO_START" -eq 1 ]]; then
+  update_args+=(--no-restart)
+fi
+
+if [[ -x "$INSTALL_DIR/bin/camera-appliance" ]]; then
+  echo "Bestehende Installation gefunden. Führe update aus."
+  "$INSTALL_DIR/bin/camera-appliance" update --archive "$archive" "${update_args[@]}"
+else
+  echo "Keine bestehende Installation gefunden. Führe Erstinstallation aus."
+  install_args=(install --archive "$archive" "${install_common_args[@]}")
+  if [[ "$ENABLE_SYSTEMD" -eq 1 ]]; then
+    install_args+=(--enable-systemd)
+  fi
+  if [[ "$ENABLE_KIOSK" -eq 1 ]]; then
+    install_args+=(--enable-kiosk)
+  fi
+  if [[ "$INSTALL_DESKTOP" -eq 1 ]]; then
+    install_args+=(--install-desktop-launchers)
+  fi
+  "$release_binary" "${install_args[@]}"
+fi
+
+cat <<'NEXT'
+
+Nächste Schritte:
+  1. /etc/camera-appliance/secrets.env prüfen und change-me Werte ersetzen.
+  2. http://127.0.0.1:8091 auf dem Kunden-Laptop öffnen.
+  3. Kameras suchen, zuordnen, go2rtc-Konfiguration rendern und go2rtc neu starten.
+
+Was dieses Skript nicht automatisch macht:
+  - GitHub/Release-Sichtbarkeit konfigurieren.
+  - Kamera-Passwörter erraten oder setzen.
+  - Firewall-Ports öffnen. Das ist für den lokalen Kiosk-Betrieb nicht nötig.
+NEXT

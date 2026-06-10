@@ -30,7 +30,7 @@ func Execute() error {
 		SilenceUsage:  true,
 		SilenceErrors: true,
 	}
-	root.AddCommand(serveCmd(), statusCmd(), discoverCmd(), assignCmd(), renderCmd(), restartGo2RTCCmd(), restartStackCmd(), relaysCmd(), adminCmd(), resetBindingsCmd(), backupCmd(), restoreCmd(), supportBundleCmd(), updateCmd())
+	root.AddCommand(serveCmd(), statusCmd(), discoverCmd(), assignCmd(), renderCmd(), restartGo2RTCCmd(), restartStackCmd(), relaysCmd(), adminCmd(), resetBindingsCmd(), backupCmd(), restoreCmd(), supportBundleCmd(), installCmd(), updateCmd())
 	if err := root.Execute(); err != nil {
 		fmt.Fprintln(os.Stderr, redaction.Text(err.Error()))
 		return err
@@ -418,6 +418,47 @@ func supportBundleCmd() *cobra.Command {
 	return cmd
 }
 
+func installCmd() *cobra.Command {
+	var archivePath string
+	var releaseURL string
+	var sourceDir string
+	var installDir string
+	var userName string
+	var enableSystemd bool
+	var enableKiosk bool
+	var installDesktop bool
+	var noStart bool
+	cmd := &cobra.Command{
+		Use:   "install",
+		Short: "Install the appliance from a release archive",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			result, err := updater.Install(cmd.Context(), updater.InstallOptions{
+				Archive:                 archivePath,
+				URL:                     releaseURL,
+				SourceDir:               sourceDir,
+				InstallDir:              installDir,
+				UserName:                userName,
+				EnableSystemd:           enableSystemd,
+				EnableKiosk:             enableKiosk,
+				InstallDesktopLaunchers: installDesktop,
+				NoStart:                 noStart,
+			})
+			printInstallResult(result)
+			return err
+		},
+	}
+	cmd.Flags().StringVar(&archivePath, "archive", "", "local release archive .tar.gz")
+	cmd.Flags().StringVar(&releaseURL, "url", "", "release archive URL")
+	cmd.Flags().StringVar(&sourceDir, "source-dir", "", "extracted release directory")
+	cmd.Flags().StringVar(&installDir, "install-dir", updater.DefaultInstallDir, "installed appliance directory")
+	cmd.Flags().StringVar(&userName, "user", os.Getenv("SUDO_USER"), "desktop/kiosk Linux user")
+	cmd.Flags().BoolVar(&enableSystemd, "enable-systemd", false, "install and enable camera-appliance.service")
+	cmd.Flags().BoolVar(&enableKiosk, "enable-kiosk", false, "install user kiosk service")
+	cmd.Flags().BoolVar(&installDesktop, "install-desktop-launchers", false, "install desktop launchers for --user")
+	cmd.Flags().BoolVar(&noStart, "no-start", false, "install and enable services without starting them")
+	return cmd
+}
+
 func updateCmd() *cobra.Command {
 	var archivePath string
 	var releaseURL string
@@ -555,6 +596,52 @@ func printStatus(status app.Status) {
 			ip = " " + binding.Device.LastIP
 		}
 		fmt.Printf("  %s %s: %s%s\n", binding.SlotID, label, stateText, ip)
+	}
+}
+
+func printInstallResult(result updater.InstallResult) {
+	if result.InstallDir == "" {
+		return
+	}
+	fmt.Printf("camera-appliance installiert in %s\n", result.InstallDir)
+	fmt.Printf("Version: %s (%s)\n", result.Version.Version, result.Version.Commit)
+	if result.SecretsCreated {
+		fmt.Println("Secrets: /etc/camera-appliance/secrets.env wurde angelegt. change-me Werte vor Kundeneinsatz ersetzen.")
+	} else {
+		fmt.Println("Secrets: vorhandene /etc/camera-appliance/secrets.env wurde nicht überschrieben.")
+	}
+	if result.Go2RTCInitialized {
+		fmt.Println("go2rtc: leere Startkonfiguration wurde angelegt.")
+	}
+	if result.SystemdEnabled {
+		if result.Started {
+			fmt.Println("Systemd: camera-appliance.service ist aktiviert und gestartet.")
+		} else {
+			fmt.Println("Systemd: camera-appliance.service ist aktiviert, aber nicht gestartet (--no-start).")
+		}
+	} else {
+		fmt.Println("Systemd: nicht aktiviert.")
+	}
+	if result.KioskEnabled {
+		fmt.Println("Kiosk: Benutzer-Service wurde eingerichtet.")
+	}
+	if result.DesktopInstalled {
+		fmt.Println("Desktop: Starter wurden installiert.")
+	}
+	fmt.Println()
+	fmt.Println("Auf dem Kunden-Laptop öffnen:")
+	fmt.Println("  http://127.0.0.1:8091")
+	fmt.Println()
+	fmt.Println("Firewall-Hinweis:")
+	fmt.Println("  UI/API und go2rtc binden standardmäßig nur an localhost/Loopback auf diesem Laptop.")
+	fmt.Println("  Für den normalen Kiosk-Betrieb müssen keine eingehenden Ports geöffnet werden.")
+	fmt.Println("  Ausgehend braucht der Laptop Zugriff auf Kameras (TCP 554, 2020, 80) sowie HTTPS/Docker-Registry für Installation/Updates.")
+	if len(result.Warnings) > 0 {
+		fmt.Println()
+		fmt.Println("Hinweise:")
+		for _, warning := range result.Warnings {
+			fmt.Printf("  - %s\n", warning)
+		}
 	}
 }
 
