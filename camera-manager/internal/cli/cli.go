@@ -432,6 +432,9 @@ func installCmd() *cobra.Command {
 		Use:   "install",
 		Short: "Install the appliance from a release archive",
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if archivePath == "" && releaseURL == "" && sourceDir == "" {
+				releaseURL = updater.DefaultReleaseURL
+			}
 			result, err := updater.Install(cmd.Context(), updater.InstallOptions{
 				Archive:                 archivePath,
 				URL:                     releaseURL,
@@ -469,6 +472,9 @@ func updateCmd() *cobra.Command {
 		Use:   "update",
 		Short: "Apply a release archive with backup and rollback",
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if archivePath == "" && releaseURL == "" {
+				releaseURL = updater.DefaultReleaseURL
+			}
 			a, err := app.Open(cmd.Context())
 			if err != nil {
 				return err

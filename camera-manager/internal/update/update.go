@@ -26,6 +26,7 @@ import (
 
 const (
 	DefaultInstallDir = "/opt/camera-appliance"
+	DefaultReleaseURL = "https://github.com/Rasalas/camera-appliance/releases/latest/download/camera-appliance-latest.tar.gz"
 	lastUpdateFile    = "update-last.json"
 )
 
@@ -164,6 +165,9 @@ func Apply(ctx context.Context, opts Options) (Result, error) {
 		return result, err
 	}
 	result.AppliedFiles = applied
+	if err := ensureCommandLink(installDir); err != nil {
+		result.Warning += " CLI-Link konnte nicht erstellt werden: " + err.Error()
+	}
 	if err := writeLastUpdate(opts.Config, lastUpdate{
 		InstallDir:  installDir,
 		BackupPath:  result.BackupPath,
@@ -290,6 +294,9 @@ func Install(ctx context.Context, opts InstallOptions) (InstallResult, error) {
 		return result, err
 	}
 	result.AppliedFiles = applied
+	if err := ensureCommandLink(installDir); err != nil {
+		result.Warnings = append(result.Warnings, "CLI-Link konnte nicht erstellt werden: "+err.Error())
+	}
 
 	if opts.EnableSystemd {
 		if err := installSystemd(ctx, installDir, opts.NoStart); err != nil {
@@ -689,6 +696,35 @@ func applyRelease(ctx context.Context, releaseRoot, installDir string) ([]string
 		}
 	}
 	return files, nil
+}
+
+func ensureCommandLink(installDir string) error {
+	cleanInstallDir, err := filepath.Abs(filepath.Clean(installDir))
+	if err != nil {
+		return err
+	}
+	if os.Geteuid() != 0 || cleanInstallDir != DefaultInstallDir {
+		return nil
+	}
+	binary := filepath.Join(cleanInstallDir, "bin", "camera-appliance")
+	if !pathExists(binary) {
+		return fmt.Errorf("binary not found: %s", binary)
+	}
+	link := "/usr/local/bin/camera-appliance"
+	if err := os.MkdirAll(filepath.Dir(link), 0o755); err != nil {
+		return err
+	}
+	if info, err := os.Lstat(link); err == nil {
+		if info.Mode()&os.ModeSymlink == 0 {
+			return fmt.Errorf("%s exists and is not a symlink", link)
+		}
+		if err := os.Remove(link); err != nil {
+			return err
+		}
+	} else if !os.IsNotExist(err) {
+		return err
+	}
+	return os.Symlink(binary, link)
 }
 
 func restoreRollback(ctx context.Context, rollbackDir, installDir string) error {

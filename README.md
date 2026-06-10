@@ -129,6 +129,12 @@ curl -fsSL https://raw.githubusercontent.com/Rasalas/camera-appliance/main/insta
 ```
 
 The bootstrap script downloads the latest public release archive. On a fresh laptop it calls `camera-appliance install`; on an existing appliance it calls `camera-appliance update`. It auto-detects the desktop user and enables the kiosk browser by default. It does not overwrite an existing `/etc/camera-appliance/secrets.env` and does not change firewall rules.
+
+After the bootstrap install, the CLI is linked into `/usr/local/bin`, so regular updates can be run directly:
+
+```bash
+sudo camera-appliance update
+```
 Open `http://127.0.0.1:8091`, set the camera password in the local UI, discover cameras, assign devices to `cam1` through `cam5`, render go2rtc config, and restart go2rtc.
 
 ## Recovery

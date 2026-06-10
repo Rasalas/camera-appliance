@@ -52,7 +52,6 @@ type credentialCandidate struct {
 
 const (
 	credentialIdentityIDsKey = "camera.identity.ids"
-	defaultUpdateURL         = "https://github.com/Rasalas/camera-appliance/releases/latest/download/camera-appliance-latest.tar.gz"
 )
 
 func New(a *app.App) *Server {
@@ -947,7 +946,7 @@ func (s *Server) startUpdate(w http.ResponseWriter, r *http.Request) {
 	}
 	updateURL := strings.TrimSpace(req.URL)
 	if updateURL == "" {
-		updateURL = defaultUpdateURL
+		updateURL = updater.DefaultReleaseURL
 	}
 	parsed, err := neturl.ParseRequestURI(updateURL)
 	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
