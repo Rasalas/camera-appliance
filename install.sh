@@ -245,7 +245,7 @@ fi
 
 if [[ -x "$INSTALL_DIR/bin/camera-appliance" ]]; then
   echo "Bestehende Installation gefunden. Führe update aus."
-  "$INSTALL_DIR/bin/camera-appliance" update --archive "$archive" "${update_args[@]}"
+  "$release_binary" update --archive "$archive" "${update_args[@]}"
 else
   echo "Keine bestehende Installation gefunden. Führe Erstinstallation aus."
   echo "Docker-Images werden beim ersten Start gebaut und geladen; das kann mehrere Minuten dauern."

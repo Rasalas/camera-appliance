@@ -775,7 +775,8 @@ func shouldSkipCopyPath(rel string) bool {
 }
 
 func copyFile(src, dst string, mode os.FileMode) error {
-	if err := os.MkdirAll(filepath.Dir(dst), 0o750); err != nil {
+	dir := filepath.Dir(dst)
+	if err := os.MkdirAll(dir, 0o750); err != nil {
 		return err
 	}
 	in, err := os.Open(src)
@@ -783,16 +784,33 @@ func copyFile(src, dst string, mode os.FileMode) error {
 		return err
 	}
 	defer in.Close()
-	out, err := os.OpenFile(dst, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, mode)
+	tmp, err := os.CreateTemp(dir, "."+filepath.Base(dst)+".tmp-*")
 	if err != nil {
 		return err
 	}
-	_, copyErr := io.Copy(out, in)
-	closeErr := out.Close()
-	if copyErr != nil {
-		return copyErr
+	tmpName := tmp.Name()
+	cleanup := true
+	defer func() {
+		if cleanup {
+			_ = os.Remove(tmpName)
+		}
+	}()
+	if err := tmp.Chmod(mode); err != nil {
+		_ = tmp.Close()
+		return err
 	}
-	return closeErr
+	if _, err := io.Copy(tmp, in); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	if err := os.Rename(tmpName, dst); err != nil {
+		return err
+	}
+	cleanup = false
+	return nil
 }
 
 func installSystemd(ctx context.Context, installDir string, noStart bool) error {
