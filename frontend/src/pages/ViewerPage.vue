@@ -35,7 +35,22 @@
                 @load="markFrameReady(pane.alias)"
               />
             </div>
-            <div v-else class="viewer-placeholder" :class="{ paused: isPausedByPerformance(pane.slot) }">
+            <div
+              v-if="shouldRenderHDPlayer(pane.slot)"
+              class="viewer-frame-transform viewer-frame-transform-hd"
+              :class="[displayClass(pane.slot), { ready: isHDFrameReady(pane.alias) }]"
+              :style="displayStyle(pane.slot)"
+            >
+              <iframe
+                class="viewer-frame"
+                :src="hdFrameSrc(pane.slot)"
+                :title="`${pane.slot.label} HD`"
+                loading="eager"
+                allow="autoplay; fullscreen; picture-in-picture"
+                @load="markHDFrameReady(pane.alias)"
+              />
+            </div>
+            <div v-if="!shouldRenderPlayer(pane.slot)" class="viewer-placeholder" :class="{ paused: isPausedByPerformance(pane.slot) }">
               <div class="placeholder-mark">{{ pane.alias }}</div>
               <div>{{ placeholderMessage(pane.slot) }}</div>
             </div>
@@ -156,6 +171,7 @@ const loading = ref(true)
 const busy = ref(false)
 const error = ref('')
 const frameReady = ref<Record<string, boolean>>({})
+const hdFrameReady = ref<Record<string, boolean>>({})
 const performanceMode = ref<'quality' | 'balanced' | 'low' | 'diagnostic'>('quality')
 const audioEnabled = ref(true)
 const activeAudioAlias = ref('')
@@ -633,7 +649,9 @@ function toggleEdit() {
 }
 
 function toggleSpotlight(alias: string) {
-  spotlightAlias.value = spotlightAlias.value === alias ? '' : alias
+  const next = spotlightAlias.value === alias ? '' : alias
+  spotlightAlias.value = next
+  if (next) hdFrameReady.value = { ...hdFrameReady.value, [next]: false }
 }
 
 async function toggleFullscreen() {
@@ -852,6 +870,11 @@ function shouldRenderPlayer(slot: ViewerSlot) {
   return true
 }
 
+function shouldRenderHDPlayer(slot: ViewerSlot) {
+  if (spotlightAlias.value !== slot.alias || !slot.playback?.hd_page_url || !isPlayable(slot)) return false
+  return slot.playback.hd_page_url !== slot.playback.page_url
+}
+
 function isPausedByPerformance(slot: ViewerSlot) {
   return performanceMode.value === 'low' && !!slot.playback?.page_url && isPlayable(slot) && slot.alias !== primaryLiveAlias.value
 }
@@ -863,6 +886,12 @@ function iframeLoading(slot: ViewerSlot): 'eager' | 'lazy' {
 
 function frameSrc(slot: ViewerSlot) {
   const url = slot.playback?.page_url
+  if (!url) return ''
+  return `${url}&fit=${effectiveDisplay(slot).fit_mode}`
+}
+
+function hdFrameSrc(slot: ViewerSlot) {
+  const url = slot.playback?.hd_page_url
   if (!url) return ''
   return `${url}&fit=${effectiveDisplay(slot).fit_mode}`
 }
@@ -882,6 +911,14 @@ function effectiveState(slot: ViewerSlot): ViewerSlotState {
 function markFrameReady(alias: string) {
   frameReady.value = { ...frameReady.value, [alias]: true }
   syncAudioState()
+}
+
+function markHDFrameReady(alias: string) {
+  hdFrameReady.value = { ...hdFrameReady.value, [alias]: true }
+}
+
+function isHDFrameReady(alias: string) {
+  return hdFrameReady.value[alias] === true
 }
 
 function tileClass(slot: ViewerSlot) {

@@ -32,6 +32,12 @@ func TestRenderWritesRedactedConfig(t *testing.T) {
 	if !strings.Contains(string(data), "user:secret@192.168.1.20") {
 		t.Fatalf("unrendered config: %s", data)
 	}
+	if !strings.Contains(string(data), "cam1_stream1:") || !strings.Contains(string(data), "/stream1") {
+		t.Fatalf("expected HD profile alias in rendered config: %s", data)
+	}
+	if !strings.Contains(string(data), "cam1_stream2:") || !strings.Contains(string(data), "/stream2") {
+		t.Fatalf("expected SD profile alias in rendered config: %s", data)
+	}
 	if strings.Contains(result.RedactedYAML, "secret") {
 		t.Fatalf("redacted yaml leaked secret: %s", result.RedactedYAML)
 	}

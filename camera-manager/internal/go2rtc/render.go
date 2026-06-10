@@ -85,10 +85,6 @@ func Render(ctx context.Context, input RenderInput) (RenderResult, error) {
 			warnings = append(warnings, fmt.Sprintf("%s (%s) wurde übersprungen: Kamera-Passwort fehlt", slot.ID, displayLabel(slot, binding)))
 			continue
 		}
-		stream := binding.StreamName
-		if stream == "" {
-			stream = slot.DefaultStream
-		}
 		endpoint := input.Endpoints[binding.DeviceID]
 		if strings.TrimSpace(endpoint.Host) == "" {
 			endpoint.Host = binding.Device.LastIP
@@ -96,7 +92,14 @@ func Render(ctx context.Context, input RenderInput) (RenderResult, error) {
 		if strings.TrimSpace(endpoint.Port) == "" {
 			endpoint.Port = "554"
 		}
+		stream := binding.StreamName
+		if stream == "" {
+			stream = slot.DefaultStream
+		}
 		doc.Streams[slot.ID] = []string{cameraRTSPURL(binding.Username, password, endpoint.Host, endpoint.Port, stream)}
+		for _, profile := range []string{"stream1", "stream2"} {
+			doc.Streams[profileAlias(slot.ID, profile)] = []string{cameraRTSPURL(binding.Username, password, endpoint.Host, endpoint.Port, profile)}
+		}
 	}
 	data, err := yaml.Marshal(doc)
 	if err != nil {
@@ -128,6 +131,10 @@ func cameraRTSPURL(username, password, host, port, stream string) string {
 		Path:   "/" + strings.TrimLeft(stream, "/"),
 	}
 	return u.String()
+}
+
+func profileAlias(slotID, stream string) string {
+	return slotID + "_" + strings.Trim(strings.TrimSpace(stream), "/")
 }
 
 func displayLabel(slot config.Slot, binding state.Binding) string {

@@ -30,7 +30,7 @@ func TestViewerReportsOnlineAliasWithoutLeakingSecrets(t *testing.T) {
 	if err := a.Store.UpsertBinding(ctx, state.Binding{SlotID: "cam1", DeviceID: "dev1", Label: "Hof", Username: "user", StreamName: "stream2", Enabled: true}); err != nil {
 		t.Fatal(err)
 	}
-	writeGeneratedGo2RTC(t, a.Config, "streams:\n  cam1:\n    - rtsp://user:secret@192.168.1.20:554/stream2\n")
+	writeGeneratedGo2RTC(t, a.Config, "streams:\n  cam1:\n    - rtsp://user:secret@192.168.1.20:554/stream2\n  cam1_stream1:\n    - rtsp://user:secret@192.168.1.20:554/stream1\n")
 
 	viewer, err := a.Viewer(ctx)
 	if err != nil {
@@ -45,6 +45,9 @@ func TestViewerReportsOnlineAliasWithoutLeakingSecrets(t *testing.T) {
 	}
 	if strings.Contains(slot.Playback.PageURL, "webrtc") || !strings.Contains(slot.Playback.PageURL, "mode=mse%2Cmp4%2Cmjpeg") {
 		t.Fatalf("expected MSE-first kiosk playback URL, got %+v", slot.Playback)
+	}
+	if !strings.Contains(slot.Playback.HDPageURL, "src=cam1_stream1") {
+		t.Fatalf("expected HD playback URL for cam1_stream1, got %+v", slot.Playback)
 	}
 	data, _ := json.Marshal(viewer)
 	if strings.Contains(string(data), "secret") {

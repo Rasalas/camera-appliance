@@ -63,7 +63,8 @@ type ViewerSlot struct {
 }
 
 type ViewerPlayback struct {
-	PageURL string `json:"page_url"`
+	PageURL   string `json:"page_url"`
+	HDPageURL string `json:"hd_page_url,omitempty"`
 }
 
 type ViewerPerformance struct {
@@ -233,6 +234,9 @@ func (a *App) viewerSlot(ctx context.Context, slot config.Slot, binding state.Bi
 	item.State = ViewerStateOnline
 	item.Message = "Stream-Alias ist bereit."
 	item.Playback = &ViewerPlayback{PageURL: go2rtcStreamPageURL(a.Config.Go2RTCURL, slot.ID)}
+	if aliases[viewerProfileAlias(slot.ID, "stream1")] {
+		item.Playback.HDPageURL = go2rtcStreamPageURL(a.Config.Go2RTCURL, viewerProfileAlias(slot.ID, "stream1"))
+	}
 	item.Diagnostics = []ViewerDiagnostic{
 		{Key: "assignment", Status: "ok", Message: "Gerät ist zugeordnet."},
 		{Key: "network", Status: "ok", Message: "Letzte IP: " + binding.Device.LastIP},
@@ -478,4 +482,8 @@ func go2rtcStreamPageURL(baseURL, alias string) string {
 	q.Set("base", strings.TrimRight(parsed.String(), "/"))
 	q.Set("mode", "mse,mp4,mjpeg")
 	return "/embed.html?" + q.Encode()
+}
+
+func viewerProfileAlias(slotID, stream string) string {
+	return slotID + "_" + strings.Trim(strings.TrimSpace(stream), "/")
 }

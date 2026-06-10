@@ -559,6 +559,15 @@ input, select, textarea { font: inherit; color: inherit; }
   background: #000;
   will-change: transform;
 }
+.viewer-frame-transform-hd {
+  opacity: 0;
+  z-index: 1;
+  pointer-events: none;
+  transition: opacity .18s ease;
+}
+.viewer-frame-transform-hd.ready {
+  opacity: 1;
+}
 .viewer-frame-transform.fit-contain .viewer-frame {
   background: #000;
 }

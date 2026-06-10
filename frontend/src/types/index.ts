@@ -168,6 +168,7 @@ export interface ViewerDiagnostic {
 
 export interface ViewerPlayback {
   page_url: string
+  hd_page_url?: string
 }
 
 export type ViewerPerformanceMode = 'quality' | 'balanced' | 'low' | 'diagnostic'
