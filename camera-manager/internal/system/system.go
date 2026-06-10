@@ -117,14 +117,14 @@ func dockerComposeStatuses(ctx context.Context, cfg config.Config, services ...s
 	output, err := commandOutput(ctx, 1800*time.Millisecond, "docker", args...)
 	running := serviceSet(output)
 	if err != nil {
-		fallback, fallbackErr := commandOutput(ctx, 1800*time.Millisecond, "docker", "ps", "--format", "{{.Names}}")
+		fallback, fallbackErr := commandOutput(ctx, 3500*time.Millisecond, "docker", "ps", "--format", "{{.Names}}")
 		if fallbackErr != nil {
-			return []ServiceStatus{{Name: "docker compose", Online: false, Message: shortError(fmt.Errorf("%w: %s", err, output))}}
+			return []ServiceStatus{{Name: "docker", Online: false, Message: shortError(fmt.Errorf("%w: %s", err, output))}}
 		}
 		running = serviceSet(fallback)
 		source = "docker ps"
 	} else if len(running) == 0 {
-		fallback, fallbackErr := commandOutput(ctx, 1800*time.Millisecond, "docker", "ps", "--format", "{{.Names}}")
+		fallback, fallbackErr := commandOutput(ctx, 3500*time.Millisecond, "docker", "ps", "--format", "{{.Names}}")
 		if fallbackErr == nil && strings.TrimSpace(fallback) != "" {
 			running = serviceSet(fallback)
 			source = "docker ps"

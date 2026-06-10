@@ -9,6 +9,7 @@ RequiresMountsFor=/etc/camera-appliance /var/lib/camera-appliance
 Type=oneshot
 WorkingDirectory=/opt/camera-appliance
 Environment=COMPOSE_PROJECT_NAME=camera-appliance
+EnvironmentFile=-/opt/camera-appliance/release.env
 ExecStart=/usr/bin/docker compose -f /opt/camera-appliance/compose.yaml up -d --build --remove-orphans
 ExecReload=/usr/bin/docker compose -f /opt/camera-appliance/compose.yaml restart go2rtc camera-manager
 ExecStop=/usr/bin/docker compose -f /opt/camera-appliance/compose.yaml down

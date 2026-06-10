@@ -149,6 +149,7 @@ release:
 	  --exclude "secrets.env" \
 	  ./ "$(RELEASE_DIR)/$${release_name}/"; \
 	printf '{\n  "version": "%s",\n  "commit": "%s",\n  "build_time": "%s"\n}\n' "$$release_version" "$(COMMIT)" "$(BUILD_TIME)" > "$(RELEASE_DIR)/$${release_name}/manifest.json"; \
+	printf 'VERSION=%s\nCOMMIT=%s\nBUILD_TIME=%s\n' "$$release_version" "$(COMMIT)" "$(BUILD_TIME)" > "$(RELEASE_DIR)/$${release_name}/release.env"; \
 	tar -czf "$(RELEASE_DIR)/$${release_name}.tar.gz" -C "$(RELEASE_DIR)" "$$release_name"; \
 	cp "$(RELEASE_DIR)/$${release_name}.tar.gz" "$(RELEASE_DIR)/camera-appliance-latest.tar.gz"; \
 	echo "$(RELEASE_DIR)/$${release_name}.tar.gz"
