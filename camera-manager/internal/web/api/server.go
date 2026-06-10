@@ -310,10 +310,15 @@ func (s *Server) probeDevice(w http.ResponseWriter, r *http.Request, deviceID st
 	if req.Stream == "" {
 		req.Stream = "stream2"
 	}
-	rawURL := cameraRTSPURL(req.Username, req.Password, device.LastIP, req.Stream)
+	endpoint, err := s.app.StreamEndpointForDevice(r.Context(), device)
+	if err != nil {
+		writeError(w, err, http.StatusInternalServerError)
+		return
+	}
+	rawURL := cameraRTSPURL(req.Username, req.Password, endpoint.Host, endpoint.Port, req.Stream)
 	ctx, cancel := context.WithTimeout(r.Context(), 1500*time.Millisecond)
 	defer cancel()
-	conn, dialErr := (&net.Dialer{}).DialContext(ctx, "tcp", device.LastIP+":554")
+	conn, dialErr := (&net.Dialer{}).DialContext(ctx, "tcp", net.JoinHostPort(app.ProbeHostForEndpoint(endpoint.Host), endpoint.Port))
 	if dialErr == nil {
 		_ = conn.Close()
 	}
@@ -373,13 +378,18 @@ func (s *Server) deviceFrame(w http.ResponseWriter, r *http.Request, deviceID st
 	if captureHost == "" {
 		captureHost = strings.TrimSpace(s.app.Config.CaptureSSHHost)
 	}
+	endpoint, err := s.app.StreamEndpointForDevice(ctx, device)
+	if err != nil {
+		writeError(w, err, http.StatusInternalServerError)
+		return
+	}
 	var image []byte
 	var rawURL string
 	var used credentialCandidate
 	var failures []string
 	for _, candidate := range candidates {
-		rawURL = cameraRTSPURL(candidate.Username, candidate.Password, device.LastIP, candidate.Stream)
-		image, err = captureFrame(ctx, rawURL, captureHost)
+		rawURL = cameraRTSPURL(candidate.Username, candidate.Password, endpoint.Host, endpoint.Port, candidate.Stream)
+		image, err = captureFrameFunc(ctx, rawURL, captureHost)
 		if err == nil {
 			used = candidate
 			break
@@ -421,6 +431,8 @@ func (s *Server) deviceFrame(w http.ResponseWriter, r *http.Request, deviceID st
 		"identity_id":       used.IdentityID,
 	}, http.StatusOK)
 }
+
+var captureFrameFunc = captureFrame
 
 func captureFrame(ctx context.Context, rawURL, sshHost string) ([]byte, error) {
 	args := []string{"-hide_banner", "-loglevel", "error", "-rtsp_transport", "tcp", "-i", rawURL, "-frames:v", "1", "-f", "image2", "-vcodec", "mjpeg", "pipe:1"}
@@ -695,11 +707,11 @@ func sanitizeCredentialIdentityID(value string) string {
 	return strings.Trim(b.String(), "_")
 }
 
-func cameraRTSPURL(username, password, host, stream string) string {
+func cameraRTSPURL(username, password, host, port, stream string) string {
 	u := neturl.URL{
 		Scheme: "rtsp",
 		User:   neturl.UserPassword(username, password),
-		Host:   net.JoinHostPort(host, "554"),
+		Host:   net.JoinHostPort(host, port),
 		Path:   "/" + strings.TrimLeft(stream, "/"),
 	}
 	return u.String()

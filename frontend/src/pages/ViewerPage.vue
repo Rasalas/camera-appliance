@@ -4,6 +4,7 @@
     :class="rootClass"
     @pointermove="revealControls"
     @mouseleave="onRootMouseLeave"
+    @selectstart.prevent
   >
     <section ref="gridEl" class="mosaic">
       <div
@@ -49,10 +50,8 @@
 
           <div
             class="tile-surface"
-            :title="editing ? undefined : 'Klicken zum Vergrößern'"
             @click="onTileClick(pane.alias)"
-            @pointerenter="onTileAudioEnter(pane.slot)"
-            @pointerleave="onTileAudioLeave(pane.alias)"
+            @dblclick="onTileDoubleClick(pane.alias)"
             @pointerdown="onTilePointerDown($event, pane.slot)"
             @wheel="onTileWheel($event, pane.slot)"
           />
@@ -102,15 +101,27 @@
           <button class="btn sm" :class="{ live: editing }" type="button" @click="toggleEdit">{{ editing ? 'Fertig' : 'Bearbeiten' }}</button>
         </template>
         <button class="btn sm" type="button" @click="toggleFullscreen">{{ isFullscreen ? 'Vollbild aus' : 'Vollbild' }}</button>
-        <button class="btn sm" :class="{ live: audioHoverEnabled, ghost: !audioHoverEnabled }" type="button" @click="toggleHoverAudio">{{ audioHoverEnabled ? 'Ton Hover' : 'Ton aus' }}</button>
+        <button
+          class="btn icon sm audio-toggle"
+          :class="{ live: audioEnabled, ghost: !audioEnabled }"
+          type="button"
+          :aria-label="audioToggleTitle"
+          :aria-pressed="audioEnabled"
+          @click="toggleAudioEnabled"
+        >
+          <svg v-if="audioEnabled" viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M4 9v6h4l5 4V5L8 9H4Z" />
+            <path d="M16 8.5a5 5 0 0 1 0 7" />
+            <path d="M18.5 6a8 8 0 0 1 0 12" />
+          </svg>
+          <svg v-else viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M4 9v6h4l5 4V5L8 9H4Z" />
+            <path d="m17 9 5 5" />
+            <path d="m22 9-5 5" />
+          </svg>
+        </button>
         <RouterLink v-if="canAdmin" class="btn sm ghost" to="/einrichtung">Verwaltung</RouterLink>
         <RouterLink v-else-if="auth?.enabled && !auth.authenticated" class="btn sm ghost" to="/login">Login</RouterLink>
-      </div>
-    </transition>
-
-    <transition name="hud">
-      <div v-if="editing" class="viewer-edit-hint">
-        An einen Kachel<b>rand</b> ziehen = teilen · an den <b>Außenrand</b> = volle Spalte/Reihe · <b>Mitte</b> = tauschen · <b>Trenner</b> = Größe · <b>Rad</b> = Zoom · <b>Shift+Ziehen</b> = Ausschnitt
       </div>
     </transition>
 
@@ -122,6 +133,7 @@
 
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import type { CSSProperties } from 'vue'
 import { api } from '../api/client'
 import type { AuthStatus, CameraDisplay, ViewerResponse, ViewerSlot, ViewerSlotState } from '../types'
 
@@ -145,8 +157,8 @@ const busy = ref(false)
 const error = ref('')
 const frameReady = ref<Record<string, boolean>>({})
 const performanceMode = ref<'quality' | 'balanced' | 'low' | 'diagnostic'>('quality')
-const audioHoverEnabled = ref(true)
-const audioAlias = ref('')
+const audioEnabled = ref(true)
+const activeAudioAlias = ref('')
 
 // Chrome state: clean by default; edit reveals split tools; spotlight enlarges a
 // single camera; fullscreen suppresses all chrome.
@@ -166,6 +178,7 @@ const ROOT_TARGET = '__root__'
 
 let refreshTimer = 0
 let controlsTimer = 0
+let tileClickTimer = 0
 let displaySaveTimer = 0
 let mosaicSaveTimer = 0
 let onAuthChanged: (() => void) | undefined
@@ -174,7 +187,8 @@ let onKey: ((e: KeyboardEvent) => void) | undefined
 let stopDrag: (() => void) | undefined
 let stopCropPan: (() => void) | undefined
 const frameEls: Record<string, HTMLIFrameElement> = {}
-const AUDIO_SETTING_KEY = 'camera-appliance.viewer.audioHoverEnabled'
+const AUDIO_SETTING_KEY = 'camera-appliance.viewer.audioEnabled'
+const LEGACY_AUDIO_SETTING_KEY = 'camera-appliance.viewer.audioHoverEnabled'
 
 const slots = computed(() => viewer.value?.slots ?? [])
 const slotByAlias = computed(() => new Map(slots.value.map((slot) => [slot.alias, slot])))
@@ -222,15 +236,12 @@ const geometry = computed(() => {
 
 const panes = computed(() => {
   const map = slotByAlias.value
-  if (spotlightAlias.value) {
-    const slot = map.get(spotlightAlias.value)
-    return slot ? [{ alias: spotlightAlias.value, slot, rect: { x: 0, y: 0, w: 100, h: 100 } }] : []
-  }
   return geometry.value.leaves
     .filter((leaf) => map.has(leaf.alias))
     .map((leaf) => ({ alias: leaf.alias, slot: map.get(leaf.alias) as ViewerSlot, rect: leaf.rect }))
 })
 const gutters = computed(() => geometry.value.gutters)
+const audioToggleTitle = computed(() => audioEnabled.value ? 'Ton global freigegeben' : 'Ton global aus')
 
 const primaryLiveAlias = computed(() => {
   if (spotlightAlias.value) return spotlightAlias.value
@@ -246,12 +257,17 @@ const primaryLiveAlias = computed(() => {
   return alias
 })
 
-function paneStyle(pane: PaneRect) {
+function paneStyle(pane: PaneRect): CSSProperties {
+  const spotlight = spotlightAlias.value
+  const isSpotlight = spotlight === pane.alias
+  const rect = isSpotlight ? { x: 0, y: 0, w: 100, h: 100 } : pane.rect
   return {
-    left: `${pane.rect.x}%`,
-    top: `${pane.rect.y}%`,
-    width: `${pane.rect.w}%`,
-    height: `${pane.rect.h}%`
+    left: `${rect.x}%`,
+    top: `${rect.y}%`,
+    width: `${rect.w}%`,
+    height: `${rect.h}%`,
+    zIndex: spotlight ? (isSpotlight ? 5 : 1) : undefined,
+    pointerEvents: spotlight && !isSpotlight ? 'none' : undefined
   }
 }
 
@@ -385,6 +401,20 @@ function setTree(node: MosaicNode) {
 
 function onTileClick(alias: string) {
   if (editing.value) return
+  if (!audioEnabled.value) {
+    toggleSpotlight(alias)
+    return
+  }
+  window.clearTimeout(tileClickTimer)
+  tileClickTimer = window.setTimeout(() => {
+    activeAudioAlias.value = activeAudioAlias.value === alias ? '' : alias
+    syncAudioState()
+  }, 220)
+}
+
+function onTileDoubleClick(alias: string) {
+  if (editing.value) return
+  window.clearTimeout(tileClickTimer)
   toggleSpotlight(alias)
 }
 
@@ -593,7 +623,6 @@ function scheduleHideControls() {
 
 function onRootMouseLeave() {
   scheduleHideControls()
-  muteAllAudio()
 }
 
 function toggleEdit() {
@@ -620,7 +649,7 @@ function syncFullscreen() {
   isFullscreen.value = !!document.fullscreenElement
 }
 
-// --- Audio hover -------------------------------------------------------------
+// --- Audio -------------------------------------------------------------------
 
 function setFrameRef(alias: string, el: unknown) {
   if (el instanceof HTMLIFrameElement) {
@@ -631,31 +660,19 @@ function setFrameRef(alias: string, el: unknown) {
   }
 }
 
-function onTileAudioEnter(slot: ViewerSlot) {
-  if (editing.value || !audioHoverEnabled.value || !shouldRenderPlayer(slot)) return
-  audioAlias.value = slot.alias
-  syncAudioState()
-}
-
-function onTileAudioLeave(alias: string) {
-  if (audioAlias.value !== alias) return
-  audioAlias.value = ''
-  syncAudioState()
-}
-
 function isAudible(alias: string) {
-  return audioHoverEnabled.value && audioAlias.value === alias
+  return audioEnabled.value && activeAudioAlias.value === alias
 }
 
-function toggleHoverAudio() {
-  audioHoverEnabled.value = !audioHoverEnabled.value
-  window.localStorage.setItem(AUDIO_SETTING_KEY, audioHoverEnabled.value ? 'true' : 'false')
-  if (!audioHoverEnabled.value) audioAlias.value = ''
+function toggleAudioEnabled() {
+  audioEnabled.value = !audioEnabled.value
+  window.localStorage.setItem(AUDIO_SETTING_KEY, audioEnabled.value ? 'true' : 'false')
+  if (!audioEnabled.value) activeAudioAlias.value = ''
   syncAudioState()
 }
 
 function muteAllAudio() {
-  audioAlias.value = ''
+  activeAudioAlias.value = ''
   syncAudioState()
 }
 
@@ -663,7 +680,7 @@ function syncAudioState() {
   for (const [alias, frame] of Object.entries(frameEls)) {
     frame.contentWindow?.postMessage({
       type: 'camera-audio',
-      muted: !audioHoverEnabled.value || alias !== audioAlias.value
+      muted: !audioEnabled.value || alias !== activeAudioAlias.value
     }, window.location.origin)
   }
 }
@@ -897,6 +914,7 @@ async function load() {
     const aliases = viewerData.slots.filter((slot) => slot.binding?.device_id).map((slot) => slot.alias)
     mosaic.value = aliases.length ? reconcileTree(parseMosaic(viewerData.layout?.mosaic), aliases) : undefined
     if (spotlightAlias.value && !aliases.includes(spotlightAlias.value)) spotlightAlias.value = ''
+    if (activeAudioAlias.value && !aliases.includes(activeAudioAlias.value)) muteAllAudio()
   } catch (err) {
     error.value = err instanceof Error ? err.message : 'Viewer konnte nicht geladen werden.'
   } finally {
@@ -919,7 +937,7 @@ async function refreshAuth() {
 }
 
 onMounted(() => {
-  audioHoverEnabled.value = window.localStorage.getItem(AUDIO_SETTING_KEY) !== 'false'
+  audioEnabled.value = (window.localStorage.getItem(AUDIO_SETTING_KEY) ?? window.localStorage.getItem(LEGACY_AUDIO_SETTING_KEY)) !== 'false'
   void refreshAuth()
   onAuthChanged = () => void refreshAuth()
   window.addEventListener('auth-changed', onAuthChanged)
@@ -943,6 +961,7 @@ onBeforeUnmount(() => {
   stopCropPan?.()
   window.clearInterval(refreshTimer)
   window.clearTimeout(controlsTimer)
+  window.clearTimeout(tileClickTimer)
   window.clearTimeout(displaySaveTimer)
   window.clearTimeout(mosaicSaveTimer)
   if (onAuthChanged) window.removeEventListener('auth-changed', onAuthChanged)
@@ -959,6 +978,8 @@ onBeforeUnmount(() => {
   height: 100vh;
   background: var(--bg);
   overflow: hidden;
+  user-select: none;
+  -webkit-user-select: none;
 }
 
 .mosaic {
@@ -1003,8 +1024,7 @@ onBeforeUnmount(() => {
   inset: 0;
   z-index: 2;
 }
-.viewer-root:not(.editing) .tile-surface { cursor: zoom-in; }
-.viewer-root.spotlight .tile-surface { cursor: zoom-out; }
+.viewer-root:not(.editing) .tile-surface { cursor: pointer; }
 .viewer-root.editing .tile-surface { cursor: grab; }
 .viewer-root.editing .tile-surface:active { cursor: grabbing; }
 
@@ -1097,27 +1117,15 @@ onBeforeUnmount(() => {
 }
 /* pill bar → pill-shaped buttons inside it */
 .viewer-hud :deep(.btn) { border-radius: 999px; }
-
-.viewer-edit-hint {
-  position: absolute;
-  z-index: 8;
-  top: 14px;
-  left: 50%;
-  transform: translateX(-50%);
-  max-width: 94%;
-  padding: 6px 14px;
-  border-radius: 999px;
-  background: rgba(12, 12, 14, .82);
-  backdrop-filter: blur(8px);
-  color: var(--ink-mute);
-  font-size: 10.5px;
-  letter-spacing: .03em;
-  text-align: center;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+.audio-toggle svg {
+  width: 15px;
+  height: 15px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
-.viewer-edit-hint b { color: var(--ink-soft); font-weight: 500; }
 
 .viewer-error {
   position: absolute;

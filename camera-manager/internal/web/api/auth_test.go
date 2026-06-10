@@ -4,9 +4,11 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -142,6 +144,108 @@ func TestGo2RTCWebSocketProxyUsesGo2RTCOrigin(t *testing.T) {
 	if seenOrigin != go2rtc.URL || seenHost == "" {
 		t.Fatalf("expected go2rtc origin and host, got origin=%q host=%q", seenOrigin, seenHost)
 	}
+}
+
+func TestDeviceFrameUsesConfiguredRTSPEndpoint(t *testing.T) {
+	ctx := context.Background()
+	a := newAuthTestApp(t)
+	a.RTSPProbe = func(_ context.Context, host, port string) error {
+		if host == "192.168.1.20" && port == "554" {
+			return context.DeadlineExceeded
+		}
+		return nil
+	}
+	if err := a.Store.PutSettings(ctx, map[string]string{
+		"camera.rtsp_endpoint.dev1.host": "host.docker.internal",
+		"camera.rtsp_endpoint.dev1.port": "15541",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := a.Store.UpsertDevice(ctx, state.Device{ID: "dev1", LastIP: "192.168.1.20"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := a.Store.UpsertBinding(ctx, state.Binding{SlotID: "cam1", DeviceID: "dev1", Username: "user", StreamName: "stream2", Enabled: true}); err != nil {
+		t.Fatal(err)
+	}
+	var capturedURL string
+	originalCapture := captureFrameFunc
+	captureFrameFunc = func(_ context.Context, rawURL, _ string) ([]byte, error) {
+		capturedURL = rawURL
+		return []byte("jpeg"), nil
+	}
+	t.Cleanup(func() { captureFrameFunc = originalCapture })
+
+	res := performJSON(New(a).Handler(), http.MethodPost, "/api/devices/dev1/frame", map[string]any{
+		"username": "user",
+		"password": "secret",
+		"stream":   "stream2",
+	}, nil)
+	if res.Code != http.StatusOK {
+		t.Fatalf("expected frame capture success, got %d: %s", res.Code, res.Body.String())
+	}
+	if !strings.Contains(capturedURL, "@host.docker.internal:15541/stream2") {
+		t.Fatalf("expected capture through configured RTSP endpoint, got %q", capturedURL)
+	}
+}
+
+func TestDeviceProbeUsesConfiguredRTSPEndpoint(t *testing.T) {
+	ctx := context.Background()
+	a := newAuthTestApp(t)
+	a.RTSPProbe = func(_ context.Context, host, port string) error {
+		if host == "192.168.1.20" && port == "554" {
+			return context.DeadlineExceeded
+		}
+		return nil
+	}
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		conn, err := ln.Accept()
+		if err == nil {
+			_ = conn.Close()
+		}
+	}()
+	_, port, err := net.SplitHostPort(ln.Addr().String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := a.Store.PutSettings(ctx, map[string]string{
+		"camera.rtsp_endpoint.dev1.host": "host.docker.internal",
+		"camera.rtsp_endpoint.dev1.port": port,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := a.Store.UpsertDevice(ctx, state.Device{ID: "dev1", LastIP: "192.168.1.20"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := a.Store.UpsertBinding(ctx, state.Binding{SlotID: "cam1", DeviceID: "dev1", Username: "user", StreamName: "stream2", Enabled: true}); err != nil {
+		t.Fatal(err)
+	}
+
+	res := performJSON(New(a).Handler(), http.MethodPost, "/api/devices/dev1/probe", map[string]any{
+		"username": "user",
+		"password": "secret",
+		"stream":   "stream2",
+	}, nil)
+	if res.Code != http.StatusOK {
+		t.Fatalf("expected probe success response, got %d: %s", res.Code, res.Body.String())
+	}
+	var body map[string]any
+	if err := json.Unmarshal(res.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if body["success"] != true {
+		t.Fatalf("expected probe success through configured endpoint, got %+v", body)
+	}
+	if !strings.Contains(body["url_redacted"].(string), "@host.docker.internal:"+port+"/stream2") {
+		t.Fatalf("expected redacted URL to use configured endpoint, got %+v", body)
+	}
+	<-done
 }
 
 func newAuthTestApp(t *testing.T) *app.App {

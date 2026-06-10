@@ -406,7 +406,7 @@ func (a *App) probeRTSP(ctx context.Context, host, port string) error {
 	return nil
 }
 
-func probeHostForEndpoint(host string) string {
+func ProbeHostForEndpoint(host string) string {
 	if strings.EqualFold(strings.TrimSpace(host), "host.docker.internal") {
 		return "127.0.0.1"
 	}

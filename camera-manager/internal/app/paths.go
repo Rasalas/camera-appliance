@@ -79,6 +79,34 @@ type PathStabilityConfig struct {
 	RecoveryThreshold int `json:"recovery_threshold"`
 }
 
+func (a *App) StreamEndpointForDevice(ctx context.Context, device state.Device) (go2rtcrender.StreamEndpoint, error) {
+	settings, err := a.Store.Settings(ctx)
+	if err != nil {
+		return go2rtcrender.StreamEndpoint{}, err
+	}
+	bindings, err := a.Store.Bindings(ctx)
+	if err != nil {
+		return go2rtcrender.StreamEndpoint{}, err
+	}
+	var binding state.Binding
+	for _, candidate := range bindings {
+		if candidate.DeviceID == device.ID {
+			binding = candidate
+			break
+		}
+	}
+	if binding.DeviceID == "" {
+		binding = state.Binding{DeviceID: device.ID, Device: &device, Enabled: true}
+	} else if binding.Device == nil {
+		binding.Device = &device
+	}
+	endpoints, _ := a.streamEndpointSelections(ctx, []state.Binding{binding}, settings)
+	if endpoint, ok := endpoints[device.ID]; ok {
+		return endpoint, nil
+	}
+	return go2rtcrender.StreamEndpoint{Host: strings.TrimSpace(device.LastIP), Port: "554"}, nil
+}
+
 func (a *App) streamEndpointSelections(ctx context.Context, bindings []state.Binding, settings map[string]string) (map[string]go2rtcrender.StreamEndpoint, map[string]StreamPathAssessment) {
 	endpoints, assessments, _ := a.streamEndpointSelectionsWithPathState(ctx, bindings, settings, false, time.Now().UTC())
 	return endpoints, assessments
@@ -168,7 +196,7 @@ func (a *App) assessStreamPathsWithPathState(ctx context.Context, binding state.
 	for i := range assessment.Paths {
 		assessment.Paths[i].LastSelected = assessment.Paths[i].ID == lastPathID
 		assessment.Paths[i].Active = assessment.Paths[i].LastSelected
-		assessment.Paths[i].ProbeHost = probeHostForEndpoint(assessment.Paths[i].Host)
+		assessment.Paths[i].ProbeHost = ProbeHostForEndpoint(assessment.Paths[i].Host)
 		if err := a.probeRTSP(ctx, assessment.Paths[i].ProbeHost, assessment.Paths[i].Port); err != nil {
 			assessment.Paths[i].State = "failed"
 			assessment.Paths[i].Message = rtspProbeDiagnostic(assessment.Paths[i].Port, err)
