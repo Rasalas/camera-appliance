@@ -66,6 +66,30 @@
 
   <section class="panel card">
     <div class="panel-head">
+      <h2>Version & Updates</h2>
+      <div class="right">Release · Backup · Neustart</div>
+    </div>
+    <div class="split">
+      <div class="field">
+        <span class="lbl">Installierte Version</span>
+        <div class="mono-mute">{{ versionDetail }}</div>
+      </div>
+      <div class="field">
+        <span class="lbl">Update</span>
+        <div class="btn-row"><button class="btn primary" :disabled="updating" @click="onUpdate">{{ updating ? 'Update läuft…' : 'Update installieren' }}</button></div>
+      </div>
+    </div>
+    <div v-if="updateResult" class="notice warn">
+      <span class="tag">UPDATE</span>
+      <div>
+        <div>Update wurde gestartet. Die Oberfläche kann während Build und Neustart kurz nicht erreichbar sein.</div>
+        <div class="mono-mute" style="margin-top: 4px;">{{ updateResult.url }}</div>
+      </div>
+    </div>
+  </section>
+
+  <section class="panel card">
+    <div class="panel-head">
       <h2>Support-Bundle</h2>
       <div class="right">Status · Viewer · Netzwerk · Logs</div>
     </div>
@@ -74,7 +98,6 @@
         <span class="lbl">Diagnosepaket</span>
         <div class="btn-row"><button class="btn primary" :disabled="creatingSupportBundle" @click="onSupportBundle">{{ creatingSupportBundle ? 'Erstellt…' : 'Support-Bundle erstellen' }}</button></div>
       </div>
-      <div class="field"><span class="lbl">Version</span><div class="mono-mute">{{ versionDetail }}</div></div>
     </div>
     <div v-if="supportBundleResult" class="notice ok">
       <span class="tag">FERTIG</span>
@@ -107,14 +130,15 @@ import { onMounted, ref } from 'vue'
 import { useSystem } from '../../composables/useSystem'
 
 const {
-  settings, status, events, backupResult, supportBundleResult, error,
+  settings, status, events, backupResult, supportBundleResult, updateResult, error,
   watchdogEnabled, watchdogRestartOnChange, watchdogRestartGo2RTC, restartCooldownLabel, versionDetail,
-  loadAll, saveSettings, createBackup, restoreBackup, createSupportBundle,
+  loadAll, refreshStatus, saveSettings, createBackup, restoreBackup, createSupportBundle, startUpdate,
   setBool, watchdogDate, formatTime, levelClass
 } = useSystem()
 
 const restorePath = ref('')
 const creatingSupportBundle = ref(false)
+const updating = ref(false)
 
 async function onBackup() {
   try { await createBackup() } catch (err) { error.value = err instanceof Error ? err.message : 'Backup konnte nicht erstellt werden.' }
@@ -125,6 +149,16 @@ async function onRestore() {
 async function onSupportBundle() {
   creatingSupportBundle.value = true
   try { await createSupportBundle() } catch (err) { error.value = err instanceof Error ? err.message : 'Support-Bundle konnte nicht erstellt werden.' } finally { creatingSupportBundle.value = false }
+}
+async function onUpdate() {
+  updating.value = true
+  try {
+    await startUpdate()
+    window.setTimeout(() => void refreshStatus().finally(() => { updating.value = false }), 20000)
+  } catch (err) {
+    error.value = err instanceof Error ? err.message : 'Update konnte nicht gestartet werden.'
+    updating.value = false
+  }
 }
 
 onMounted(() => void loadAll())

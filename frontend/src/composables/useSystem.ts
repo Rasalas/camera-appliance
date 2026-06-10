@@ -8,6 +8,7 @@ import type {
   RelayStatus,
   StatusResponse,
   SupportBundleResult,
+  UpdateStartResult,
   ViewerPerformanceOption
 } from '../types'
 
@@ -262,6 +263,7 @@ async function saveSettings(keys?: string[]) {
 
 const backupResult = ref<{ path: string; warning: string }>()
 const supportBundleResult = ref<SupportBundleResult>()
+const updateResult = ref<UpdateStartResult>()
 
 async function saveCameraPassword(password: string) {
   error.value = ''
@@ -356,11 +358,16 @@ async function createSupportBundle() {
   showToast('Support-Bundle erstellt')
 }
 
+async function startUpdate(url?: string) {
+  updateResult.value = await api.startUpdate(url)
+  showToast('Update gestartet')
+}
+
 export function useSystem() {
   return {
     // state
     settings, status, authStatus, events, credentialIdentities, error, toast, passwordSource,
-    viewerPerformanceOptions, backupResult, supportBundleResult,
+    viewerPerformanceOptions, backupResult, supportBundleResult, updateResult,
     // computeds
     relayIds, relayStatuses, cameraBindings, watchdogEnabled, watchdogRestartOnChange, watchdogRestartGo2RTC,
     restartCooldownLabel, versionLabel, versionDetail, viewerPerformanceDescription,
@@ -368,7 +375,7 @@ export function useSystem() {
     loadAll, refreshStatus, saveSettings, showToast,
     saveCameraPassword, saveAuthPassword,
     loadCredentialIdentities, saveCredentialIdentity, deleteCredentialIdentity,
-    addRelay, removeRelay, relayAction, createBackup, restoreBackup, createSupportBundle,
+    addRelay, removeRelay, relayAction, createBackup, restoreBackup, createSupportBundle, startUpdate,
     // helpers
     setBool, boolSetting, formatTime, watchdogDate, levelClass, passwordSourceLabel, sanitizeID,
     relaySettingKey, relayEndpointKey, pathPolicyKey, relayName, relayHost, relayAutoStart, relayStatusFor,
@@ -377,4 +384,4 @@ export function useSystem() {
   }
 }
 
-export type { AuthRole, CredentialIdentity, RelayStatus, SupportBundleResult }
+export type { AuthRole, CredentialIdentity, RelayStatus, SupportBundleResult, UpdateStartResult }

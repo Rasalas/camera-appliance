@@ -1,4 +1,4 @@
-import type { AuthStatus, Binding, CredentialIdentity, Device, DeviceCredentials, EventItem, FrameResult, LoginResult, ManualDeviceResult, ProbeResult, RelayStatus, ScanRun, Slot, StatusResponse, SupportBundleResult, ViewerResponse } from '../types'
+import type { AuthStatus, Binding, CredentialIdentity, Device, DeviceCredentials, EventItem, FrameResult, LoginResult, ManualDeviceResult, ProbeResult, RelayStatus, ScanRun, Slot, StatusResponse, SupportBundleResult, UpdateStartResult, ViewerResponse } from '../types'
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(path, {
@@ -50,6 +50,7 @@ export const api = {
   stopRelay: (id: string) => request<RelayStatus>(`/api/relays/${encodeURIComponent(id)}/stop`, { method: 'POST' }),
   restartRelay: (id: string) => request<RelayStatus>(`/api/relays/${encodeURIComponent(id)}/restart`, { method: 'POST' }),
   restartStack: () => request('/api/system/restart-stack', { method: 'POST' }),
+  startUpdate: (url?: string) => request<UpdateStartResult>('/api/system/update', { method: 'POST', body: JSON.stringify({ url: url || '' }) }),
   credentialIdentities: () => request<CredentialIdentity[]>('/api/credential-identities'),
   saveCredentialIdentity: (body: { id?: string; name: string; username: string; password?: string; copy_password_from_id?: string }) =>
     request<CredentialIdentity>('/api/credential-identities', { method: 'POST', body: JSON.stringify(body) }),

@@ -343,3 +343,8 @@ export interface SupportBundleResult {
   files: string[]
   warning: string
 }
+
+export interface UpdateStartResult {
+  status: string
+  url: string
+}
