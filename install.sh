@@ -90,30 +90,63 @@ if [[ -z "$RELEASE_URL" ]]; then
 fi
 
 need_or_install() {
-  local missing=()
+  local missing_base=()
   for command_name in curl tar docker; do
     if ! command -v "$command_name" >/dev/null 2>&1; then
-      missing+=("$command_name")
+      missing_base+=("$command_name")
     fi
   done
-  if docker compose version >/dev/null 2>&1; then
-    :
-  else
-    missing+=("docker-compose-plugin")
-  fi
-  if [[ "${#missing[@]}" -eq 0 ]]; then
+
+  if [[ "${#missing_base[@]}" -eq 0 ]] && docker compose version >/dev/null 2>&1; then
     return 0
   fi
+
   if command -v apt-get >/dev/null 2>&1; then
-    echo "Installiere fehlende Bootstrap-Abhängigkeiten: ${missing[*]}"
+    echo "Installiere fehlende Bootstrap-Abhängigkeiten."
     apt-get update
-    apt-get install -y ca-certificates curl tar docker.io docker-compose-plugin
+    apt-get install -y ca-certificates curl tar docker.io
+    apt-get install -y docker-compose-plugin >/dev/null 2>&1 || apt-get install -y docker-compose-v2 >/dev/null 2>&1 || true
     systemctl enable --now docker >/dev/null 2>&1 || true
+  elif [[ "${#missing_base[@]}" -gt 0 ]]; then
+    echo "Fehlende Abhängigkeiten: ${missing_base[*]}" >&2
+    echo "Bitte curl, tar und Docker installieren und erneut ausführen." >&2
+    exit 1
+  fi
+
+  if docker compose version >/dev/null 2>&1; then
     return 0
   fi
-  echo "Fehlende Abhängigkeiten: ${missing[*]}" >&2
-  echo "Bitte curl, tar, Docker und das Docker Compose Plugin installieren und erneut ausführen." >&2
-  exit 1
+
+  install_compose_plugin_binary
+  if ! docker compose version >/dev/null 2>&1; then
+    echo "Docker ist installiert, aber 'docker compose' ist weiterhin nicht verfügbar." >&2
+    echo "Bitte Docker Compose v2 Plugin installieren und erneut ausführen." >&2
+    exit 1
+  fi
+}
+
+install_compose_plugin_binary() {
+  local arch url target_dir target
+  case "$(uname -m)" in
+    x86_64|amd64)
+      arch="x86_64"
+      ;;
+    aarch64|arm64)
+      arch="aarch64"
+      ;;
+    *)
+      echo "Docker Compose Fallback unterstützt diese Architektur nicht: $(uname -m)" >&2
+      return 1
+      ;;
+  esac
+
+  target_dir="/usr/local/lib/docker/cli-plugins"
+  target="$target_dir/docker-compose"
+  url="https://github.com/docker/compose/releases/latest/download/docker-compose-linux-$arch"
+  echo "Docker Compose Plugin fehlt; installiere Compose v2 nach $target"
+  mkdir -p "$target_dir"
+  curl -fsSL "$url" -o "$target"
+  chmod 0755 "$target"
 }
 
 detect_desktop_user() {

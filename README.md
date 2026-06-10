@@ -122,6 +122,8 @@ The bootstrap installer installs the remaining base dependencies where possible:
 - Docker Engine (`docker.io`)
 - Docker Compose plugin (`docker-compose-plugin`)
 
+If the distro package does not provide `docker compose`, the installer downloads the official Docker Compose v2 plugin for the local CPU architecture.
+
 ```bash
 curl -fsSL https://raw.githubusercontent.com/Rasalas/camera-appliance/main/install.sh | sudo bash
 ```

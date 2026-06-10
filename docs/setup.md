@@ -16,6 +16,7 @@
    ```
 
    - The bootstrap installs missing apt bootstrap dependencies where possible: `ca-certificates`, `tar`, `docker.io`, and `docker-compose-plugin`.
+   - If the distro package does not provide `docker compose`, it downloads the official Docker Compose v2 plugin for the local CPU architecture.
    - On a fresh laptop it downloads the release and calls `camera-appliance install`.
    - On an existing appliance it calls `camera-appliance update`.
    - It auto-detects the desktop user and enables the kiosk browser service by default.
