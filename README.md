@@ -108,13 +108,26 @@ If used, configure it manually with the same stable go2rtc aliases and never wit
 
 ## Linux Mint Install
 
+On a normal Linux Mint laptop, install `curl` first if it is missing:
+
+```bash
+sudo apt update
+sudo apt install -y curl
+```
+
+The bootstrap installer installs the remaining base dependencies where possible:
+
+- `ca-certificates`
+- `tar`
+- Docker Engine (`docker.io`)
+- Docker Compose plugin (`docker-compose-plugin`)
+
 ```bash
 curl -fsSL https://raw.githubusercontent.com/Rasalas/camera-appliance/main/install.sh | sudo bash
-sudo editor /etc/camera-appliance/secrets.env
 ```
 
 The bootstrap script downloads the latest public release archive. On a fresh laptop it calls `camera-appliance install`; on an existing appliance it calls `camera-appliance update`. It auto-detects the desktop user and enables the kiosk browser by default. It does not overwrite an existing `/etc/camera-appliance/secrets.env` and does not change firewall rules.
-Open `http://127.0.0.1:8091`, discover cameras, assign devices to `cam1` through `cam5`, render go2rtc config, and restart go2rtc.
+Open `http://127.0.0.1:8091`, set the camera password in the local UI, discover cameras, assign devices to `cam1` through `cam5`, render go2rtc config, and restart go2rtc.
 
 ## Recovery
 

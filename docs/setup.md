@@ -2,13 +2,20 @@
 
 1. Install Linux Mint updates.
 2. Make sure the release archive is publicly reachable from GitHub Releases.
-3. Run the bootstrap installer:
+3. Install `curl` if it is missing:
+
+   ```bash
+   sudo apt update
+   sudo apt install -y curl
+   ```
+
+4. Run the bootstrap installer:
 
    ```bash
    curl -fsSL https://raw.githubusercontent.com/Rasalas/camera-appliance/main/install.sh | sudo bash
    ```
 
-   - The bootstrap installs missing apt bootstrap dependencies where possible.
+   - The bootstrap installs missing apt bootstrap dependencies where possible: `ca-certificates`, `tar`, `docker.io`, and `docker-compose-plugin`.
    - On a fresh laptop it downloads the release and calls `camera-appliance install`.
    - On an existing appliance it calls `camera-appliance update`.
    - It auto-detects the desktop user and enables the kiosk browser service by default.
@@ -16,8 +23,7 @@
    - `--no-kiosk` skips the kiosk browser user service.
    - `--no-start` installs and enables services without starting them immediately.
    - Firewall rules are not changed; normal kiosk operation uses localhost bindings only.
-5. Edit `/etc/camera-appliance/secrets.env` and set the real Tapo camera password.
-   Alternatively set the camera password later in the local UI under **System**. The app first tries the OS keyring via `secret-tool` and falls back to `/etc/camera-appliance/local.env`.
+5. Set the real Tapo camera password in the local UI under **System**. The app first tries the OS keyring via `secret-tool` and falls back to `/etc/camera-appliance/local.env`.
 6. Check `bin/status` or `camera-appliance status`.
 7. Open `http://127.0.0.1:8091`, start camera discovery, and assign devices to `cam1` through `cam5`.
 8. Render go2rtc config and restart go2rtc.
