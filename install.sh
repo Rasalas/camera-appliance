@@ -5,8 +5,8 @@ DEFAULT_RELEASE_URL="https://github.com/Rasalas/camera-appliance/releases/latest
 DEFAULT_INSTALLER_URL="https://raw.githubusercontent.com/Rasalas/camera-appliance/main/install.sh"
 RELEASE_URL="${CAMERA_APPLIANCE_RELEASE_URL:-$DEFAULT_RELEASE_URL}"
 INSTALL_DIR="/opt/camera-appliance"
-USER_NAME="${SUDO_USER:-${USER:-}}"
-ENABLE_KIOSK=0
+USER_NAME="${CAMERA_APPLIANCE_USER:-}"
+ENABLE_KIOSK=1
 INSTALL_DESKTOP=1
 ENABLE_SYSTEMD=1
 NO_START=0
@@ -18,9 +18,9 @@ Usage:
 
 Options:
   --url URL                         Release archive URL
-  --user USER                       Linux desktop/kiosk user
+  --user USER                       Linux desktop/kiosk user (auto-detected by default)
   --install-dir DIR                 Install directory (default: /opt/camera-appliance)
-  --enable-kiosk                    Enable kiosk browser user service
+  --no-kiosk                        Do not enable the kiosk browser user service
   --no-desktop-launchers            Do not install desktop launchers
   --no-systemd                      Do not install/enable camera-appliance.service
   --no-start                        Install/enable services without starting them
@@ -50,6 +50,10 @@ while [[ $# -gt 0 ]]; do
       ENABLE_KIOSK=1
       shift
       ;;
+    --no-kiosk)
+      ENABLE_KIOSK=0
+      shift
+      ;;
     --no-desktop-launchers)
       INSTALL_DESKTOP=0
       shift
@@ -76,7 +80,7 @@ done
 
 if [[ "${EUID:-$(id -u)}" -ne 0 ]]; then
   echo "Bitte mit sudo/root ausführen. Beispiel:" >&2
-  echo "  curl -fsSL $DEFAULT_INSTALLER_URL | sudo bash -s -- --user customer --enable-kiosk" >&2
+  echo "  curl -fsSL $DEFAULT_INSTALLER_URL | sudo bash" >&2
   exit 1
 fi
 
@@ -112,6 +116,35 @@ need_or_install() {
   exit 1
 }
 
+detect_desktop_user() {
+  if [[ -n "$USER_NAME" && "$USER_NAME" != "root" ]]; then
+    return 0
+  fi
+  if [[ -n "${SUDO_USER:-}" && "${SUDO_USER:-}" != "root" ]]; then
+    USER_NAME="$SUDO_USER"
+    return 0
+  fi
+  local candidate=""
+  candidate="$(logname 2>/dev/null || true)"
+  if [[ -n "$candidate" && "$candidate" != "root" ]]; then
+    USER_NAME="$candidate"
+    return 0
+  fi
+  if [[ -e /dev/console ]]; then
+    candidate="$(stat -c '%U' /dev/console 2>/dev/null || true)"
+    if [[ -n "$candidate" && "$candidate" != "root" ]]; then
+      USER_NAME="$candidate"
+      return 0
+    fi
+  fi
+  candidate="$(find /home -mindepth 1 -maxdepth 1 -type d -printf '%f\n' 2>/dev/null | head -n 1 || true)"
+  if [[ -n "$candidate" ]]; then
+    USER_NAME="$candidate"
+    return 0
+  fi
+  return 1
+}
+
 find_release_binary() {
   local root="$1"
   local binary
@@ -128,6 +161,14 @@ find_release_binary() {
 }
 
 need_or_install
+if [[ "$ENABLE_KIOSK" -eq 1 || "$INSTALL_DESKTOP" -eq 1 ]]; then
+  if ! detect_desktop_user; then
+    echo "Desktop-Benutzer konnte nicht automatisch erkannt werden." >&2
+    echo "Bitte erneut mit --user BENUTZER ausführen oder --no-kiosk --no-desktop-launchers setzen." >&2
+    exit 1
+  fi
+  echo "Desktop/Kiosk-Benutzer: $USER_NAME"
+fi
 
 tmp_dir="$(mktemp -d)"
 cleanup() {

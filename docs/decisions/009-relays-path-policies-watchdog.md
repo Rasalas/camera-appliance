@@ -48,3 +48,8 @@ Damit reduziert sich die Bedienung auf: Relay einmal anlegen (Name, SSH-Ziel, go
 pro Kamera optional „Muss über Relay“ (`relay_only`) oder „Nur direkt“ (`direct_only`) erzwingen —
 sonst gilt `auto` mit selbständigem Failover und Rückwechsel. `prefer_direct`/`prefer_relay`
 bleiben unterstützt, werden in der UI aber nur noch als Alt-Werte angezeigt.
+
+Bedienoberfläche entsprechend Entscheidung 014 (geräte-zentriert): Die Systemseite
+`/system/relays` verwaltet ausschließlich die Relays selbst (inkl. Forward-Status je Kamera);
+der Verbindungsweg einer Kamera samt Endpunkt-Feinjustage liegt auf ihrer Detailseite
+unter „Verbindung“.

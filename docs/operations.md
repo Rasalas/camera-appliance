@@ -14,13 +14,15 @@ The helper scripts resolve the appliance root automatically. Override with `CAME
 The production install path is:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/Rasalas/camera-appliance/main/install.sh | sudo bash -s -- --user customer --enable-kiosk
+curl -fsSL https://raw.githubusercontent.com/Rasalas/camera-appliance/main/install.sh | sudo bash
 ```
 
 The bootstrap downloads the latest public release archive and delegates to:
 
 - `camera-appliance install` for a fresh laptop.
 - `camera-appliance update` when `/opt/camera-appliance/bin/camera-appliance` already exists.
+
+By default it auto-detects the desktop user and enables the kiosk browser service. Use `--user USER` to override detection or `--no-kiosk` to skip the kiosk service.
 
 A direct install from an already downloaded release archive is also supported:
 

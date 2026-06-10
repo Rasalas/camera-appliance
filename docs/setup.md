@@ -5,13 +5,15 @@
 3. Run the bootstrap installer:
 
    ```bash
-   curl -fsSL https://raw.githubusercontent.com/Rasalas/camera-appliance/main/install.sh | sudo bash -s -- --user customer --enable-kiosk
+   curl -fsSL https://raw.githubusercontent.com/Rasalas/camera-appliance/main/install.sh | sudo bash
    ```
 
    - The bootstrap installs missing apt bootstrap dependencies where possible.
    - On a fresh laptop it downloads the release and calls `camera-appliance install`.
    - On an existing appliance it calls `camera-appliance update`.
-   - `--enable-kiosk` installs a user service that opens the browser after the local API is reachable.
+   - It auto-detects the desktop user and enables the kiosk browser service by default.
+   - `--user USER` overrides the detected desktop/kiosk user.
+   - `--no-kiosk` skips the kiosk browser user service.
    - `--no-start` installs and enables services without starting them immediately.
    - Firewall rules are not changed; normal kiosk operation uses localhost bindings only.
 5. Edit `/etc/camera-appliance/secrets.env` and set the real Tapo camera password.

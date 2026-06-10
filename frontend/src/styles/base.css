@@ -1015,6 +1015,11 @@ input, select, textarea { font: inherit; color: inherit; }
   text-transform: uppercase;
   letter-spacing: .12em;
 }
+.endpoint-summary {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
 .endpoint-state.err { color: var(--danger); }
 .endpoint-state.warn { color: var(--warn); }
 

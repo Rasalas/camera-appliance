@@ -1,7 +1,7 @@
 <template>
   <section class="panel card">
     <div class="panel-head">
-      <h2>Relay</h2>
+      <h2>Relays</h2>
       <div class="device-head-actions">
         <div class="right">{{ relayIds.length ? `${relayIds.length} eingerichtet` : 'nicht eingerichtet' }}</div>
         <button class="btn sm primary" type="button" @click="openRelayModal">Relay hinzufügen</button>
@@ -12,6 +12,7 @@
       Ein Relay leitet Kamera-Streams per SSH über einen anderen Host. Einmal eingerichtet, steht es jeder Kamera
       automatisch als Ersatzpfad zur Verfügung — die Ports werden pro Kameraplatz automatisch vergeben, und der
       Watchdog wechselt bei Verbindungsproblemen von selbst auf das Relay und wieder zurück.
+      Ob eine Kamera das Relay nutzen <i>muss</i>, legst du auf ihrer Detailseite unter „Verbindung“ fest.
     </div>
 
     <div v-if="!relayIds.length" class="empty">Kein Relay eingerichtet. Direkt erreichbare Kameras funktionieren auch ohne.</div>
@@ -41,6 +42,13 @@
           <div class="mono-mute">{{ relayStatusFor(relayId)?.pid ? `PID ${relayStatusFor(relayId)?.pid}` : '' }}</div>
         </div>
 
+        <div v-if="relayStatusFor(relayId)?.endpoints?.length" class="relay-endpoints">
+          <div v-for="endpoint in relayStatusFor(relayId)?.endpoints" :key="endpoint.device_id" class="endpoint-summary">
+            <span class="endpoint-state" :class="endpointStateClass(endpoint.state)">{{ endpointStateLabel(endpoint.state) }}</span>
+            <span class="mono-mute">{{ endpoint.label || endpoint.device_id }} · {{ endpoint.slot_id || '—' }} · Port {{ endpoint.local_port || '—' }} → {{ endpoint.target_host || '?' }}:{{ endpoint.target_port }}</span>
+          </div>
+        </div>
+
         <label class="toggle-row compact">
           <input type="checkbox" :checked="relayAutoStart(relayId)" @change="onAutoStartChange(relayId, $event)" />
           <div><div class="lbl-main">Automatisch aktiv halten</div><div class="lbl-sub">Watchdog startet das Relay bei Ausfall erneut (empfohlen).</div></div>
@@ -64,73 +72,10 @@
     </div>
   </section>
 
-  <section class="panel card">
-    <div class="panel-head">
-      <h2>Kamera-Pfade</h2>
-      <div class="right">Änderungen werden sofort gespeichert</div>
-    </div>
-
-    <div class="mono-mute">
-      Standard ist <b>Automatisch</b>: Die Verbindung läuft direkt zur Kamera; fällt sie aus, wechselt der Watchdog
-      selbständig auf das Relay und nach Erholung wieder zurück. Erzwinge einen Weg nur, wenn eine Kamera dauerhaft
-      nur über einen davon erreichbar ist.
-    </div>
-
-    <div v-if="!cameraBindings.length" class="empty">Noch keine Kameras aktiviert.</div>
-    <div v-else class="relay-camera-list">
-      <div v-for="binding in cameraBindings" :key="binding.device_id" class="relay-camera">
-        <div class="relay-camera-main">
-          <div>
-            <div class="name">{{ binding.label || binding.slot?.label || binding.slot_id }}</div>
-            <div class="mono-mute">{{ binding.device?.last_ip || 'keine IP' }} · {{ binding.slot_id }} · aktiv über {{ activePathLabel(binding.device_id) }}</div>
-          </div>
-          <div class="field">
-            <span class="lbl">Verbindungsweg</span>
-            <select v-model="settings[pathPolicyKey(binding.device_id)]" @change="onPathPolicyChange(binding.device_id)">
-              <option value="auto">Automatisch (empfohlen)</option>
-              <option value="relay_only">Muss über Relay</option>
-              <option value="direct_only">Nur direkt</option>
-              <option v-if="settings[pathPolicyKey(binding.device_id)] === 'prefer_direct'" value="prefer_direct">Direkt bevorzugen (alt)</option>
-              <option v-if="settings[pathPolicyKey(binding.device_id)] === 'prefer_relay'" value="prefer_relay">Relay bevorzugen (alt)</option>
-            </select>
-          </div>
-        </div>
-
-        <div v-if="legacyRelayHost(binding.device_id)" class="legacy-path">
-          Legacy-Relay aktiv · {{ legacyRelayHost(binding.device_id) }}:{{ legacyRelayPort(binding.device_id) }}
-        </div>
-
-        <div v-if="relayIds.length && settings[pathPolicyKey(binding.device_id)] !== 'direct_only'" class="relay-endpoints">
-          <div v-for="relayId in relayIds" :key="`${binding.device_id}-${relayId}`" class="endpoint-summary">
-            <span class="endpoint-state" :class="relayEndpointStateClass(binding.device_id, relayId)">{{ relayEndpointStateLabel(binding.device_id, relayId) }}</span>
-            <span class="mono-mute">{{ relayName(relayId) }} · Port {{ endpointPortLabel(binding.device_id, relayId) }}</span>
-          </div>
-        </div>
-
-        <details v-if="relayIds.length" class="advanced">
-          <summary>Feinjustage</summary>
-          <div class="relay-endpoints" style="margin-top: 12px;">
-            <div v-for="relayId in relayIds" :key="`adv-${binding.device_id}-${relayId}`" class="relay-endpoint-row">
-              <span>{{ relayName(relayId) }}</span>
-              <input v-model="settings[relayEndpointKey(binding.device_id, relayId, 'port')]" class="compact-input" :placeholder="`Port · auto ${autoPortFor(binding, relayId)}`" />
-              <input v-model="settings[relayEndpointKey(binding.device_id, relayId, 'host')]" class="compact-input" :placeholder="relayHost(relayId) || 'go2rtc-Host'" />
-              <input v-model="settings[relayEndpointKey(binding.device_id, relayId, 'target_host')]" class="compact-input" :placeholder="binding.device?.last_ip || 'Ziel-IP'" />
-              <input v-model="settings[relayEndpointKey(binding.device_id, relayId, 'target_port')]" class="compact-input" placeholder="554" />
-            </div>
-          </div>
-          <div class="btn-row" style="margin-top: 12px;">
-            <button class="btn sm primary" type="button" @click="saveEndpointOverrides(binding.device_id)">Speichern</button>
-            <span class="mono-mute" style="font-size: 11px;">Leere Felder = automatische Werte (Port aus Kameraplatz, Ziel = Kamera-IP).</span>
-          </div>
-        </details>
-      </div>
-    </div>
-  </section>
-
   <div v-if="showRelayModal" class="modal-backdrop" @click.self="closeRelayModal">
     <form class="modal" @submit.prevent="onAddRelay">
       <div class="modal-head">
-        <div><div class="eyebrow">Netzwerk & Relay</div><h2>Relay hinzufügen</h2></div>
+        <div><div class="eyebrow">Relays</div><h2>Relay hinzufügen</h2></div>
         <button class="btn icon sm ghost" type="button" title="Schließen" @click="closeRelayModal">×</button>
       </div>
       <div class="split">
@@ -152,14 +97,11 @@
 <script setup lang="ts">
 import { onMounted, reactive, ref } from 'vue'
 import { useSystem } from '../../composables/useSystem'
-import type { Binding } from '../../types'
 
 const {
-  settings, relayIds, cameraBindings, error,
+  settings, relayIds, error,
   loadAll, refreshStatus, saveSettings, addRelay, removeRelay, relayAction, sanitizeID,
-  relaySettingKey, relayEndpointKey, pathPolicyKey, relayName, relayHost, relayAutoStart, relayStatusFor,
-  relayStateLabel, relayStateClass, relayEndpointStatus, relayEndpointStateLabel, relayEndpointStateClass,
-  legacyRelayHost, legacyRelayPort
+  relaySettingKey, relayName, relayAutoStart, relayStatusFor, relayStateLabel, relayStateClass
 } = useSystem()
 
 // Mirrors the backend's auto port scheme (paths.go): relay n → base 18554+20n, slot m → +m-1.
@@ -176,27 +118,15 @@ function relayPortBaseFallback(relayId: string) {
   return relayPortBaseDefault + relayPortBaseSpacing * index
 }
 
-function autoPortFor(binding: Binding, relayId: string) {
-  const slotNumber = Number((binding.slot_id || '').replace(/^\D+/, ''))
-  if (!Number.isFinite(slotNumber) || slotNumber <= 0) return '—'
-  const base = Number(settings[relaySettingKey(relayId, 'port_base')]) || relayPortBaseFallback(relayId)
-  return String(base + slotNumber - 1)
+function endpointStateLabel(state: string) {
+  if (state === 'ok') return 'OK'
+  if (state === 'failed') return 'Offline'
+  return 'Unvollständig'
 }
-
-function endpointPortLabel(deviceId: string, relayId: string) {
-  return relayEndpointStatus(deviceId, relayId)?.local_port
-    || settings[relayEndpointKey(deviceId, relayId, 'port')]
-    || '—'
-}
-
-function activePathLabel(deviceId: string) {
-  const kind = settings[`camera.active_path.${deviceId}.kind`]
-  if (kind === 'relay') {
-    const relayId = settings[`camera.active_path.${deviceId}.relay_id`]
-    return relayId && relayId !== 'manual' ? `Relay ${relayName(relayId)}` : 'Relay'
-  }
-  if (kind === 'direct') return 'Direkt'
-  return '—'
+function endpointStateClass(state: string) {
+  if (state === 'ok') return 'ok'
+  if (state === 'failed') return 'err'
+  return 'warn'
 }
 
 function openRelayModal() {
@@ -253,26 +183,5 @@ async function saveRelayConfig(relayId: string) {
   await onRelayAction(relayId, 'restart')
 }
 
-async function onPathPolicyChange(deviceId: string) {
-  await saveSettings([pathPolicyKey(deviceId)])
-  await refreshStatus()
-}
-
-async function saveEndpointOverrides(deviceId: string) {
-  const keys = relayIds.value.flatMap((relayId) =>
-    ['port', 'host', 'target_host', 'target_port'].map((field) => relayEndpointKey(deviceId, relayId, field))
-  )
-  await saveSettings(keys)
-  await refreshStatus()
-}
-
 onMounted(() => void loadAll())
 </script>
-
-<style scoped>
-.endpoint-summary {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-</style>

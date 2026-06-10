@@ -26,7 +26,8 @@ const router = createRouter({
         { path: '', redirect: '/system/allgemein' },
         { path: 'allgemein', name: 'system-general', component: SystemGeneralPage },
         { path: 'zugriff', name: 'system-access', component: SystemAccessPage },
-        { path: 'netzwerk', name: 'system-network', component: SystemNetworkPage },
+        { path: 'relays', name: 'system-relays', component: SystemNetworkPage },
+        { path: 'netzwerk', redirect: '/system/relays' },
         { path: 'identitaeten', name: 'system-identities', component: SystemIdentitiesPage },
         { path: 'wartung', name: 'system-maintenance', component: SystemMaintenancePage }
       ]

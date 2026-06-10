@@ -84,6 +84,47 @@
       </section>
     </div>
 
+    <section v-if="relayIds.length" class="panel">
+      <div class="panel-head">
+        <h2>Verbindung</h2>
+        <div class="right">aktiv über {{ activePathLabel }}</div>
+      </div>
+      <div class="split">
+        <div class="field">
+          <span class="lbl">Verbindungsweg</span>
+          <select v-model="pathPolicy">
+            <option value="auto">Automatisch (empfohlen)</option>
+            <option value="relay_only">Muss über Relay</option>
+            <option value="direct_only">Nur direkt</option>
+            <option v-if="pathPolicy === 'prefer_direct'" value="prefer_direct">Direkt bevorzugen (alt)</option>
+            <option v-if="pathPolicy === 'prefer_relay'" value="prefer_relay">Relay bevorzugen (alt)</option>
+          </select>
+        </div>
+        <div v-if="pathPolicy !== 'direct_only'" class="relay-endpoints" style="align-content: center;">
+          <div v-for="relayId in relayIds" :key="relayId" class="endpoint-summary">
+            <span class="endpoint-state" :class="endpointStateClass(relayId)">{{ endpointStateLabel(relayId) }}</span>
+            <span class="mono-mute">{{ relayNameFor(relayId) }} · Port {{ endpointPort(relayId) }}</span>
+          </div>
+        </div>
+      </div>
+      <details class="advanced">
+        <summary>Feinjustage</summary>
+        <div class="relay-endpoints" style="margin-top: 12px;">
+          <div v-for="relayId in relayIds" :key="`adv-${relayId}`" class="relay-endpoint-row">
+            <span>{{ relayNameFor(relayId) }}</span>
+            <input v-model="settings[endpointKey(relayId, 'port')]" class="compact-input" :placeholder="`Port · auto ${autoPortFor(relayId)}`" />
+            <input v-model="settings[endpointKey(relayId, 'host')]" class="compact-input" :placeholder="relayHostFor(relayId) || 'go2rtc-Host'" />
+            <input v-model="settings[endpointKey(relayId, 'target_host')]" class="compact-input" :placeholder="device.last_ip || 'Ziel-IP'" />
+            <input v-model="settings[endpointKey(relayId, 'target_port')]" class="compact-input" placeholder="554" />
+          </div>
+        </div>
+        <div class="btn-row" style="margin-top: 12px;">
+          <button class="btn sm primary" type="button" :disabled="busy" @click="saveEndpointOverrides">Speichern</button>
+          <span class="mono-mute" style="font-size: 11px;">Leere Felder = automatisch (Port aus Kameraplatz, Ziel = Kamera-IP).</span>
+        </div>
+      </details>
+    </section>
+
     <section class="panel card">
       <div class="panel-head">
         <h2>Bild &amp; Anzeige</h2>
@@ -131,16 +172,6 @@
 
           <details class="advanced">
             <summary>Feinjustage</summary>
-            <div class="field" style="margin-top: 12px;">
-              <span class="lbl">Verbindungsweg</span>
-              <select v-model="pathPolicy">
-                <option value="auto">Automatisch (empfohlen)</option>
-                <option value="relay_only">Muss über Relay</option>
-                <option value="direct_only">Nur direkt</option>
-                <option v-if="pathPolicy === 'prefer_direct'" value="prefer_direct">Direkt bevorzugen (alt)</option>
-                <option v-if="pathPolicy === 'prefer_relay'" value="prefer_relay">Relay bevorzugen (alt)</option>
-              </select>
-            </div>
             <div class="crop-grid" style="margin-top: 12px;">
               <div class="field"><span class="lbl">Crop X</span><input v-model.number="cropX" type="number" min="0" max="99" /></div>
               <div class="field"><span class="lbl">Crop Y</span><input v-model.number="cropY" type="number" min="0" max="99" /></div>
@@ -170,7 +201,7 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { api } from '../api/client'
-import type { Binding, CredentialIdentity, Device, DeviceCredentials, FrameResult, ProbeResult, Slot } from '../types'
+import type { Binding, CredentialIdentity, Device, DeviceCredentials, FrameResult, ProbeResult, RelayStatus, Slot } from '../types'
 
 const route = useRoute()
 const device = ref<Device>()
@@ -201,8 +232,29 @@ const cropY = ref(0)
 const cropWidth = ref(100)
 const cropHeight = ref(100)
 const pathPolicy = ref('auto')
+const relayStatuses = ref<RelayStatus[]>([])
+
+// Mirrors the backend's auto port scheme (paths.go): relay n → base 18554+20n, slot m → +m-1.
+const relayPortBaseDefault = 18554
+const relayPortBaseSpacing = 20
 
 const title = computed(() => `${device.value?.manufacturer || 'Unbekannte'} ${device.value?.model || 'Kamera'}`.trim())
+const relayIds = computed(() =>
+  (settings.value['camera.relay.ids'] || '')
+    .split(',')
+    .map((part) => part.trim())
+    .filter(Boolean)
+)
+const activePathLabel = computed(() => {
+  const deviceID = device.value?.id
+  if (!deviceID) return '—'
+  const kind = settings.value[`camera.active_path.${deviceID}.kind`]
+  if (kind === 'relay') {
+    const relayId = settings.value[`camera.active_path.${deviceID}.relay_id`]
+    return relayId && relayId !== 'manual' ? `Relay ${relayNameFor(relayId)}` : 'Relay'
+  }
+  return kind === 'direct' ? 'Direkt' : '—'
+})
 const shown = computed(() => !!device.value && bindings.value.some((b) => b.device_id === device.value!.id))
 const canPan = computed(() => clamp(Number(cropWidth.value) || 100, 1, 100) < 100 || clamp(Number(cropHeight.value) || 100, 1, 100) < 100)
 const referenceImageUrl = computed(() => device.value ? api.referenceImageUrl(device.value.id, referenceRevision.value) : '')
@@ -238,6 +290,72 @@ const raw = computed(() => {
   }
   return v
 })
+
+function relayNameFor(relayId: string) {
+  return settings.value[`camera.relay.${relayId}.name`] || relayId
+}
+function relayHostFor(relayId: string) {
+  return settings.value[`camera.relay.${relayId}.host`] || ''
+}
+function endpointKey(relayId: string, field: string) {
+  return `camera.relay_endpoint.${device.value?.id}.${relayId}.${field}`
+}
+function myEndpoint(relayId: string) {
+  return relayStatuses.value.find((relay) => relay.id === relayId)?.endpoints.find((endpoint) => endpoint.device_id === device.value?.id)
+}
+function endpointPort(relayId: string) {
+  return myEndpoint(relayId)?.local_port || settings.value[endpointKey(relayId, 'port')] || autoPortFor(relayId)
+}
+function endpointStateLabel(relayId: string) {
+  const state = myEndpoint(relayId)?.state
+  if (state === 'ok') return 'OK'
+  if (state === 'failed') return 'Offline'
+  return state ? 'Unvollständig' : 'kein Status'
+}
+function endpointStateClass(relayId: string) {
+  const state = myEndpoint(relayId)?.state
+  if (state === 'ok') return 'ok'
+  if (state === 'failed') return 'err'
+  return 'warn'
+}
+function autoPortFor(relayId: string) {
+  const slotID = bindings.value.find((binding) => binding.device_id === device.value?.id)?.slot_id || ''
+  const slotNumber = Number(slotID.replace(/^\D+/, ''))
+  if (!Number.isFinite(slotNumber) || slotNumber <= 0) return '—'
+  const index = Math.max(0, relayIds.value.indexOf(relayId))
+  const base = Number(settings.value[`camera.relay.${relayId}.port_base`]) || relayPortBaseDefault + relayPortBaseSpacing * index
+  return String(base + slotNumber - 1)
+}
+
+async function loadRelayStatuses() {
+  if (!relayIds.value.length) return
+  try {
+    relayStatuses.value = await api.relayStatus()
+  } catch {
+    relayStatuses.value = []
+  }
+}
+
+async function saveEndpointOverrides() {
+  if (!device.value) return
+  busy.value = true
+  error.value = ''
+  try {
+    const values: Record<string, string> = {}
+    for (const relayId of relayIds.value) {
+      for (const field of ['port', 'host', 'target_host', 'target_port']) {
+        const key = endpointKey(relayId, field)
+        if (key in settings.value) values[key] = settings.value[key]
+      }
+    }
+    await api.saveSettings(values)
+    await loadRelayStatuses()
+  } catch (err) {
+    error.value = err instanceof Error ? err.message : 'Relay-Endpunkte konnten nicht gespeichert werden.'
+  } finally {
+    busy.value = false
+  }
+}
 
 async function probe() {
   if (!device.value) return
@@ -494,6 +612,7 @@ onMounted(async () => {
     username.value = credentials.value.username || ''
     stream.value = credentials.value.stream || 'stream2'
     loadDisplaySettings()
+    await loadRelayStatuses()
     ready.value = true
   } catch (err) {
     error.value = err instanceof Error ? err.message : 'Kamera konnte nicht geladen werden.'
