@@ -7,9 +7,10 @@
       </div>
       <h1 class="headline">{{ title }}</h1>
     </div>
-    <div class="meta">
-      <div>IP · <b>{{ device?.last_ip || '—' }}</b></div>
-      <div>MAC · <b>{{ device?.mac_address || '—' }}</b></div>
+    <div v-if="device" class="meta sig-row">
+      <span class="sig" :class="{ on: raw.rtsp_port_open }">RTSP</span>
+      <span class="sig" :class="{ on: raw.onvif_port_open }">ONVIF</span>
+      <span class="sig" :class="{ on: raw.http_signature }">HTTP</span>
     </div>
   </header>
 
@@ -31,11 +32,6 @@
       <section class="panel">
         <div class="panel-head">
           <h2>Identität</h2>
-          <div class="right">
-            <span class="sig" :class="{ on: raw.rtsp_port_open }">RTSP</span>
-            <span class="sig" :class="{ on: raw.onvif_port_open }" style="margin-left: 4px;">ONVIF</span>
-            <span class="sig" :class="{ on: raw.http_signature }" style="margin-left: 4px;">HTTP</span>
-          </div>
         </div>
         <dl class="spec">
           <div><dt>IP</dt><dd>{{ device.last_ip || '—' }}</dd></div>
@@ -88,42 +84,9 @@
       </section>
     </div>
 
-    <section class="panel">
-      <div class="panel-head">
-        <h2>Referenzbild</h2>
-        <div class="right">Hilft beim späteren Wiedererkennen</div>
-      </div>
-      <div class="btn-row">
-        <button class="btn primary" :disabled="busy || !canCapture" @click="capture(true)">Bild aktualisieren</button>
-        <button class="btn" :disabled="busy || !canCapture" @click="capture(false)">Nur anzeigen</button>
-      </div>
-      <div v-if="frame" style="display: grid; gap: 10px;">
-        <img
-          class="preview-frame"
-          :src="`data:${frame.content_type};base64,${frame.image_base64}`"
-          alt="Kamera-Referenzbild"
-          style="display: block; max-width: 720px; width: 100%; border-radius: var(--radius);"
-        />
-        <div class="mono-mute" style="font-size: 11px;">
-          Frame-ID · {{ frame.sha256.slice(0, 24) }}<span v-if="frame.credential_source"> · Zugang: {{ frame.credential_source }}</span><span v-if="frame.saved_path"> · gespeichert unter {{ frame.saved_path }}</span>
-        </div>
-      </div>
-      <div v-else-if="device && !referenceMissing" style="display: grid; gap: 10px;">
-        <img
-          class="preview-frame"
-          :src="referenceImageUrl"
-          alt="Gespeichertes Kamera-Referenzbild"
-          style="display: block; max-width: 720px; width: 100%; border-radius: var(--radius);"
-          @error="referenceMissing = true"
-        />
-        <div class="mono-mute" style="font-size: 11px;">Gespeichertes Referenzbild</div>
-      </div>
-      <div v-else class="empty">Noch kein Referenzbild hinterlegt.</div>
-    </section>
-
     <section class="panel card">
       <div class="panel-head">
-        <h2>Anzeige</h2>
+        <h2>Bild &amp; Anzeige</h2>
         <div class="right">{{ displaySummary }}</div>
       </div>
 
@@ -152,31 +115,31 @@
               <button class="btn icon sm" type="button" title="Zuschnitt zurücksetzen" @click="resetDisplay">⟲</button>
             </div>
           </div>
-          <div v-else class="empty">Für die Vorschau zuerst ein Referenzbild erzeugen.</div>
-          <div class="mono-mute" style="margin-top: 8px; font-size: 11px;">Ziehen = Ausschnitt verschieben · Mausrad = Zoom · Änderungen werden automatisch gespeichert</div>
+          <div v-else class="empty">Noch kein Referenzbild — zuerst Zugang speichern, dann rechts „Referenzbild aufnehmen“.</div>
+          <div v-if="previewImageSrc" class="mono-mute" style="margin-top: 8px; font-size: 11px;">
+            <template v-if="frame">Frame-ID · {{ frame.sha256.slice(0, 24) }}<span v-if="frame.credential_source"> · Zugang: {{ frame.credential_source }}</span></template>
+            <template v-else>Gespeichertes Referenzbild</template>
+            · Ziehen = Ausschnitt verschieben · Mausrad = Zoom · Änderungen werden automatisch gespeichert
+          </div>
         </div>
 
         <div class="display-controls">
+          <div class="btn-row">
+            <button class="btn primary" :disabled="busy || !canCapture" @click="capture(true)">{{ previewImageSrc ? 'Referenzbild aktualisieren' : 'Referenzbild aufnehmen' }}</button>
+          </div>
+          <div class="mono-mute" style="font-size: 11px;">Das Referenzbild dient als Vorschau für den Zuschnitt und hilft beim späteren Wiedererkennen der Kamera.</div>
+
           <details class="advanced">
             <summary>Feinjustage</summary>
-            <div class="split" style="margin-top: 12px;">
-              <div class="field">
-                <span class="lbl">Streamprofil</span>
-                <select v-model="stream">
-                  <option value="stream2">stream2</option>
-                  <option value="stream1">stream1</option>
-                </select>
-              </div>
-              <div class="field">
-                <span class="lbl">Pfad-Policy</span>
-                <select v-model="pathPolicy">
-                  <option value="auto">Auto</option>
-                  <option value="prefer_direct">Direkt bevorzugen</option>
-                  <option value="prefer_relay">Relay bevorzugen</option>
-                  <option value="direct_only">Nur direkt</option>
-                  <option value="relay_only">Nur Relay</option>
-                </select>
-              </div>
+            <div class="field" style="margin-top: 12px;">
+              <span class="lbl">Pfad-Policy</span>
+              <select v-model="pathPolicy">
+                <option value="auto">Auto</option>
+                <option value="prefer_direct">Direkt bevorzugen</option>
+                <option value="prefer_relay">Relay bevorzugen</option>
+                <option value="direct_only">Nur direkt</option>
+                <option value="relay_only">Nur Relay</option>
+              </select>
             </div>
             <div class="crop-grid" style="margin-top: 12px;">
               <div class="field"><span class="lbl">Crop X</span><input v-model.number="cropX" type="number" min="0" max="99" /></div>
@@ -195,10 +158,10 @@
     </section>
 
     <section class="panel">
-      <div class="panel-head">
-        <h2>Rohdaten · Diagnose</h2>
-      </div>
-      <pre class="code">{{ JSON.stringify(raw, null, 2) }}</pre>
+      <details class="advanced">
+        <summary>Rohdaten · Diagnose</summary>
+        <pre class="code" style="margin-top: 10px;">{{ JSON.stringify(raw, null, 2) }}</pre>
+      </details>
     </section>
   </template>
 </template>
@@ -541,6 +504,11 @@ onMounted(async () => {
 </script>
 
 <style scoped>
+.topline .meta.sig-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
 .transform-preview-stage.grabbable { cursor: grab; }
 .transform-preview-stage.grabbable:active { cursor: grabbing; }
 .stage-tools {

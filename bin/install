@@ -48,6 +48,33 @@ need() {
   fi
 }
 
+firewall_notice() {
+  echo
+  echo "Firewall-Hinweis:"
+  echo "  camera-appliance bindet UI/API und go2rtc standardmäßig nur an localhost/Loopback"
+  echo "  auf diesem Laptop, nicht an die wechselnde LAN-IP des Geräts:"
+  echo "    - UI/API: Port 8091"
+  echo "    - go2rtc API: Port 1984"
+  echo "    - go2rtc RTSP: Port 8554"
+  echo "  Für den normalen Kiosk-Betrieb müssen keine eingehenden Ports geöffnet werden."
+  echo "  Der Laptop braucht ausgehend Zugriff auf die Kameras (TCP 554, 2020, 80)"
+  echo "  und für Installation/Updates auf HTTPS/Docker-Registry."
+  if command -v ufw >/dev/null 2>&1; then
+    local status
+    status="$(ufw status 2>/dev/null | head -n 1 || true)"
+    if [[ -n "$status" ]]; then
+      echo "  Aktueller ufw-Status: $status"
+    fi
+    echo "  Falls ufw aktiv ist, ist die übliche Policy ausreichend:"
+    echo "    sudo ufw default deny incoming"
+    echo "    sudo ufw default allow outgoing"
+  else
+    echo "  ufw ist nicht installiert; es wurden keine Firewall-Regeln geändert."
+  fi
+  echo "  Nur wenn die UI absichtlich aus dem LAN erreichbar sein soll, Bind-Adresse"
+  echo "  und Firewall bewusst separat konfigurieren."
+}
+
 if [[ "${EUID:-$(id -u)}" -ne 0 ]]; then
   echo "Please run install with sudo/root. It writes /etc, /var/lib and systemd files." >&2
   exit 1
@@ -167,3 +194,4 @@ if [[ "$ENABLE_SYSTEMD" -eq 1 ]]; then
 else
   echo "Start manually with: cd $TARGET_DIR && docker compose up -d --build"
 fi
+firewall_notice
