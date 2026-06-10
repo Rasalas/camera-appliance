@@ -50,9 +50,16 @@ jobs:
           version="${REF_NAME#v}"
           short_commit="${COMMIT:0:7}"
           archive=".release/camera-appliance-${version}-${short_commit}.tar.gz"
-          gh release create "$REF_NAME" \
-            "$archive" \
-            ".release/camera-appliance-latest.tar.gz" \
-            --title "camera-appliance ${REF_NAME}" \
-            --generate-notes \
-            --latest
+          if gh release view "$REF_NAME" >/dev/null 2>&1; then
+            gh release upload "$REF_NAME" \
+              "$archive" \
+              ".release/camera-appliance-latest.tar.gz" \
+              --clobber
+          else
+            gh release create "$REF_NAME" \
+              "$archive" \
+              ".release/camera-appliance-latest.tar.gz" \
+              --title "camera-appliance ${REF_NAME}" \
+              --generate-notes \
+              --latest
+          fi
