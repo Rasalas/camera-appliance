@@ -1,7 +1,7 @@
 # Local secrets
 .env
 *.env
-secrets/
+/secrets/
 local.env
 
 # Generated files
