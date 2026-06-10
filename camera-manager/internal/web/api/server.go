@@ -544,10 +544,11 @@ func (s *Server) getCredentialIdentities(w http.ResponseWriter, r *http.Request)
 
 func (s *Server) saveCredentialIdentity(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		ID       string `json:"id"`
-		Name     string `json:"name"`
-		Username string `json:"username"`
-		Password string `json:"password"`
+		ID                 string `json:"id"`
+		Name               string `json:"name"`
+		Username           string `json:"username"`
+		Password           string `json:"password"`
+		CopyPasswordFromID string `json:"copy_password_from_id"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, err, http.StatusBadRequest)
@@ -556,6 +557,7 @@ func (s *Server) saveCredentialIdentity(w http.ResponseWriter, r *http.Request) 
 	req.ID = strings.TrimSpace(req.ID)
 	req.Name = strings.TrimSpace(req.Name)
 	req.Username = strings.TrimSpace(req.Username)
+	req.CopyPasswordFromID = strings.TrimSpace(req.CopyPasswordFromID)
 	if req.Name == "" {
 		writeError(w, errors.New("name is required"), http.StatusBadRequest)
 		return
@@ -588,6 +590,15 @@ func (s *Server) saveCredentialIdentity(w http.ResponseWriter, r *http.Request) 
 		if err != nil {
 			writeError(w, err, http.StatusInternalServerError)
 			return
+		}
+	} else if req.CopyPasswordFromID != "" && req.CopyPasswordFromID != req.ID {
+		secret := secrets.LoadIdentity(s.app.Config.ConfigDir, req.CopyPasswordFromID)
+		if secret.Value != "" {
+			source, err = secrets.SaveIdentity(s.app.Config.ConfigDir, req.ID, secret.Value)
+			if err != nil {
+				writeError(w, err, http.StatusInternalServerError)
+				return
+			}
 		}
 	}
 	_ = s.app.Store.AddEvent(r.Context(), "info", "credentials.identity.updated", "Kamera-Identität wurde gespeichert", map[string]string{"identity_id": req.ID, "password_source": source})

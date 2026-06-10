@@ -51,7 +51,7 @@ export const api = {
   restartRelay: (id: string) => request<RelayStatus>(`/api/relays/${encodeURIComponent(id)}/restart`, { method: 'POST' }),
   restartStack: () => request('/api/system/restart-stack', { method: 'POST' }),
   credentialIdentities: () => request<CredentialIdentity[]>('/api/credential-identities'),
-  saveCredentialIdentity: (body: { id?: string; name: string; username: string; password?: string }) =>
+  saveCredentialIdentity: (body: { id?: string; name: string; username: string; password?: string; copy_password_from_id?: string }) =>
     request<CredentialIdentity>('/api/credential-identities', { method: 'POST', body: JSON.stringify(body) }),
   deleteCredentialIdentity: (id: string) => request(`/api/credential-identities/${encodeURIComponent(id)}`, { method: 'DELETE' }),
   settings: () => request<Record<string, string>>('/api/settings'),

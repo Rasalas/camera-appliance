@@ -291,8 +291,14 @@ async function loadCredentialIdentities() {
   credentialIdentities.value = await api.credentialIdentities()
 }
 
-async function saveCredentialIdentity(form: { id?: string; name: string; username: string; password?: string }) {
-  await api.saveCredentialIdentity({ id: form.id || undefined, name: form.name, username: form.username, password: form.password || undefined })
+async function saveCredentialIdentity(form: { id?: string; name: string; username: string; password?: string; copy_password_from_id?: string }) {
+  await api.saveCredentialIdentity({
+    id: form.id || undefined,
+    name: form.name,
+    username: form.username,
+    password: form.password || undefined,
+    copy_password_from_id: form.copy_password_from_id || undefined
+  })
   await loadCredentialIdentities()
   showToast('Identität gespeichert')
 }

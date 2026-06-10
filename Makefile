@@ -40,7 +40,7 @@ help:
 	@echo "  make stop-dev-go2rtc Stop local go2rtc helper"
 	@echo "  make test            Run Go tests"
 	@echo "  make build           Build frontend and Go binary"
-	@echo "  make release         Build a redacted release archive"
+	@echo "  make release         Build a redacted release archive; suggests VERSION with tagger"
 	@echo "  make status          Run local status command"
 	@echo "  make discover        Run local discovery with short timeouts"
 	@echo "  make render-go2rtc   Render local generated go2rtc config"
@@ -128,11 +128,14 @@ backend-build:
 frontend-build:
 	cd frontend && npm install && npm run build
 
-release: build
+release:
 	@set -euo pipefail; \
+	release_version="$$(VERSION_ORIGIN="$(origin VERSION)" VERSION_VALUE="$(VERSION)" "$(ROOT)/bin/release-version")"; \
+	release_name="camera-appliance-$${release_version}-$(COMMIT)"; \
+	"$(MAKE)" build VERSION="$$release_version" COMMIT="$(COMMIT)" BUILD_TIME="$(BUILD_TIME)"; \
 	export COPYFILE_DISABLE=1; \
-	rm -rf "$(RELEASE_DIR)/$(RELEASE_NAME)"; \
-	mkdir -p "$(RELEASE_DIR)/$(RELEASE_NAME)"; \
+	rm -rf "$(RELEASE_DIR)/$${release_name}"; \
+	mkdir -p "$(RELEASE_DIR)/$${release_name}"; \
 	rsync -a --delete \
 	  --exclude ".git" \
 	  --exclude ".private" \
@@ -144,11 +147,11 @@ release: build
 	  --exclude ".env" \
 	  --exclude "local.env" \
 	  --exclude "secrets.env" \
-	  ./ "$(RELEASE_DIR)/$(RELEASE_NAME)/"; \
-	printf '{\n  "version": "%s",\n  "commit": "%s",\n  "build_time": "%s"\n}\n' "$(VERSION)" "$(COMMIT)" "$(BUILD_TIME)" > "$(RELEASE_DIR)/$(RELEASE_NAME)/manifest.json"; \
-	tar -czf "$(RELEASE_DIR)/$(RELEASE_NAME).tar.gz" -C "$(RELEASE_DIR)" "$(RELEASE_NAME)"; \
-	cp "$(RELEASE_DIR)/$(RELEASE_NAME).tar.gz" "$(RELEASE_DIR)/camera-appliance-latest.tar.gz"; \
-	echo "$(RELEASE_DIR)/$(RELEASE_NAME).tar.gz"
+	  ./ "$(RELEASE_DIR)/$${release_name}/"; \
+	printf '{\n  "version": "%s",\n  "commit": "%s",\n  "build_time": "%s"\n}\n' "$$release_version" "$(COMMIT)" "$(BUILD_TIME)" > "$(RELEASE_DIR)/$${release_name}/manifest.json"; \
+	tar -czf "$(RELEASE_DIR)/$${release_name}.tar.gz" -C "$(RELEASE_DIR)" "$$release_name"; \
+	cp "$(RELEASE_DIR)/$${release_name}.tar.gz" "$(RELEASE_DIR)/camera-appliance-latest.tar.gz"; \
+	echo "$(RELEASE_DIR)/$${release_name}.tar.gz"
 
 test:
 	cd camera-manager && go test ./...

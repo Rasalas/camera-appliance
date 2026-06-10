@@ -884,6 +884,31 @@ input, select, textarea { font: inherit; color: inherit; }
   color: var(--ink-soft);
 }
 .result-row:nth-child(odd) { background: rgba(255,255,255,.018); }
+.result-row.identity-row {
+  grid-template-columns: 64px minmax(140px, 1fr) minmax(120px, .8fr) minmax(120px, .8fr) auto;
+  cursor: pointer;
+  transition: background .12s ease, color .12s ease;
+}
+.result-row.identity-row:hover { background: rgba(255,255,255,.04); }
+.result-row.identity-row:focus-visible {
+  outline: 1px solid var(--live);
+  outline-offset: 2px;
+}
+.identity-actions {
+  display: inline-flex;
+  align-items: center;
+  justify-content: end;
+  gap: 6px;
+}
+.icon-svg {
+  width: 15px;
+  height: 15px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.9;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
 .result-row .slot,
 .result-row .stream,
 .result-row .action {
@@ -899,6 +924,21 @@ input, select, textarea { font: inherit; color: inherit; }
 .result-row .action.muted { color: var(--ink-dim); text-decoration: none; }
 .result-row.ok .action { color: var(--live); text-decoration: none; }
 .result-row.err .message { color: var(--danger); }
+.identity-detail-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+}
+.identity-detail-grid .field:last-child { grid-column: 1 / -1; }
+.identity-detail-value {
+  min-height: 38px;
+  display: flex;
+  align-items: center;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  background: var(--raised);
+  color: var(--ink-soft);
+}
 .compact-input {
   min-height: 34px;
   padding: 7px 9px;
@@ -1295,6 +1335,7 @@ pre.code {
   display: grid;
   gap: 18px;
 }
+.modal.confirm-modal { width: min(520px, 100%); }
 .modal-head {
   display: flex;
   justify-content: space-between;
@@ -1434,8 +1475,12 @@ details.advanced[open] > summary::before { content: "▾ "; }
   .crop-grid { grid-template-columns: 1fr 1fr; }
   .service-strip { grid-template-columns: 1fr; }
   .result-row { grid-template-columns: 48px 1fr 72px; }
+  .result-row.identity-row { grid-template-columns: 48px minmax(0, 1fr) auto; }
   .result-row .ip,
   .result-row .message { grid-column: 2 / -1; }
+  .identity-row .stream,
+  .identity-actions { grid-column: 2 / -1; }
+  .identity-actions { justify-content: start; }
   .performance-row { grid-template-columns: 48px 1fr 90px; }
   .performance-row .message { grid-column: 2 / -1; }
   .relay-config-head,

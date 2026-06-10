@@ -43,3 +43,5 @@ coverage.out
 .DS_Store
 .idea/
 .vscode/
+.release/
+bin/

@@ -75,6 +75,12 @@ A real active-path change updates `camera.active_path.*`, renders go2rtc, restar
 Build a release archive on the development machine:
 
 ```bash
+make release
+```
+
+When `VERSION` is not passed explicitly, `make release` asks `tagger bump --dry-run` for the next Conventional Commits semver version and lets you accept it, force patch/minor/major, edit it, or abort. To bypass the prompt, pass a version explicitly:
+
+```bash
 make release VERSION=0.1.0
 ```
 

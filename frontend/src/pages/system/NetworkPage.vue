@@ -10,65 +10,22 @@
 
     <div class="mono-mute">
       Ein Relay leitet Kamera-Streams per SSH über einen anderen Host. Einmal eingerichtet, steht es jeder Kamera
-      automatisch als Ersatzpfad zur Verfügung — die Ports werden pro Kameraplatz automatisch vergeben, und der
-      Watchdog wechselt bei Verbindungsproblemen von selbst auf das Relay und wieder zurück.
+      automatisch als Ersatzpfad zur Verfügung — der Watchdog wechselt bei Verbindungsproblemen von selbst.
       Ob eine Kamera das Relay nutzen <i>muss</i>, legst du auf ihrer Detailseite unter „Verbindung“ fest.
     </div>
 
     <div v-if="!relayIds.length" class="empty">Kein Relay eingerichtet. Direkt erreichbare Kameras funktionieren auch ohne.</div>
-    <div v-else class="relay-config-list">
-      <div v-for="relayId in relayIds" :key="relayId" class="relay-config">
-        <div class="relay-config-head">
-          <div>
-            <div class="slot">Relay</div>
-            <div class="name">{{ relayName(relayId) }}</div>
-            <div class="mono-mute">{{ relayId }} · SSH {{ settings[relaySettingKey(relayId, 'ssh_target')] || relayId }}</div>
-          </div>
-          <div class="btn-row">
-            <button v-if="relayStatusFor(relayId)?.process_state !== 'running'" class="btn sm" type="button" :disabled="relayActionBusy === `start:${relayId}`" @click="onRelayAction(relayId, 'start')">{{ relayActionBusy === `start:${relayId}` ? 'Startet…' : 'Start' }}</button>
-            <button v-else class="btn sm ghost" type="button" :disabled="relayActionBusy === `restart:${relayId}`" @click="onRelayAction(relayId, 'restart')">{{ relayActionBusy === `restart:${relayId}` ? 'Startet…' : 'Restart' }}</button>
-            <button class="btn sm ghost" type="button" :disabled="relayActionBusy === `stop:${relayId}`" @click="onRelayAction(relayId, 'stop')">{{ relayActionBusy === `stop:${relayId}` ? 'Stoppt…' : 'Stop' }}</button>
-            <button class="btn sm danger" type="button" @click="onRemoveRelay(relayId)">Entfernen</button>
-          </div>
+    <div v-else class="relay-list">
+      <RouterLink v-for="relayId in relayIds" :key="relayId" :to="`/system/relays/${relayId}`" class="relay-row">
+        <span class="state-dot" :class="relayStateClass(relayId)"></span>
+        <div>
+          <div class="name">{{ relayName(relayId) }}</div>
+          <div class="mono-mute sub">SSH {{ settings[relaySettingKey(relayId, 'ssh_target')] || relayId }}</div>
         </div>
-
-        <div class="relay-runtime" :class="relayStateClass(relayId)">
-          <span class="state-dot"></span>
-          <div>
-            <div class="lbl-main">{{ relayStateLabel(relayId) }}</div>
-            <div class="lbl-sub">{{ relayStatusFor(relayId)?.message || 'Noch kein Status.' }}</div>
-            <div v-if="relayStatusFor(relayId)?.last_error" class="mono-mute">Fehler · {{ relayStatusFor(relayId)?.last_error }}</div>
-          </div>
-          <div class="mono-mute">{{ relayStatusFor(relayId)?.pid ? `PID ${relayStatusFor(relayId)?.pid}` : '' }}</div>
-        </div>
-
-        <div v-if="relayStatusFor(relayId)?.endpoints?.length" class="relay-endpoints">
-          <div v-for="endpoint in relayStatusFor(relayId)?.endpoints" :key="endpoint.device_id" class="endpoint-summary">
-            <span class="endpoint-state" :class="endpointStateClass(endpoint.state)">{{ endpointStateLabel(endpoint.state) }}</span>
-            <span class="mono-mute">{{ endpoint.label || endpoint.device_id }} · {{ endpoint.slot_id || '—' }} · Port {{ endpoint.local_port || '—' }} → {{ endpoint.target_host || '?' }}:{{ endpoint.target_port }}</span>
-          </div>
-        </div>
-
-        <label class="toggle-row compact">
-          <input type="checkbox" :checked="relayAutoStart(relayId)" @change="onAutoStartChange(relayId, $event)" />
-          <div><div class="lbl-main">Automatisch aktiv halten</div><div class="lbl-sub">Watchdog startet das Relay bei Ausfall erneut (empfohlen).</div></div>
-        </label>
-
-        <details class="advanced">
-          <summary>Feinjustage</summary>
-          <div class="relay-config-grid" style="margin-top: 12px;">
-            <div class="field"><span class="lbl">Name</span><input v-model="settings[relaySettingKey(relayId, 'name')]" class="compact-input" :placeholder="relayId" /></div>
-            <div class="field"><span class="lbl">SSH-Ziel</span><input v-model="settings[relaySettingKey(relayId, 'ssh_target')]" class="compact-input" placeholder="nas oder user@nas" /></div>
-            <div class="field"><span class="lbl">Host aus go2rtc-Docker</span><input v-model="settings[relaySettingKey(relayId, 'host')]" class="compact-input" placeholder="host.docker.internal" /></div>
-            <div class="field"><span class="lbl">Bind-Adresse</span><input v-model="settings[relaySettingKey(relayId, 'bind_host')]" class="compact-input" placeholder="127.0.0.1" /></div>
-            <div class="field"><span class="lbl">Port-Basis</span><input v-model="settings[relaySettingKey(relayId, 'port_base')]" class="compact-input" :placeholder="String(relayPortBaseFallback(relayId))" /></div>
-          </div>
-          <div class="btn-row" style="margin-top: 12px;">
-            <button class="btn sm primary" type="button" @click="saveRelayConfig(relayId)">Speichern & neu starten</button>
-            <span class="mono-mute" style="font-size: 11px;">Log · {{ relayStatusFor(relayId)?.log_path || '—' }}</span>
-          </div>
-        </details>
-      </div>
+        <div class="state">{{ relayStateLabel(relayId) }}</div>
+        <div class="mono-mute">{{ forwardSummary(relayId) }}</div>
+        <span class="chevron">›</span>
+      </RouterLink>
     </div>
   </section>
 
@@ -96,37 +53,25 @@
 
 <script setup lang="ts">
 import { onMounted, reactive, ref } from 'vue'
+import { useRouter } from 'vue-router'
 import { useSystem } from '../../composables/useSystem'
 
+const router = useRouter()
 const {
   settings, relayIds, error,
-  loadAll, refreshStatus, saveSettings, addRelay, removeRelay, relayAction, sanitizeID,
-  relaySettingKey, relayName, relayAutoStart, relayStatusFor, relayStateLabel, relayStateClass
+  loadAll, saveSettings, addRelay, relayAction, sanitizeID,
+  relaySettingKey, relayName, relayStatusFor, relayStateLabel, relayStateClass
 } = useSystem()
 
-// Mirrors the backend's auto port scheme (paths.go): relay n → base 18554+20n, slot m → +m-1.
-const relayPortBaseDefault = 18554
-const relayPortBaseSpacing = 20
-
 const relayDraft = reactive({ name: '', host: 'host.docker.internal', sshTarget: '' })
-const relayActionBusy = ref('')
 const showRelayModal = ref(false)
 const savingRelay = ref(false)
 
-function relayPortBaseFallback(relayId: string) {
-  const index = Math.max(0, relayIds.value.indexOf(relayId))
-  return relayPortBaseDefault + relayPortBaseSpacing * index
-}
-
-function endpointStateLabel(state: string) {
-  if (state === 'ok') return 'OK'
-  if (state === 'failed') return 'Offline'
-  return 'Unvollständig'
-}
-function endpointStateClass(state: string) {
-  if (state === 'ok') return 'ok'
-  if (state === 'failed') return 'err'
-  return 'warn'
+function forwardSummary(relayId: string) {
+  const endpoints = relayStatusFor(relayId)?.endpoints || []
+  if (!endpoints.length) return 'keine Weiterleitungen'
+  const ok = endpoints.filter((endpoint) => endpoint.state === 'ok').length
+  return `${ok}/${endpoints.length} Weiterleitungen ok`
 }
 
 function openRelayModal() {
@@ -150,38 +95,42 @@ async function onAddRelay() {
     await relayAction(id, 'start').catch((err) => {
       error.value = err instanceof Error ? err.message : 'Relay konnte nicht gestartet werden.'
     })
+    await router.push(`/system/relays/${id}`)
   } finally {
     savingRelay.value = false
   }
 }
 
-async function onRemoveRelay(relayId: string) {
-  removeRelay(relayId)
-  await saveSettings()
-  await refreshStatus()
-}
-
-async function onRelayAction(id: string, action: 'start' | 'stop' | 'restart') {
-  relayActionBusy.value = `${action}:${id}`
-  try {
-    await relayAction(id, action)
-  } catch (err) {
-    error.value = err instanceof Error ? err.message : 'Relay-Aktion fehlgeschlagen.'
-  } finally {
-    relayActionBusy.value = ''
-  }
-}
-
-async function onAutoStartChange(relayId: string, e: Event) {
-  settings[relaySettingKey(relayId, 'auto_start')] = (e.target as HTMLInputElement).checked ? 'true' : 'false'
-  await saveSettings([relaySettingKey(relayId, 'auto_start')])
-  await refreshStatus()
-}
-
-async function saveRelayConfig(relayId: string) {
-  await saveSettings(['name', 'ssh_target', 'host', 'bind_host', 'port_base'].map((field) => relaySettingKey(relayId, field)))
-  await onRelayAction(relayId, 'restart')
-}
-
 onMounted(() => void loadAll())
 </script>
+
+<style scoped>
+.relay-list { display: grid; gap: 8px; }
+.relay-row {
+  display: grid;
+  grid-template-columns: 12px minmax(180px, 1.4fr) minmax(90px, .8fr) minmax(140px, 1fr) auto;
+  gap: 14px;
+  align-items: center;
+  padding: 14px;
+  background: var(--surface);
+  border-radius: var(--radius-sm);
+  transition: background .12s ease;
+}
+.relay-row:hover { background: var(--raised); }
+.relay-row .name { color: var(--ink); font-size: 13px; }
+.relay-row .sub { font-size: 11px; margin-top: 2px; }
+.relay-row .state {
+  font-size: 10.5px;
+  text-transform: uppercase;
+  letter-spacing: .12em;
+  color: var(--ink-soft);
+}
+.relay-row .chevron { color: var(--ink-dim); font-size: 16px; }
+.relay-row .state-dot.ok { background: var(--live); box-shadow: 0 0 8px var(--live); }
+.relay-row .state-dot.warn { background: var(--warn); }
+.relay-row .state-dot.err { background: var(--danger); }
+@media (max-width: 820px) {
+  .relay-row { grid-template-columns: 12px 1fr auto; }
+  .relay-row .state, .relay-row .chevron { display: none; }
+}
+</style>
