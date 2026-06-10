@@ -126,7 +126,7 @@ need_or_install() {
 }
 
 install_compose_plugin_binary() {
-  local arch url target_dir target
+  local arch url primary_dir primary_target plugin_dir
   case "$(uname -m)" in
     x86_64|amd64)
       arch="x86_64"
@@ -140,13 +140,25 @@ install_compose_plugin_binary() {
       ;;
   esac
 
-  target_dir="/usr/local/lib/docker/cli-plugins"
-  target="$target_dir/docker-compose"
+  primary_dir="/usr/local/lib/docker/cli-plugins"
+  primary_target="$primary_dir/docker-compose"
   url="https://github.com/docker/compose/releases/latest/download/docker-compose-linux-$arch"
-  echo "Docker Compose Plugin fehlt; installiere Compose v2 nach $target"
-  mkdir -p "$target_dir"
-  curl -fsSL "$url" -o "$target"
-  chmod 0755 "$target"
+  echo "Docker Compose Plugin fehlt; installiere Compose v2 nach $primary_target"
+  mkdir -p "$primary_dir"
+  curl -fsSL "$url" -o "$primary_target"
+  chmod 0755 "$primary_target"
+
+  for plugin_dir in \
+    /usr/local/lib/docker/cli-plugins \
+    /usr/local/libexec/docker/cli-plugins \
+    /usr/lib/docker/cli-plugins \
+    /usr/libexec/docker/cli-plugins
+  do
+    mkdir -p "$plugin_dir"
+    if [[ "$plugin_dir/docker-compose" != "$primary_target" ]]; then
+      ln -sfn "$primary_target" "$plugin_dir/docker-compose"
+    fi
+  done
 }
 
 detect_desktop_user() {
