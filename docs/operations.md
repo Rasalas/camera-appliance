@@ -86,6 +86,13 @@ make release VERSION=0.1.0
 
 The archive is written to `.release/` and contains the install tree, `bin/camera-appliance`, `frontend/dist`, `compose.yaml`, `systemd/`, `install.sh`, and `manifest.json`. The release target also writes `.release/camera-appliance-latest.tar.gz` for the bootstrap URL. It excludes `.private`, `.git`, `data`, `node_modules`, `.env`, `local.env`, and `secrets.env`.
 
+Publishing a tag `vX.Y.Z` triggers the GitHub Actions release workflow. The workflow builds the same archive with `VERSION=X.Y.Z` and uploads these assets to the GitHub Release:
+
+- `camera-appliance-X.Y.Z-COMMIT.tar.gz`
+- `camera-appliance-latest.tar.gz`
+
+The bootstrap installer downloads `camera-appliance-latest.tar.gz` from the latest GitHub Release by default.
+
 Apply a local archive on the customer appliance:
 
 ```bash

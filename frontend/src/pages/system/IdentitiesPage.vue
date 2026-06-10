@@ -16,9 +16,9 @@
         class="result-row identity-row ok"
         role="button"
         tabindex="0"
-        @click="showIdentityDetail(identity)"
-        @keydown.enter.prevent="showIdentityDetail(identity)"
-        @keydown.space.prevent="showIdentityDetail(identity)"
+        @click="editIdentity(identity)"
+        @keydown.enter.prevent="editIdentity(identity)"
+        @keydown.space.prevent="editIdentity(identity)"
       >
         <span class="slot">Login</span>
         <span class="name">{{ identity.name }}</span>
@@ -35,34 +35,13 @@
     </div>
   </section>
 
-  <div v-if="detailIdentity" class="modal-backdrop" @click.self="closeIdentityDetail">
-    <div class="modal" role="dialog" aria-modal="true" :aria-labelledby="`identity-detail-${detailIdentity.id}`">
-      <div class="modal-head">
-        <div><div class="eyebrow">Kamera-Identität</div><h2 :id="`identity-detail-${detailIdentity.id}`">{{ detailIdentity.name }}</h2></div>
-        <button class="btn icon sm ghost" type="button" title="Schließen" aria-label="Schließen" @click="closeIdentityDetail">×</button>
-      </div>
-      <div class="identity-detail-grid">
-        <div class="field"><span class="lbl">Benutzername</span><div class="identity-detail-value">{{ detailIdentity.username }}</div></div>
-        <div class="field"><span class="lbl">Passwort</span><div class="identity-detail-value">{{ detailIdentity.password_set ? passwordSourceLabel(detailIdentity.password_source) : 'kein Passwort' }}</div></div>
-        <div class="field"><span class="lbl">Interne ID</span><div class="identity-detail-value mono-mute">{{ detailIdentity.id }}</div></div>
-      </div>
-      <div class="modal-foot">
-        <span class="mono-mute">Wird beim Bildtest auf passende Kameras ausprobiert.</span>
-        <div class="btn-row">
-          <button class="btn ghost" type="button" :disabled="savingIdentity" @click="duplicateIdentity(detailIdentity)">Duplizieren</button>
-          <button class="btn primary" type="button" @click="editIdentity(detailIdentity)">Bearbeiten</button>
-        </div>
-      </div>
-    </div>
-  </div>
-
   <div v-if="showIdentityModal" class="modal-backdrop" @click.self="closeIdentityModal">
     <form class="modal" @submit.prevent="onSaveIdentity">
       <div class="modal-head">
         <div><div class="eyebrow">Kamera-Identitäten</div><h2>{{ identityForm.id ? 'Identität bearbeiten' : 'Identität hinzufügen' }}</h2></div>
         <button class="btn icon sm ghost" type="button" title="Schließen" aria-label="Schließen" @click="closeIdentityModal">×</button>
       </div>
-      <div class="split">
+      <div class="identity-form-grid">
         <div class="field"><span class="lbl">Name</span><input v-model="identityForm.name" placeholder="Tapo Außenkameras" autofocus /></div>
         <div class="field"><span class="lbl">Benutzername</span><input v-model="identityForm.username" placeholder="Kamera-Benutzer" /></div>
         <div class="field"><span class="lbl">Passwort</span><input v-model="identityForm.password" type="password" :placeholder="identityForm.id ? 'leer lassen, um Passwort zu behalten' : 'Kamera-Passwort'" /></div>
@@ -108,7 +87,6 @@ const {
 const showIdentityModal = ref(false)
 const savingIdentity = ref(false)
 const deletingIdentity = ref(false)
-const detailIdentity = ref<CredentialIdentity | null>(null)
 const deleteCandidate = ref<CredentialIdentity | null>(null)
 const identityForm = reactive({ id: '', name: '', username: '', password: '' })
 
@@ -120,7 +98,6 @@ function openNewIdentity() {
   showIdentityModal.value = true
 }
 function editIdentity(identity: CredentialIdentity) {
-  detailIdentity.value = null
   identityForm.id = identity.id
   identityForm.name = identity.name
   identityForm.username = identity.username
@@ -130,14 +107,7 @@ function editIdentity(identity: CredentialIdentity) {
 function closeIdentityModal() {
   if (!savingIdentity.value) showIdentityModal.value = false
 }
-function showIdentityDetail(identity: CredentialIdentity) {
-  detailIdentity.value = identity
-}
-function closeIdentityDetail() {
-  detailIdentity.value = null
-}
 async function duplicateIdentity(identity: CredentialIdentity) {
-  detailIdentity.value = null
   savingIdentity.value = true
   try {
     await saveCredentialIdentity({

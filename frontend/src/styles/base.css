@@ -924,20 +924,9 @@ input, select, textarea { font: inherit; color: inherit; }
 .result-row .action.muted { color: var(--ink-dim); text-decoration: none; }
 .result-row.ok .action { color: var(--live); text-decoration: none; }
 .result-row.err .message { color: var(--danger); }
-.identity-detail-grid {
+.identity-form-grid {
   display: grid;
-  grid-template-columns: 1fr 1fr;
   gap: 14px;
-}
-.identity-detail-grid .field:last-child { grid-column: 1 / -1; }
-.identity-detail-value {
-  min-height: 38px;
-  display: flex;
-  align-items: center;
-  padding: 8px 10px;
-  border-radius: var(--radius-sm);
-  background: var(--raised);
-  color: var(--ink-soft);
 }
 .compact-input {
   min-height: 34px;

@@ -130,7 +130,7 @@ frontend-build:
 
 release:
 	@set -euo pipefail; \
-	release_version="$$(VERSION_ORIGIN="$(origin VERSION)" VERSION_VALUE="$(VERSION)" "$(ROOT)/bin/release-version")"; \
+	release_version="$$(VERSION_ORIGIN="$(origin VERSION)" VERSION_VALUE="$(VERSION)" "$(ROOT)/scripts/release-version")"; \
 	release_name="camera-appliance-$${release_version}-$(COMMIT)"; \
 	"$(MAKE)" build VERSION="$$release_version" COMMIT="$(COMMIT)" BUILD_TIME="$(BUILD_TIME)"; \
 	export COPYFILE_DISABLE=1; \

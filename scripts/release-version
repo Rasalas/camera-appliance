@@ -1,0 +1,91 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+requested="${VERSION_VALUE:-}"
+origin="${VERSION_ORIGIN:-}"
+
+strip_v() {
+  sed 's/^v//'
+}
+
+next_from_tagger() {
+  local bump_flag="${1:-}"
+  local output
+  if [[ -n "$bump_flag" ]]; then
+    output="$(tagger bump --dry-run "$bump_flag" 2>&1)"
+  else
+    output="$(tagger bump --dry-run 2>&1)"
+  fi
+  printf '%s\n' "$output" >&2
+  printf '%s\n' "$output" | awk '/Next[[:space:]]+v?[0-9]+\.[0-9]+\.[0-9]+/ {print $2; exit}' | strip_v
+}
+
+fallback_version() {
+  local tag
+  tag="$(git describe --tags --abbrev=0 2>/dev/null || true)"
+  if [[ -n "$tag" ]]; then
+    printf '%s\n' "$tag" | strip_v
+  else
+    printf 'dev\n'
+  fi
+}
+
+if [[ "$origin" != "file" && -n "$requested" && "$requested" != "dev" ]]; then
+  printf '%s\n' "$requested" | strip_v
+  exit 0
+fi
+
+if ! command -v tagger >/dev/null 2>&1; then
+  echo "tagger nicht gefunden; verwende letzten Git-Tag oder dev." >&2
+  fallback_version
+  exit 0
+fi
+
+suggested="$(next_from_tagger)"
+if [[ -z "$suggested" ]]; then
+  echo "Konnte keine Version aus tagger ermitteln; verwende letzten Git-Tag oder dev." >&2
+  fallback_version
+  exit 0
+fi
+
+if [[ ! -t 0 ]]; then
+  printf '%s\n' "$suggested"
+  exit 0
+fi
+
+while true; do
+  echo >&2
+  echo "Vorgeschlagene Release-Version: $suggested" >&2
+  read -r -p "Verwenden? [Y] ja, [p] patch, [m] minor, [M] major, [e] edit, [q] abbrechen: " answer
+  case "$answer" in
+    ""|y|Y|yes|YES|j|J|ja|JA)
+      printf '%s\n' "$suggested"
+      exit 0
+      ;;
+    p)
+      suggested="$(next_from_tagger --patch)"
+      ;;
+    m)
+      suggested="$(next_from_tagger --minor)"
+      ;;
+    M)
+      suggested="$(next_from_tagger --major)"
+      ;;
+    e|E)
+      read -r -p "Version ohne v eingeben, z.B. 0.1.0: " edited
+      edited="$(printf '%s\n' "$edited" | strip_v)"
+      if [[ "$edited" =~ ^[0-9]+\.[0-9]+\.[0-9]+([-.][0-9A-Za-z.-]+)?$ ]]; then
+        printf '%s\n' "$edited"
+        exit 0
+      fi
+      echo "Ungültige Semver-Version: $edited" >&2
+      ;;
+    q|Q|n|N|no|NO|nein|NEIN)
+      echo "Release abgebrochen." >&2
+      exit 1
+      ;;
+    *)
+      echo "Bitte y, p, m, M, e oder q eingeben." >&2
+      ;;
+  esac
+done
