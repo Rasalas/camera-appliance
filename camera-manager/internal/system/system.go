@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -155,6 +156,9 @@ func serviceSet(output string) map[string]bool {
 func composeArgs(cfg config.Config, args ...string) []string {
 	full := []string{"compose"}
 	if cfg.ComposeFile != "" {
+		if releaseEnv := filepath.Join(filepath.Dir(cfg.ComposeFile), "release.env"); pathExists(releaseEnv) {
+			full = append(full, "--env-file", releaseEnv)
+		}
 		full = append(full, "-f", cfg.ComposeFile)
 	}
 	return append(full, args...)
@@ -169,6 +173,11 @@ func commandOutput(ctx context.Context, timeout time.Duration, name string, args
 		return string(out), cmdCtx.Err()
 	}
 	return string(out), err
+}
+
+func pathExists(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil
 }
 
 func shortError(err error) string {
