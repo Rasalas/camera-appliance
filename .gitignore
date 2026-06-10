@@ -29,7 +29,7 @@ local/
 # Build outputs
 dist/
 frontend/dist/
-camera-appliance
+/camera-appliance
 bin/camera-appliance
 bin/go2rtc
 
