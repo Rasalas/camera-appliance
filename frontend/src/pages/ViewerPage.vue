@@ -2,7 +2,7 @@
   <div
     class="viewer-root"
     :class="rootClass"
-    @pointermove="revealControls"
+    @pointermove="onRootPointerMove"
     @mouseleave="onRootMouseLeave"
     @selectstart.prevent
   >
@@ -603,6 +603,11 @@ function revealControls() {
   }, 2600)
 }
 
+function onRootPointerMove(event: PointerEvent) {
+  if (event.pointerType === 'touch') return
+  revealControls()
+}
+
 function scheduleHideControls() {
   if (editing.value) return
   window.clearTimeout(controlsTimer)
@@ -861,13 +866,13 @@ function iframeLoading(slot: ViewerSlot): 'eager' | 'lazy' {
 function frameSrc(slot: ViewerSlot) {
   const url = slot.playback?.page_url
   if (!url) return ''
-  return `${url}&fit=${effectiveDisplay(slot).fit_mode}`
+  return `${url}&fit=${effectiveDisplay(slot).fit_mode}&label=${encodeURIComponent(slot.label)}`
 }
 
 function hdFrameSrc(slot: ViewerSlot) {
   const url = slot.playback?.hd_page_url
   if (!url) return ''
-  return `${url}&fit=${effectiveDisplay(slot).fit_mode}`
+  return `${url}&fit=${effectiveDisplay(slot).fit_mode}&label=${encodeURIComponent(`${slot.label} HD`)}`
 }
 
 function placeholderMessage(slot: ViewerSlot) {
@@ -1186,10 +1191,14 @@ onBeforeUnmount(() => {
     width: 100% !important;
     height: auto !important;
     aspect-ratio: 16 / 9;
+    overflow: hidden;
   }
 
   .viewer-root:not(.editing):not(.spotlight) .mosaic-pane > .viewer-tile {
     inset: 4px;
+    min-height: 0;
+    aspect-ratio: auto;
+    border-radius: clamp(8px, 2.8vw, 14px);
   }
 }
 </style>

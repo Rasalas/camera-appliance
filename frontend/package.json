@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "vue-tsc --noEmit && vite build",
+    "test:embed": "node --test tests/embed-status.test.js",
     "test:mosaic": "node --test --experimental-strip-types src/pages/viewerMosaic.test.ts",
     "preview": "vite preview"
   },
