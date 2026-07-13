@@ -150,15 +150,14 @@ import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import type { CSSProperties } from 'vue'
 import { api } from '../api/client'
 import type { AuthStatus, CameraDisplay, ViewerResponse, ViewerSlot, ViewerSlotState } from '../types'
+import { defaultMosaicTree } from './viewerMosaic'
+import type { MosaicLeaf, MosaicNode } from './viewerMosaic'
 
 // --- Mosaic layout model -----------------------------------------------------
 // A binary split tree, like VSCode editor groups. A leaf shows one camera; a
 // split divides its area into two children (row = side by side, col = stacked)
 // with a ratio for the first child. Cameras dock onto a pane's edge to create a
 // new split, or onto the centre to swap.
-type MosaicLeaf = { type: 'leaf'; slot: string }
-type MosaicSplit = { type: 'split'; dir: 'row' | 'col'; ratio: number; a: MosaicNode; b: MosaicNode }
-type MosaicNode = MosaicLeaf | MosaicSplit
 type Rect = { x: number; y: number; w: number; h: number }
 type Side = 'left' | 'right' | 'top' | 'bottom' | 'center'
 type PaneRect = { alias: string; rect: Rect }
@@ -325,32 +324,6 @@ function treeSlots(node: MosaicNode | undefined, out: string[] = []): string[] {
   return out
 }
 
-// Default = an even grid: columns = ceil(sqrt(n)) (4 → 2x2, 9 → 3x3, 5 → 3+2),
-// rows filled as evenly as possible, all cells equal size.
-function gridTree(aliases: string[]): MosaicNode {
-  if (aliases.length <= 1) return leaf(aliases[0] || 'cam1')
-  const n = aliases.length
-  const cols = Math.ceil(Math.sqrt(n))
-  const rows = Math.ceil(n / cols)
-  const base = Math.floor(n / rows)
-  const extra = n % rows
-  const rowNodes: MosaicNode[] = []
-  let index = 0
-  for (let row = 0; row < rows; row += 1) {
-    const count = base + (row < extra ? 1 : 0)
-    const cells = aliases.slice(index, index + count).map((alias) => leaf(alias))
-    index += count
-    if (cells.length) rowNodes.push(evenSplit(cells, 'row'))
-  }
-  return evenSplit(rowNodes, 'col')
-}
-
-// Build a left-leaning split tree whose leaves all get an equal share.
-function evenSplit(nodes: MosaicNode[], dir: 'row' | 'col'): MosaicNode {
-  if (nodes.length === 1) return nodes[0]
-  return { type: 'split', dir, ratio: 1 / nodes.length, a: nodes[0], b: evenSplit(nodes.slice(1), dir) }
-}
-
 function removeSlot(node: MosaicNode, slot: string): MosaicNode | null {
   if (node.type === 'leaf') return node.slot === slot ? null : node
   const a = removeSlot(node.a, slot)
@@ -394,6 +367,7 @@ function setRatioAtPath(node: MosaicNode, path: string, ratio: number): MosaicNo
 
 function reconcileTree(tree: MosaicNode | undefined, aliases: string[]): MosaicNode {
   if (!aliases.length) return leaf('cam1')
+  if (!tree) return defaultMosaicTree(aliases)
   let next: MosaicNode | undefined = tree
   for (const slot of treeSlots(next)) {
     if (!aliases.includes(slot)) {
@@ -405,7 +379,7 @@ function reconcileTree(tree: MosaicNode | undefined, aliases: string[]): MosaicN
       next = next ? { type: 'split', dir: 'row', ratio: 0.7, a: next, b: leaf(alias) } : leaf(alias)
     }
   }
-  return next ?? gridTree(aliases)
+  return next ?? defaultMosaicTree(aliases)
 }
 
 // --- Mosaic interactions -----------------------------------------------------
@@ -1191,4 +1165,31 @@ onBeforeUnmount(() => {
 
 .hud-enter-active, .hud-leave-active { transition: opacity .18s ease, transform .18s ease; }
 .hud-enter-from, .hud-leave-to { opacity: 0; transform: translate(-50%, 8px); }
+
+@media (orientation: portrait) {
+  .viewer-root:not(.editing):not(.spotlight) {
+    overflow-x: hidden;
+    overflow-y: auto;
+  }
+
+  .viewer-root:not(.editing):not(.spotlight) .mosaic {
+    position: relative;
+    inset: auto;
+    min-height: 100%;
+    padding: 4px;
+  }
+
+  .viewer-root:not(.editing):not(.spotlight) .mosaic-pane {
+    position: relative;
+    left: auto !important;
+    top: auto !important;
+    width: 100% !important;
+    height: auto !important;
+    aspect-ratio: 16 / 9;
+  }
+
+  .viewer-root:not(.editing):not(.spotlight) .mosaic-pane > .viewer-tile {
+    inset: 4px;
+  }
+}
 </style>
