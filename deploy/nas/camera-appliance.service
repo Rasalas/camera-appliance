@@ -1,0 +1,24 @@
+[Unit]
+Description=Camera Appliance native NAS services
+After=network-online.target
+Wants=network-online.target
+Wants=camera-appliance-go2rtc.service
+After=camera-appliance-go2rtc.service
+
+[Service]
+Type=simple
+Environment=CAMERA_APPLIANCE_BIND_ADDR=0.0.0.0:8091
+Environment=CAMERA_APPLIANCE_CONFIG_DIR=/volume1/docker/camera-appliance/config
+Environment=CAMERA_APPLIANCE_STATE_DIR=/volume1/docker/camera-appliance/data
+Environment=CAMERA_APPLIANCE_FRONTEND_DIST=/volume1/docker/camera-appliance/frontend/dist
+Environment=CAMERA_APPLIANCE_GO2RTC_URL=http://127.0.0.1:1984
+Environment=CAMERA_APPLIANCE_GO2RTC_RTSP_URL=rtsp://127.0.0.1:8554
+Environment=CAMERA_APPLIANCE_GO2RTC_RESTART_COMMAND=/volume1/docker/camera-appliance/deploy/nas/restart-go2rtc.sh
+ExecStart=/volume1/docker/camera-appliance/bin/camera-appliance serve
+Restart=always
+RestartSec=3
+TimeoutStartSec=60
+TimeoutStopSec=30
+
+[Install]
+WantedBy=default.target

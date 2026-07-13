@@ -1,0 +1,13 @@
+[Unit]
+Description=Publish cams.local for Camera Appliance
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/volume1/docker/camera-appliance/deploy/nas/publish-mdns.sh
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=default.target

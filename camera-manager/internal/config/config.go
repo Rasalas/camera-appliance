@@ -32,6 +32,7 @@ type Config struct {
 	StateDir           string
 	Go2RTCURL          string
 	Go2RTCRTSPURL      string
+	Go2RTCRestart      string
 	TapoPassword       string
 	TapoPasswordSource string
 	ComposeFile        string
@@ -63,6 +64,7 @@ func Load() (Config, error) {
 		StateDir:       getenv("CAMERA_APPLIANCE_STATE_DIR", DefaultStateDir),
 		Go2RTCURL:      getenv("CAMERA_APPLIANCE_GO2RTC_URL", DefaultGo2RTCURL),
 		Go2RTCRTSPURL:  getenv("CAMERA_APPLIANCE_GO2RTC_RTSP_URL", DefaultGo2RTCRTSP),
+		Go2RTCRestart:  strings.TrimSpace(os.Getenv("CAMERA_APPLIANCE_GO2RTC_RESTART_COMMAND")),
 		ComposeFile:    getenv("CAMERA_APPLIANCE_COMPOSE_FILE", DefaultComposeFile),
 		SlotsFile:      getenv("CAMERA_APPLIANCE_SLOTS_FILE", DefaultSlotsRelPath),
 		FrontendDist:   getenv("CAMERA_APPLIANCE_FRONTEND_DIST", "../frontend/dist"),

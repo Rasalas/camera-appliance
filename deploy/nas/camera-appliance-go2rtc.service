@@ -1,0 +1,16 @@
+[Unit]
+Description=go2rtc for Camera Appliance
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStartPre=/volume1/docker/camera-appliance/deploy/nas/native-service.sh prepare-go2rtc
+ExecStart=/volume1/docker/camera-appliance/bin/go2rtc -c /volume1/docker/camera-appliance/data/generated/go2rtc-native.yaml
+Restart=always
+RestartSec=3
+TimeoutStartSec=30
+TimeoutStopSec=30
+
+[Install]
+WantedBy=default.target

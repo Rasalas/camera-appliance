@@ -37,6 +37,14 @@ func Check(ctx context.Context, cfg config.Config) Status {
 }
 
 func RestartGo2RTC(ctx context.Context, cfg config.Config) error {
+	if cfg.Go2RTCRestart != "" {
+		cmd := exec.CommandContext(ctx, cfg.Go2RTCRestart)
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			return fmt.Errorf("go2rtc restart command failed: %w: %s", err, string(out))
+		}
+		return nil
+	}
 	if os.Getenv("CAMERA_APPLIANCE_DEV_GO2RTC_NATIVE") == "1" {
 		return restartNativeDevGo2RTC(ctx, cfg)
 	}
