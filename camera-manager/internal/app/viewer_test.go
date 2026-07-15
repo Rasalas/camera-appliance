@@ -428,3 +428,55 @@ func writeGeneratedGo2RTC(t *testing.T, cfg config.Config, data string) {
 		t.Fatal(err)
 	}
 }
+
+func TestEffectiveBindAddrEnablesLANOnExistingPort(t *testing.T) {
+	got, err := effectiveBindAddr("127.0.0.1:8091", "true")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != "0.0.0.0:8091" {
+		t.Fatalf("expected LAN bind address, got %q", got)
+	}
+}
+
+func TestEffectiveBindAddrDisablesLANOnExistingPort(t *testing.T) {
+	got, err := effectiveBindAddr("0.0.0.0:8091", "false")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != "127.0.0.1:8091" {
+		t.Fatalf("expected loopback bind address, got %q", got)
+	}
+}
+
+func TestEffectiveBindAddrPreservesConfiguredAddressWhenUnset(t *testing.T) {
+	got, err := effectiveBindAddr("0.0.0.0:8091", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != "0.0.0.0:8091" {
+		t.Fatalf("expected configured bind address, got %q", got)
+	}
+}
+
+func TestApplyNetworkAccessKeepsLANClosedWithoutAdminPassword(t *testing.T) {
+	a := newViewerTestApp(t, "http://127.0.0.1:1984", "")
+	a.Config.BindAddr = "0.0.0.0:8091"
+	if err := a.Store.PutSettings(context.Background(), map[string]string{NetworkSettingLANAccess: "true"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := a.applyNetworkAccess(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if a.Config.BindAddr != "127.0.0.1:8091" {
+		t.Fatalf("expected safe loopback bind without admin password, got %q", a.Config.BindAddr)
+	}
+}
+
+func TestEffectiveBindAddrRejectsNonCanonicalBooleans(t *testing.T) {
+	for _, value := range []string{"1", "yes", "on", "TRUE", " true ", "false "} {
+		if _, err := effectiveBindAddr("127.0.0.1:8091", value); err == nil {
+			t.Fatalf("expected %q to be rejected", value)
+		}
+	}
+}

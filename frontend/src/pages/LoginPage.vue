@@ -37,15 +37,18 @@
     <form v-else class="login-form" @submit.prevent="login">
       <div class="field">
         <span class="lbl">Rolle</span>
-        <select v-model="username">
+        <select v-model="username" name="username" autocomplete="username">
           <option value="admin">Admin</option>
           <option value="viewer" :disabled="!auth?.viewer_password_set">Viewer</option>
         </select>
       </div>
       <div class="field">
         <span class="lbl">Passwort</span>
-        <input v-model="password" type="password" autocomplete="current-password" autofocus />
+        <input v-model="password" name="password" type="password" autocomplete="current-password" autofocus />
       </div>
+      <label class="toggle-row compact">
+        <input v-model="remember" type="checkbox" />
+        <div><div class="lbl-main">Angemeldet bleiben</div><div class="lbl-sub">Login auf diesem Gerät 30 Tage lang merken.</div></div></label>
       <div class="btn-row">
         <button class="btn primary" type="submit" :disabled="busy || !password">
           {{ busy ? 'Prüft…' : 'Einloggen' }}
@@ -67,6 +70,7 @@ const router = useRouter()
 const auth = ref<AuthStatus>()
 const username = ref<AuthRole>('admin')
 const password = ref('')
+const remember = ref(false)
 const newPassword = ref('')
 const confirmPassword = ref('')
 const busy = ref(false)
@@ -102,7 +106,7 @@ async function login() {
   busy.value = true
   error.value = ''
   try {
-    const result = await api.login({ username: username.value, password: password.value })
+    const result = await api.login({ username: username.value, password: password.value, remember: remember.value })
     password.value = ''
     window.dispatchEvent(new Event('auth-changed'))
     await router.push(nextPathFor(result.role))

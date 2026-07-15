@@ -311,3 +311,84 @@ func performJSON(handler http.Handler, method, path string, body any, cookie *ht
 	handler.ServeHTTP(res, req)
 	return res
 }
+
+func TestLANAccessRequiresAdminPassword(t *testing.T) {
+	a := newAuthTestApp(t)
+	res := performJSON(New(a).Handler(), http.MethodPut, "/api/settings", map[string]string{app.NetworkSettingLANAccess: "true"}, nil)
+	if res.Code != http.StatusBadRequest {
+		t.Fatalf("expected LAN access without admin password to be rejected, got %d: %s", res.Code, res.Body.String())
+	}
+}
+
+func TestLANAccessCanBeEnabledAfterAdminPasswordIsSet(t *testing.T) {
+	ctx := context.Background()
+	a := newAuthTestApp(t)
+	if err := a.SetAuthPassword(ctx, "admin", "admin-pass"); err != nil {
+		t.Fatal(err)
+	}
+	handler := New(a).Handler()
+	cookie := loginCookie(t, handler, "admin", "admin-pass")
+	res := performJSON(handler, http.MethodPut, "/api/settings", map[string]string{app.NetworkSettingLANAccess: "true"}, cookie)
+	if res.Code != http.StatusOK {
+		t.Fatalf("expected LAN access setting to be accepted, got %d: %s", res.Code, res.Body.String())
+	}
+	settings, err := a.Store.Settings(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if settings[app.NetworkSettingLANAccess] != "true" {
+		t.Fatalf("expected persisted LAN setting, got %q", settings[app.NetworkSettingLANAccess])
+	}
+}
+
+func TestRememberedLoginUsesLongLivedCookie(t *testing.T) {
+	ctx := context.Background()
+	a := newAuthTestApp(t)
+	if err := a.SetAuthPassword(ctx, "admin", "admin-pass"); err != nil {
+		t.Fatal(err)
+	}
+	res := performJSON(New(a).Handler(), http.MethodPost, "/api/auth/login", map[string]any{"username": "admin", "password": "admin-pass", "remember": true}, nil)
+	if res.Code != http.StatusOK {
+		t.Fatalf("expected login success, got %d: %s", res.Code, res.Body.String())
+	}
+	cookies := res.Result().Cookies()
+	if len(cookies) != 1 {
+		t.Fatalf("expected one session cookie, got %d", len(cookies))
+	}
+	if cookies[0].MaxAge < 29*24*60*60 {
+		t.Fatalf("expected remembered login for about 30 days, got MaxAge=%d", cookies[0].MaxAge)
+	}
+}
+
+func TestLANAccessRejectsNonCanonicalBoolean(t *testing.T) {
+	a := newAuthTestApp(t)
+	if err := a.SetAuthPassword(context.Background(), "admin", "admin-pass"); err != nil {
+		t.Fatal(err)
+	}
+	handler := New(a).Handler()
+	cookie := loginCookie(t, handler, "admin", "admin-pass")
+	for _, value := range []string{"1", "yes", "on"} {
+		res := performJSON(handler, http.MethodPut, "/api/settings", map[string]string{app.NetworkSettingLANAccess: value}, cookie)
+		if res.Code != http.StatusBadRequest {
+			t.Fatalf("expected %q to be rejected, got %d: %s", value, res.Code, res.Body.String())
+		}
+	}
+}
+
+func TestNormalLoginUsesBrowserSessionCookie(t *testing.T) {
+	a := newAuthTestApp(t)
+	if err := a.SetAuthPassword(context.Background(), "admin", "admin-pass"); err != nil {
+		t.Fatal(err)
+	}
+	res := performJSON(New(a).Handler(), http.MethodPost, "/api/auth/login", map[string]any{"username": "admin", "password": "admin-pass", "remember": false}, nil)
+	if res.Code != http.StatusOK {
+		t.Fatalf("expected login success, got %d: %s", res.Code, res.Body.String())
+	}
+	cookies := res.Result().Cookies()
+	if len(cookies) != 1 {
+		t.Fatalf("expected one session cookie, got %d", len(cookies))
+	}
+	if cookies[0].MaxAge != 0 || !cookies[0].Expires.IsZero() {
+		t.Fatalf("expected browser-session cookie, got MaxAge=%d Expires=%v", cookies[0].MaxAge, cookies[0].Expires)
+	}
+}

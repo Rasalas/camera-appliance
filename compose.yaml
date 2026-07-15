@@ -35,7 +35,7 @@ services:
     restart: unless-stopped
     network_mode: host
     environment:
-      CAMERA_APPLIANCE_BIND_ADDR: 127.0.0.1:8091
+      CAMERA_APPLIANCE_BIND_ADDR: 0.0.0.0:8091
       CAMERA_APPLIANCE_CONFIG_DIR: /etc/camera-appliance
       CAMERA_APPLIANCE_STATE_DIR: /var/lib/camera-appliance
       CAMERA_APPLIANCE_FRONTEND_DIST: /opt/camera-appliance/frontend/dist

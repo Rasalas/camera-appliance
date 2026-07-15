@@ -197,6 +197,7 @@ let displaySaveTimer = 0
 let mosaicSaveTimer = 0
 let onAuthChanged: (() => void) | undefined
 let onFullscreenChange: (() => void) | undefined
+let onVisibilityChange: (() => void) | undefined
 let onKey: ((e: KeyboardEvent) => void) | undefined
 let onMessage: ((e: MessageEvent) => void) | undefined
 let stopDrag: (() => void) | undefined
@@ -204,6 +205,9 @@ let stopCropPan: (() => void) | undefined
 const frameEls: Record<string, HTMLIFrameElement> = {}
 const AUDIO_SETTING_KEY = 'camera-appliance.viewer.audioEnabled'
 const LEGACY_AUDIO_SETTING_KEY = 'camera-appliance.viewer.audioHoverEnabled'
+const kioskMode = new URLSearchParams(window.location.search).get('kiosk') === '1'
+type ScreenWakeLock = { release: () => Promise<void>; released?: boolean }
+let screenWakeLock: ScreenWakeLock | undefined
 
 const slots = computed(() => viewer.value?.slots ?? [])
 const slotByAlias = computed(() => new Map(slots.value.map((slot) => [slot.alias, slot])))
@@ -644,6 +648,25 @@ async function toggleFullscreen() {
 
 function syncFullscreen() {
   isFullscreen.value = !!document.fullscreenElement
+  if (isFullscreen.value || kioskMode) void requestScreenWakeLock()
+  else void releaseScreenWakeLock()
+}
+
+async function requestScreenWakeLock() {
+  if (document.visibilityState !== 'visible' || screenWakeLock && !screenWakeLock.released) return
+  const wakeLock = (navigator as Navigator & { wakeLock?: { request: (type: 'screen') => Promise<ScreenWakeLock> } }).wakeLock
+  if (!wakeLock) return
+  try {
+    screenWakeLock = await wakeLock.request('screen')
+  } catch {
+    // Unsupported contexts (for example plain HTTP on a LAN IP) degrade gracefully.
+  }
+}
+
+async function releaseScreenWakeLock() {
+  const lock = screenWakeLock
+  screenWakeLock = undefined
+  if (lock && !lock.released) await lock.release().catch(() => undefined)
 }
 
 // --- Audio -------------------------------------------------------------------
@@ -966,6 +989,11 @@ onMounted(() => {
   window.addEventListener('auth-changed', onAuthChanged)
   onFullscreenChange = () => syncFullscreen()
   document.addEventListener('fullscreenchange', onFullscreenChange)
+  onVisibilityChange = () => {
+    if (document.visibilityState === 'visible' && (isFullscreen.value || kioskMode)) void requestScreenWakeLock()
+  }
+  document.addEventListener('visibilitychange', onVisibilityChange)
+  if (kioskMode) void requestScreenWakeLock()
   onMessage = (event) => handleEmbedMessage(event)
   window.addEventListener('message', onMessage)
   onKey = (event: KeyboardEvent) => {
@@ -991,6 +1019,8 @@ onBeforeUnmount(() => {
   window.clearTimeout(mosaicSaveTimer)
   if (onAuthChanged) window.removeEventListener('auth-changed', onAuthChanged)
   if (onFullscreenChange) document.removeEventListener('fullscreenchange', onFullscreenChange)
+  if (onVisibilityChange) document.removeEventListener('visibilitychange', onVisibilityChange)
+  void releaseScreenWakeLock()
   if (onMessage) window.removeEventListener('message', onMessage)
   if (onKey) window.removeEventListener('keydown', onKey)
 })

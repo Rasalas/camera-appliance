@@ -18,7 +18,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
 export const api = {
   authStatus: () => request<AuthStatus>('/api/auth/status'),
-  login: (body: { username: string; password: string }) =>
+  login: (body: { username: string; password: string; remember?: boolean }) =>
     request<LoginResult>('/api/auth/login', { method: 'POST', body: JSON.stringify(body) }),
   logout: () => request<{ status: string }>('/api/auth/logout', { method: 'POST', body: JSON.stringify({}) }),
   setAuthPassword: (body: { role: 'admin' | 'viewer'; password: string }) =>

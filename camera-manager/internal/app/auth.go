@@ -21,7 +21,10 @@ const (
 	AuthSettingSessionHours       = "auth.session_hours"
 )
 
-const defaultSessionHours = 12
+const (
+	defaultSessionHours  = 12
+	rememberSessionHours = 24 * 30
+)
 
 type AuthStatus struct {
 	Enabled             bool       `json:"enabled"`
@@ -88,7 +91,7 @@ func (a *App) SetAuthPassword(ctx context.Context, role, password string) error 
 	return nil
 }
 
-func (a *App) Login(ctx context.Context, username, password string) (string, LoginResult, error) {
+func (a *App) Login(ctx context.Context, username, password string, remember bool) (string, LoginResult, error) {
 	role := strings.ToLower(strings.TrimSpace(username))
 	if role == "" {
 		role = authn.RoleAdmin
@@ -113,7 +116,11 @@ func (a *App) Login(ctx context.Context, username, password string) (string, Log
 		return "", LoginResult{}, err
 	}
 	now := time.Now().UTC()
-	expiresAt := now.Add(time.Duration(sessionHours(settings)) * time.Hour)
+	hours := sessionHours(settings)
+	if remember {
+		hours = rememberSessionHours
+	}
+	expiresAt := now.Add(time.Duration(hours) * time.Hour)
 	if err := a.Store.DeleteExpiredAuthSessions(ctx, now); err != nil {
 		return "", LoginResult{}, err
 	}

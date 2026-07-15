@@ -126,17 +126,18 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Username string `json:"username"`
 		Password string `json:"password"`
+		Remember bool   `json:"remember"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, err, http.StatusBadRequest)
 		return
 	}
-	token, result, err := s.app.Login(r.Context(), req.Username, req.Password)
+	token, result, err := s.app.Login(r.Context(), req.Username, req.Password, req.Remember)
 	if err != nil {
 		writeError(w, err, http.StatusUnauthorized)
 		return
 	}
-	setSessionCookie(w, r, token, result.ExpiresAt)
+	setSessionCookie(w, r, token, result.ExpiresAt, req.Remember)
 	writeJSON(w, result, http.StatusOK)
 }
 
@@ -989,6 +990,9 @@ func (s *Server) getSettings(w http.ResponseWriter, r *http.Request) {
 	delete(settings, app.AuthSettingViewerPasswordHash)
 	settings["go2rtc_url"] = s.app.Config.Go2RTCURL
 	settings["bind_addr"] = s.app.Config.BindAddr
+	if settings[app.NetworkSettingLANAccess] == "" {
+		settings[app.NetworkSettingLANAccess] = fmt.Sprintf("%t", app.LANAccessEnabled(s.app.Config.BindAddr))
+	}
 	if settings["capture_ssh_host"] == "" {
 		settings["capture_ssh_host"] = s.app.Config.CaptureSSHHost
 	}
@@ -1025,6 +1029,25 @@ func (s *Server) putSettings(w http.ResponseWriter, r *http.Request) {
 	delete(settings, "auth_viewer_password_set")
 	delete(settings, "camera_password_set")
 	delete(settings, "camera_password_source")
+	delete(settings, "bind_addr")
+	delete(settings, "go2rtc_url")
+	if value, present := settings[app.NetworkSettingLANAccess]; present {
+		if value != "true" && value != "false" {
+			writeError(w, errors.New("LAN-Zugriff muss true oder false sein"), http.StatusBadRequest)
+			return
+		}
+		if value == "true" {
+			current, err := s.app.Store.Settings(r.Context())
+			if err != nil {
+				writeError(w, err, http.StatusInternalServerError)
+				return
+			}
+			if current[app.AuthSettingAdminPasswordHash] == "" {
+				writeError(w, errors.New("Vor dem LAN-Zugriff muss ein Admin-Passwort gesetzt werden"), http.StatusBadRequest)
+				return
+			}
+		}
+	}
 	err := s.app.Store.PutSettings(r.Context(), settings)
 	writeResult(w, map[string]string{"status": "ok"}, err)
 }
@@ -1332,21 +1355,20 @@ func isLoopbackRemote(remoteAddr string) bool {
 	return ip != nil && ip.IsLoopback()
 }
 
-func setSessionCookie(w http.ResponseWriter, r *http.Request, token string, expiresAt time.Time) {
-	maxAge := int(time.Until(expiresAt).Seconds())
-	if maxAge < 1 {
-		maxAge = 1
-	}
-	http.SetCookie(w, &http.Cookie{
+func setSessionCookie(w http.ResponseWriter, r *http.Request, token string, expiresAt time.Time, remember bool) {
+	cookie := &http.Cookie{
 		Name:     sessionCookieName,
 		Value:    token,
 		Path:     "/",
-		Expires:  expiresAt,
-		MaxAge:   maxAge,
 		HttpOnly: true,
 		SameSite: http.SameSiteLaxMode,
 		Secure:   r.TLS != nil,
-	})
+	}
+	if remember {
+		cookie.Expires = expiresAt
+		cookie.MaxAge = max(1, int(time.Until(expiresAt).Seconds()))
+	}
+	http.SetCookie(w, cookie)
 }
 
 func clearSessionCookie(w http.ResponseWriter, r *http.Request) {

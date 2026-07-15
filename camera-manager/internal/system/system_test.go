@@ -51,3 +51,45 @@ func containsAll(value string, parts ...string) bool {
 	}
 	return true
 }
+
+func TestDetachedComposeArgsRunsFromExternalHelper(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "release.env"), []byte("VERSION=test\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg := config.Config{ComposeFile: filepath.Join(dir, "compose.yaml")}
+	got := detachedComposeArgs(cfg, "sha256:test", "updater-1", "up", "-d", "--force-recreate")
+	joined := strings.Join(got, " ")
+	for _, want := range []string{"run --rm -d", "--entrypoint docker-compose", "/var/run/docker.sock:/var/run/docker.sock", dir + ":" + dir, "sha256:test", "--env-file " + filepath.Join(dir, "release.env"), "-f " + filepath.Join(dir, "compose.yaml"), "up -d --force-recreate"} {
+		if !strings.Contains(joined, want) {
+			t.Fatalf("expected helper args to contain %q, got %q", want, joined)
+		}
+	}
+}
+
+func TestDetachedComposeArgsOmitsMissingReleaseEnv(t *testing.T) {
+	dir := t.TempDir()
+	cfg := config.Config{ComposeFile: filepath.Join(dir, "compose.yaml")}
+	joined := strings.Join(detachedComposeArgs(cfg, "sha256:test", "updater-1", "up", "-d"), " ")
+	if strings.Contains(joined, "--env-file") {
+		t.Fatalf("expected missing release.env to be omitted, got %q", joined)
+	}
+}
+
+func TestApplyStackModeFailsClosedInsideContainerWithoutImage(t *testing.T) {
+	if _, err := applyStackMode("", false, true); err == nil {
+		t.Fatal("expected containerized apply without image discovery to fail closed")
+	}
+	if detached, err := applyStackMode("sha256:test", true, true); err != nil || !detached {
+		t.Fatalf("expected discovered image to use detached helper, detached=%t err=%v", detached, err)
+	}
+	if detached, err := applyStackMode("", false, false); err != nil || detached {
+		t.Fatalf("expected native process to use synchronous compose, detached=%t err=%v", detached, err)
+	}
+}
+
+func TestApplyStackModeIgnoresErrorOutputWhenDiscoveryFailed(t *testing.T) {
+	if _, err := applyStackMode("docker inspect error text", false, true); err == nil {
+		t.Fatal("expected failed image discovery with nonempty error output to fail closed")
+	}
+}

@@ -23,10 +23,6 @@
         <input v-model="settings.go2rtc_url" placeholder="http://localhost:1984" />
       </div>
       <div class="field">
-        <span class="lbl">Admin-Adresse</span>
-        <input v-model="settings.bind_addr" placeholder="127.0.0.1:8091" />
-      </div>
-      <div class="field">
         <span class="lbl">Capture-Hop per SSH</span>
         <input v-model="settings.capture_ssh_host" placeholder="leer oder nas" />
         <div class="mono-mute" style="margin-top: 6px;">Optional. Wenn gesetzt, zieht die App Referenzbilder per ffmpeg auf diesem SSH-Host.</div>

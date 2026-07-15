@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-URL="${CAMERA_APPLIANCE_KIOSK_URL:-http://127.0.0.1:8091/}"
+URL="${CAMERA_APPLIANCE_KIOSK_URL:-http://127.0.0.1:8091/?kiosk=1}"
 PROFILE_DIR="$HOME/.config/camera-kiosk-browser"
 
 if command -v chromium >/dev/null 2>&1; then

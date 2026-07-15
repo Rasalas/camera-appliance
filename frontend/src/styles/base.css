@@ -559,6 +559,13 @@ input, select, textarea { font: inherit; color: inherit; }
   background: #000;
   will-change: transform;
 }
+/* Legacy browsers without cqw/cqh otherwise collapse rotated streams to 0×0. */
+.viewer-frame-transform.rotated-quarter {
+  left: 50%;
+  top: 50%;
+  width: 100%;
+  height: 100%;
+}
 .viewer-frame-transform-hd {
   opacity: 0;
   z-index: 1;

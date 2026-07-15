@@ -81,7 +81,12 @@ func Open(ctx context.Context) (*App, error) {
 		_ = store.Close()
 		return nil, err
 	}
-	return &App{Config: cfg, Store: store, Slots: slots}, nil
+	a := &App{Config: cfg, Store: store, Slots: slots}
+	if err := a.applyNetworkAccess(ctx); err != nil {
+		_ = store.Close()
+		return nil, err
+	}
+	return a, nil
 }
 
 func (a *App) Close() error {

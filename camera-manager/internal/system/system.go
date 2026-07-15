@@ -2,6 +2,7 @@ package system
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -56,7 +57,70 @@ func RestartStack(ctx context.Context, cfg config.Config) error {
 }
 
 func ApplyStack(ctx context.Context, cfg config.Config) error {
-	return dockerCompose(ctx, cfg, "up", "-d", "--build", "--remove-orphans")
+	image, imageFound := currentContainerImage(ctx)
+	detached, err := applyStackMode(image, imageFound, runningInContainer())
+	if err != nil {
+		return err
+	}
+	if detached {
+		return launchDetachedCompose(ctx, cfg, image, "up", "-d", "--build", "--force-recreate", "--remove-orphans")
+	}
+	return dockerCompose(ctx, cfg, "up", "-d", "--build", "--force-recreate", "--remove-orphans")
+}
+
+func runningInContainer() bool {
+	_, err := os.Stat("/.dockerenv")
+	return err == nil
+}
+
+func applyStackMode(image string, imageFound, inContainer bool) (bool, error) {
+	if imageFound && image != "" {
+		return true, nil
+	}
+	if inContainer {
+		return false, errors.New("cannot safely recreate camera-manager: current container image could not be determined")
+	}
+	return false, nil
+}
+
+func currentContainerImage(ctx context.Context) (string, bool) {
+	hostname, err := os.Hostname()
+	if err != nil || hostname == "" {
+		return "", false
+	}
+	output, err := commandOutput(ctx, 2*time.Second, "docker", "inspect", "--format", "{{.Image}}", hostname)
+	if err != nil {
+		return "", false
+	}
+	image := strings.TrimSpace(output)
+	return image, image != ""
+}
+
+func launchDetachedCompose(ctx context.Context, cfg config.Config, image string, composeCommand ...string) error {
+	name := fmt.Sprintf("camera-appliance-stack-updater-%d", time.Now().UnixNano())
+	args := detachedComposeArgs(cfg, image, name, composeCommand...)
+	cmd := exec.CommandContext(ctx, "docker", args...)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("docker %v failed: %w: %s", args, err, string(out))
+	}
+	return nil
+}
+
+func detachedComposeArgs(cfg config.Config, image, name string, composeCommand ...string) []string {
+	composeDir := filepath.Dir(cfg.ComposeFile)
+	dirs := []string{composeDir}
+	releaseEnv := filepath.Join(composeDir, "release.env")
+	args := []string{"run", "--rm", "-d", "--name", name, "--entrypoint", "docker-compose", "-v", "/var/run/docker.sock:/var/run/docker.sock", "-w", composeDir}
+	for _, dir := range dirs {
+		args = append(args, "-v", dir+":"+dir)
+	}
+	args = append(args, image)
+	if pathExists(releaseEnv) {
+		args = append(args, "--env-file", releaseEnv)
+	}
+	args = append(args, "-f", cfg.ComposeFile)
+	return append(args, composeCommand...)
 }
 
 func httpStatus(ctx context.Context, name, rawURL string) ServiceStatus {
@@ -76,10 +140,18 @@ func httpStatus(ctx context.Context, name, rawURL string) ServiceStatus {
 
 func dockerCompose(ctx context.Context, cfg config.Config, args ...string) error {
 	full := composeArgs(cfg, args...)
-	cmd := exec.CommandContext(ctx, "docker", full...)
+	command := "docker"
+	commandArgs := full
+	if err := exec.CommandContext(ctx, "docker", "compose", "version").Run(); err != nil {
+		if _, lookupErr := exec.LookPath("docker-compose"); lookupErr == nil {
+			command = "docker-compose"
+			commandArgs = full[1:]
+		}
+	}
+	cmd := exec.CommandContext(ctx, command, commandArgs...)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
-		return fmt.Errorf("docker %v failed: %w: %s", full, err, string(out))
+		return fmt.Errorf("%s %v failed: %w: %s", command, commandArgs, err, string(out))
 	}
 	return nil
 }
