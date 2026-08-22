@@ -151,6 +151,9 @@ func (a *App) viewerSlot(ctx context.Context, slot config.Slot, binding state.Bi
 	}
 
 	localBinding := binding
+	// The viewer payload is readable by viewer-role sessions and may even be
+	// public; never expose RTSP usernames there.
+	localBinding.Username = ""
 	item.Binding = &localBinding
 	item.Label = displaySlotLabel(slot, binding)
 	if binding.Device != nil {
@@ -192,7 +195,8 @@ func (a *App) viewerSlot(ctx context.Context, slot config.Slot, binding state.Bi
 	if username == "" {
 		username = strings.TrimSpace(settings["camera.credentials."+binding.DeviceID+".username"])
 	}
-	passwordSet := a.Config.TapoPassword != ""
+	activePassword, _ := a.CameraCredentials()
+	passwordSet := activePassword != ""
 	if binding.DeviceID != "" && secrets.LoadCamera(a.Config.ConfigDir, binding.DeviceID).Value != "" {
 		passwordSet = true
 	}

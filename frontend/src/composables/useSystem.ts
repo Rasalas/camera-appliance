@@ -373,8 +373,8 @@ async function createSupportBundle() {
   showToast('Support-Bundle erstellt')
 }
 
-async function startUpdate(url?: string) {
-  updateResult.value = await api.startUpdate(url)
+async function startUpdate(url?: string, digest?: string) {
+  updateResult.value = await api.startUpdate(url, digest)
   showToast('Update gestartet')
 }
 

@@ -276,6 +276,9 @@ func classifyDevice(rtspOpen, onvifOpen bool, signature string) (string, string)
 }
 
 func readARP() map[string]string {
+	keep := func(ip, mac string) bool {
+		return ip != "" && fingerprint.ValidMAC(mac)
+	}
 	out := map[string]string{}
 	if file, err := os.Open("/proc/net/arp"); err == nil {
 		defer file.Close()
@@ -288,7 +291,10 @@ func readARP() map[string]string {
 			}
 			fields := strings.Fields(scanner.Text())
 			if len(fields) >= 4 {
-				out[fields[0]] = fingerprint.Normalize(fingerprint.Fingerprint{MACAddress: fields[3]}).MACAddress
+				mac := fingerprint.Normalize(fingerprint.Fingerprint{MACAddress: fields[3]}).MACAddress
+				if keep(fields[0], mac) {
+					out[fields[0]] = mac
+				}
 			}
 		}
 	}
@@ -298,7 +304,10 @@ func readARP() map[string]string {
 			fields := strings.Fields(scanner.Text())
 			for i, field := range fields {
 				if field == "lladdr" && i > 0 && i+1 < len(fields) {
-					out[fields[0]] = fingerprint.Normalize(fingerprint.Fingerprint{MACAddress: fields[i+1]}).MACAddress
+					mac := fingerprint.Normalize(fingerprint.Fingerprint{MACAddress: fields[i+1]}).MACAddress
+					if keep(fields[0], mac) {
+						out[fields[0]] = mac
+					}
 				}
 			}
 		}
@@ -307,11 +316,14 @@ func readARP() map[string]string {
 		scanner := bufio.NewScanner(strings.NewReader(string(cmdOut)))
 		for scanner.Scan() {
 			fields := strings.Fields(scanner.Text())
-			if len(fields) < 4 || fields[3] == "(incomplete)" {
+			if len(fields) < 4 || fields[3] == "(incomplete)" || fields[3] == "<incomplete>" {
 				continue
 			}
 			ip := strings.Trim(fields[1], "()")
-			out[ip] = fingerprint.Normalize(fingerprint.Fingerprint{MACAddress: fields[3]}).MACAddress
+			mac := fingerprint.Normalize(fingerprint.Fingerprint{MACAddress: fields[3]}).MACAddress
+			if keep(ip, mac) {
+				out[ip] = mac
+			}
 		}
 	}
 	return out

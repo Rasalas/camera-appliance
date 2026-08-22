@@ -135,7 +135,8 @@ func httpStatus(ctx context.Context, name, rawURL string) ServiceStatus {
 		return ServiceStatus{Name: name, Online: false, Message: "nicht erreichbar"}
 	}
 	_ = resp.Body.Close()
-	return ServiceStatus{Name: name, Online: resp.StatusCode < 500, Message: resp.Status}
+	online := resp.StatusCode >= 200 && resp.StatusCode < 300
+	return ServiceStatus{Name: name, Online: online, Message: resp.Status}
 }
 
 func dockerCompose(ctx context.Context, cfg config.Config, args ...string) error {

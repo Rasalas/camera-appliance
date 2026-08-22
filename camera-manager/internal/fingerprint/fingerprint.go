@@ -47,12 +47,18 @@ func DeviceID(fp Fingerprint) string {
 	}
 }
 
+// normalizeMAC canonicalizes a MAC address. Values that cannot be a real MAC
+// (unresolved ARP entries like "<incomplete>", the all-zero placeholder, or
+// arbitrary garbage) are mapped to "" so they never feed the device identity.
 func normalizeMAC(value string) string {
 	value = strings.TrimSpace(value)
 	if value == "" {
 		return ""
 	}
 	if hw, err := net.ParseMAC(value); err == nil {
+		if hw.String() == zeroMAC {
+			return ""
+		}
 		parts := strings.Split(hw.String(), ":")
 		for i := range parts {
 			parts[i] = strings.ToUpper(parts[i])
@@ -60,14 +66,40 @@ func normalizeMAC(value string) string {
 		return strings.Join(parts, ":")
 	}
 	value = strings.ToUpper(strings.ReplaceAll(strings.ReplaceAll(value, "-", ":"), ".", ""))
-	if len(value) == 12 && !strings.Contains(value, ":") {
-		parts := make([]string, 0, 6)
-		for i := 0; i < len(value); i += 2 {
-			parts = append(parts, value[i:i+2])
-		}
-		return strings.Join(parts, ":")
+	if len(value) != 12 || strings.Contains(value, ":") || !isHex(value) {
+		return ""
 	}
-	return value
+	parts := make([]string, 0, 6)
+	for i := 0; i < len(value); i += 2 {
+		parts = append(parts, value[i:i+2])
+	}
+	normalized := strings.Join(parts, ":")
+	if normalized == zeroMAC {
+		return ""
+	}
+	return normalized
+}
+
+func isHex(value string) bool {
+	for _, r := range value {
+		if !(r >= '0' && r <= '9' || r >= 'A' && r <= 'F') {
+			return false
+		}
+	}
+	return true
+}
+
+// ValidMAC reports whether the given normalized MAC is usable as an identity
+// attribute. Callers can use it to filter ARP tables and discovery output.
+func ValidMAC(normalized string) bool {
+	if normalized == "" || normalized == zeroMAC {
+		return false
+	}
+	hw, err := net.ParseMAC(normalized)
+	if err != nil {
+		return false
+	}
+	return hw.String() != zeroMAC && len(hw) == 6
 }
 
 func clean(value string) string {
@@ -78,3 +110,5 @@ func hashID(prefix, value string) string {
 	sum := sha256.Sum256([]byte(prefix + ":" + strings.ToLower(strings.TrimSpace(value))))
 	return "device_" + hex.EncodeToString(sum[:12])
 }
+
+const zeroMAC = "00:00:00:00:00:00"

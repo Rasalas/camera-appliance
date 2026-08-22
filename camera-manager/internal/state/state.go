@@ -2,7 +2,9 @@ package state
 
 import (
 	"context"
+	"crypto/rand"
 	"database/sql"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -185,7 +187,7 @@ func (s *Store) UpsertDevice(ctx context.Context, d Device) error {
 	}
 	_, err := s.db.ExecContext(ctx, `INSERT INTO devices (id,first_seen_at,last_seen_at,last_ip,mac_address,onvif_endpoint_ref,serial_number,manufacturer,model,hardware_id,hostname,raw_json)
 		VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
-		ON CONFLICT(id) DO UPDATE SET last_seen_at=excluded.last_seen_at,last_ip=excluded.last_ip,mac_address=coalesce(nullif(excluded.mac_address,''),devices.mac_address),onvif_endpoint_ref=coalesce(nullif(excluded.onvif_endpoint_ref,''),devices.onvif_endpoint_ref),serial_number=coalesce(nullif(excluded.serial_number,''),devices.serial_number),manufacturer=coalesce(nullif(excluded.manufacturer,''),devices.manufacturer),model=coalesce(nullif(excluded.model,''),devices.model),hardware_id=coalesce(nullif(excluded.hardware_id,''),devices.hardware_id),hostname=coalesce(nullif(excluded.hostname,''),devices.hostname),raw_json=excluded.raw_json`,
+		ON CONFLICT(id) DO UPDATE SET last_seen_at=excluded.last_seen_at,last_ip=excluded.last_ip,mac_address=coalesce(nullif(excluded.mac_address,''),devices.mac_address),onvif_endpoint_ref=coalesce(nullif(excluded.onvif_endpoint_ref,''),devices.onvif_endpoint_ref),serial_number=coalesce(nullif(excluded.serial_number,''),devices.serial_number),manufacturer=coalesce(nullif(excluded.manufacturer,''),devices.manufacturer),model=coalesce(nullif(excluded.model,''),devices.model),hardware_id=coalesce(nullif(excluded.hardware_id,''),devices.hardware_id),hostname=coalesce(nullif(excluded.hostname,''),devices.hostname),raw_json=coalesce(nullif(excluded.raw_json,''),devices.raw_json)`,
 		d.ID, formatTime(d.FirstSeenAt), formatTime(d.LastSeenAt), d.LastIP, d.MACAddress, d.ONVIFEndpointRef, d.SerialNumber, d.Manufacturer, d.Model, d.HardwareID, d.Hostname, string(d.RawJSON))
 	return err
 }
@@ -343,6 +345,25 @@ func (s *Store) ScanRuns(ctx context.Context, limit int) ([]ScanRun, error) {
 		runs = append(runs, r)
 	}
 	return runs, rows.Err()
+}
+
+// ScanRun returns a single scan run by ID. It returns sql.ErrNoRows when the
+// run does not exist.
+func (s *Store) ScanRun(ctx context.Context, id string) (ScanRun, error) {
+	var r ScanRun
+	var started string
+	var finished sql.NullString
+	err := s.db.QueryRowContext(ctx, `SELECT id,started_at,finished_at,status,coalesce(message,'') FROM scan_runs WHERE id = ?`, id).
+		Scan(&r.ID, &started, &finished, &r.Status, &r.Message)
+	if err != nil {
+		return ScanRun{}, err
+	}
+	r.StartedAt = parseTime(started)
+	if finished.Valid {
+		t := parseTime(finished.String)
+		r.FinishedAt = &t
+	}
+	return r, nil
 }
 
 func (s *Store) AddEvent(ctx context.Context, level, typ, message string, details any) error {
@@ -507,5 +528,7 @@ func parseTime(value string) time.Time {
 }
 
 func newID(prefix string) string {
-	return fmt.Sprintf("%s_%d", prefix, time.Now().UTC().UnixNano())
+	var b [4]byte
+	_, _ = rand.Read(b[:])
+	return fmt.Sprintf("%s_%d_%s", prefix, time.Now().UTC().UnixNano(), hex.EncodeToString(b[:]))
 }

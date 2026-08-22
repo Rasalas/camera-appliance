@@ -5,7 +5,6 @@ import (
 	"compress/gzip"
 	"context"
 	"errors"
-	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -28,7 +27,9 @@ func Create(ctx context.Context, cfg config.Config, out string, includeSecrets b
 	if err := os.MkdirAll(filepath.Dir(out), 0o750); err != nil {
 		return Result{}, err
 	}
-	file, err := os.Create(out)
+	// Backups contain camera credentials from local.env and the generated
+	// go2rtc config; never create them world-readable.
+	file, err := os.OpenFile(out, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
 	if err != nil {
 		return Result{}, err
 	}
@@ -59,9 +60,9 @@ func Create(ctx context.Context, cfg config.Config, out string, includeSecrets b
 			included = append(included, item.name)
 		}
 	}
-	warning := "Backup enthält keine secrets.env. Wenn generierte go2rtc-Konfiguration enthalten ist, kann sie sensible Daten enthalten."
+	warning := "Backup enthält Kamera-Zugangsdaten aus local.env und ist sensibel. Geschützt speichern."
 	if includeSecrets {
-		warning = "Backup enthält secrets.env und ist sensibel. Geschützt speichern."
+		warning = "Backup enthält secrets.env mit allen Zugangsdaten und ist besonders sensibel. Geschützt speichern."
 	}
 	return Result{Path: out, Files: included, Warning: warning}, nil
 }
@@ -102,7 +103,14 @@ func Restore(ctx context.Context, cfg config.Config, in string) (Result, error) 
 		if err := os.MkdirAll(filepath.Dir(target), 0o750); err != nil {
 			return Result{}, err
 		}
-		out, err := os.OpenFile(target, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, header.FileInfo().Mode())
+		// Only whitelisted regular files are restored here; clamp permissions
+		// so archive-supplied bits (setuid, group/world access) cannot survive.
+		mode := header.FileInfo().Mode().Perm()
+		if mode&0o400 == 0 {
+			mode |= 0o400
+		}
+		mode &= 0o600
+		out, err := os.OpenFile(target, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, mode)
 		if err != nil {
 			return Result{}, err
 		}
@@ -163,5 +171,5 @@ func ExplainSensitive(includeSecrets bool) string {
 	if includeSecrets {
 		return "Dieses Backup enthält lokale Secrets."
 	}
-	return fmt.Sprintf("Secrets werden standardmäßig aus %s ausgeschlossen.", config.DefaultConfigDir)
+	return "Dieses Backup enthält Kamera-Zugangsdaten aus local.env; secrets.env wird standardmäßig ausgeschlossen."
 }

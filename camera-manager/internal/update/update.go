@@ -4,6 +4,8 @@ import (
 	"archive/tar"
 	"compress/gzip"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -16,6 +18,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"camera-appliance/camera-manager/internal/backup"
@@ -64,6 +67,7 @@ type Options struct {
 	Config         config.Config
 	Archive        string
 	URL            string
+	Digest         string
 	InstallDir     string
 	NoRestart      bool
 	AutoRollback   bool
@@ -72,12 +76,16 @@ type Options struct {
 	HTTPClient     *http.Client
 	Now            func() time.Time
 	BackupOverride string
+	// AllowInsecureURL permits http:// update URLs. It exists for local dev
+	// and test setups only; production updates must use https.
+	AllowInsecureURL bool
 }
 
 type InstallOptions struct {
 	Config                  config.Config
 	Archive                 string
 	URL                     string
+	Digest                  string
 	SourceDir               string
 	InstallDir              string
 	UserName                string
@@ -88,6 +96,8 @@ type InstallOptions struct {
 	HTTPClient              *http.Client
 	AllowNonRoot            bool
 	SkipCommandChecks       bool
+	// AllowInsecureURL permits http:// download URLs (dev/test only).
+	AllowInsecureURL bool
 }
 
 type RollbackOptions struct {
@@ -108,9 +118,14 @@ type lastUpdate struct {
 }
 
 func Apply(ctx context.Context, opts Options) (Result, error) {
-	if err := validateSource(opts.Archive, opts.URL); err != nil {
+	if err := validateSource(opts.Archive, opts.URL, opts.AllowInsecureURL); err != nil {
 		return Result{}, err
 	}
+	release, err := EnsureSingleFlight()
+	if err != nil {
+		return Result{}, err
+	}
+	defer release()
 	now := time.Now
 	if opts.Now != nil {
 		now = opts.Now
@@ -139,6 +154,9 @@ func Apply(ctx context.Context, opts Options) (Result, error) {
 		}
 		defer cleanupArchive()
 	}
+	if err := verifyDigest(archivePath, opts.Digest); err != nil {
+		return result, err
+	}
 
 	stageDir, err := os.MkdirTemp(opts.Config.BackupDir(), "update-release-")
 	if err != nil {
@@ -162,7 +180,17 @@ func Apply(ctx context.Context, opts Options) (Result, error) {
 
 	applied, err := applyRelease(ctx, releaseRoot, installDir)
 	if err != nil {
-		return result, err
+		// The install dir may now hold a mix of old and new files. Restore the
+		// snapshot immediately instead of waiting for a human to run rollback.
+		restoreErr := restoreRollback(ctx, rollbackDir, installDir)
+		if restoreErr != nil {
+			return result, fmt.Errorf("update failed: %w; restoring rollback snapshot also failed: %v", err, restoreErr)
+		}
+		result.RollbackApplied = true
+		if restartErr := restartAndCheck(ctx, opts.NoRestart, opts.Restart, opts.Healthcheck); restartErr != nil {
+			result.Warning += " Wiederhergestellte Installation startete nicht sauber: " + restartErr.Error()
+		}
+		return result, fmt.Errorf("update failed, previous installation was restored: %w", err)
 	}
 	result.AppliedFiles = applied
 	if err := ensureCommandLink(installDir); err != nil {
@@ -231,6 +259,11 @@ func Install(ctx context.Context, opts InstallOptions) (InstallResult, error) {
 	if !opts.AllowNonRoot && os.Geteuid() != 0 {
 		return InstallResult{}, errors.New("install must run as root; use sudo")
 	}
+	release, err := EnsureSingleFlight()
+	if err != nil {
+		return InstallResult{}, err
+	}
+	defer release()
 	cfg := opts.Config
 	if cfg.ConfigDir == "" {
 		cfg.ConfigDir = config.DefaultConfigDir
@@ -336,19 +369,29 @@ func HTTPHealthcheck(cfg config.Config) func(context.Context) error {
 			name string
 			url  string
 		}{
-			{name: "manager", url: strings.TrimRight(managerBase, "/") + "/api/status"},
+			{name: "manager", url: strings.TrimRight(managerBase, "/") + "/api/health"},
 			{name: "go2rtc", url: cfg.Go2RTCURL},
 			{name: "viewer", url: strings.TrimRight(managerBase, "/") + "/api/viewer"},
 		}
 		var viewerBody []byte
+		viewerProtected := false
 		for _, check := range checks {
-			body, err := waitHTTP(ctx, check.url, 30*time.Second)
+			body, status, err := waitHTTPStatus(ctx, check.url, 30*time.Second)
 			if err != nil {
 				return fmt.Errorf("%s healthcheck failed: %w", check.name, err)
 			}
 			if check.name == "viewer" {
+				if status == http.StatusUnauthorized || status == http.StatusForbidden {
+					// Viewer is auth-protected; reaching it means the service
+					// is up. Slot validation is only possible when public.
+					viewerProtected = true
+					continue
+				}
 				viewerBody = body
 			}
+		}
+		if viewerProtected {
+			return nil
 		}
 		var viewer struct {
 			Slots []json.RawMessage `json:"slots"`
@@ -363,17 +406,90 @@ func HTTPHealthcheck(cfg config.Config) func(context.Context) error {
 	}
 }
 
-func validateSource(archivePath, rawURL string) error {
+func validateSource(archivePath, rawURL string, allowInsecure bool) error {
 	if (archivePath == "") == (rawURL == "") {
 		return errors.New("exactly one of --archive or --url is required")
 	}
 	if rawURL != "" {
 		parsed, err := url.Parse(rawURL)
 		if err != nil || parsed.Scheme == "" || parsed.Host == "" {
-			return fmt.Errorf("invalid update URL %q", rawURL)
+			return fmt.Errorf("invalid update URL %q", redactUpdateURL(rawURL))
+		}
+		if parsed.Scheme != "https" && !allowInsecure {
+			return fmt.Errorf("update URL must use https, got %q; set CAMERA_APPLIANCE_ALLOW_INSECURE_UPDATE=1 only for local development", redactUpdateURL(rawURL))
 		}
 	}
 	return nil
+}
+
+func redactUpdateURL(rawURL string) string {
+	parsed, err := url.Parse(rawURL)
+	if err != nil || parsed.User == nil {
+		return rawURL
+	}
+	parsed.User = url.User(parsed.User.Username())
+	return parsed.String()
+}
+
+// verifyDigest checks the downloaded or local archive against an expected
+// checksum ("sha256:<hex>" or bare hex). Updates replace the running binary,
+// so integrity must never be skipped silently.
+func verifyDigest(archivePath, expected string) error {
+	if strings.TrimSpace(expected) == "" {
+		return nil
+	}
+	algorithm, digest := "sha256", strings.ToLower(strings.TrimSpace(expected))
+	if algo, rest, found := strings.Cut(digest, ":"); found {
+		algorithm, digest = strings.ToLower(strings.TrimSpace(algo)), strings.ToLower(strings.TrimSpace(rest))
+	}
+	if algorithm != "sha256" {
+		return fmt.Errorf("unsupported digest algorithm %q, only sha256 is supported", algorithm)
+	}
+	if len(digest) != 64 {
+		return fmt.Errorf("invalid sha256 digest %q: expected 64 hex characters", digest)
+	}
+	file, err := os.Open(archivePath)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+	sum := sha256.New()
+	if _, err := io.Copy(sum, file); err != nil {
+		return err
+	}
+	actual := hex.EncodeToString(sum.Sum(nil))
+	if actual != digest {
+		return fmt.Errorf("update archive digest mismatch: expected sha256:%s, got sha256:%s", digest, actual)
+	}
+	return nil
+}
+
+var applyMu sync.Mutex
+var applying bool
+
+func beginApply() bool {
+	applyMu.Lock()
+	defer applyMu.Unlock()
+	if applying {
+		return false
+	}
+	applying = true
+	return true
+}
+
+func endApply() {
+	applyMu.Lock()
+	defer applyMu.Unlock()
+	applying = false
+}
+
+// EnsureSingleFlight returns an error if another update or install is already
+// running. It reserves the slot until the returned release func is called.
+func EnsureSingleFlight() (func(), error) {
+	if !beginApply() {
+		return nil, errors.New("ein anderes Update läuft bereits, bitte warten")
+	}
+	return endApply, nil
 }
 
 func cleanInstallDir(value string) (string, error) {
@@ -428,7 +544,7 @@ func installReleaseRoot(ctx context.Context, opts InstallOptions) (string, Manif
 		root, manifest, err := findReleaseRoot(opts.SourceDir)
 		return root, manifest, func() {}, err
 	}
-	if err := validateSource(opts.Archive, opts.URL); err != nil {
+	if err := validateSource(opts.Archive, opts.URL, opts.AllowInsecureURL); err != nil {
 		return "", Manifest{}, func() {}, err
 	}
 	archivePath := opts.Archive
@@ -439,6 +555,10 @@ func installReleaseRoot(ctx context.Context, opts InstallOptions) (string, Manif
 		if err != nil {
 			return "", Manifest{}, cleanupArchive, err
 		}
+	}
+	if err := verifyDigest(archivePath, opts.Digest); err != nil {
+		cleanupArchive()
+		return "", Manifest{}, func() {}, err
 	}
 	stageDir, err := os.MkdirTemp("", "camera-appliance-install-")
 	if err != nil {
@@ -1019,6 +1139,11 @@ func managerBaseURL(bindAddr string) string {
 }
 
 func waitHTTP(ctx context.Context, rawURL string, timeout time.Duration) ([]byte, error) {
+	body, _, err := waitHTTPStatus(ctx, rawURL, timeout)
+	return body, err
+}
+
+func waitHTTPStatus(ctx context.Context, rawURL string, timeout time.Duration) ([]byte, int, error) {
 	deadline := time.Now().Add(timeout)
 	var lastErr error
 	for {
@@ -1029,12 +1154,17 @@ func waitHTTP(ctx context.Context, rawURL string, timeout time.Duration) ([]byte
 			if err == nil {
 				body, readErr := io.ReadAll(io.LimitReader(resp.Body, 2*1024*1024))
 				_ = resp.Body.Close()
-				if readErr == nil && resp.StatusCode < 500 {
+				if readErr == nil && resp.StatusCode >= 200 && resp.StatusCode < 300 {
 					cancel()
-					return body, nil
+					return body, resp.StatusCode, nil
 				}
 				if readErr != nil {
 					lastErr = readErr
+				} else if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
+					// Auth-gated endpoints prove liveness even though the body
+					// cannot be inspected.
+					cancel()
+					return nil, resp.StatusCode, nil
 				} else {
 					lastErr = fmt.Errorf("%s", resp.Status)
 				}
@@ -1049,11 +1179,11 @@ func waitHTTP(ctx context.Context, rawURL string, timeout time.Duration) ([]byte
 			if lastErr == nil {
 				lastErr = errors.New("timeout")
 			}
-			return nil, lastErr
+			return nil, 0, lastErr
 		}
 		select {
 		case <-ctx.Done():
-			return nil, ctx.Err()
+			return nil, 0, ctx.Err()
 		case <-time.After(750 * time.Millisecond):
 		}
 	}
