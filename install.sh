@@ -142,10 +142,29 @@ install_compose_plugin_binary() {
 
   primary_dir="/usr/local/lib/docker/cli-plugins"
   primary_target="$primary_dir/docker-compose"
-  url="https://github.com/docker/compose/releases/latest/download/docker-compose-linux-$arch"
-  echo "Docker Compose Plugin fehlt; installiere Compose v2 nach $primary_target"
+  compose_version="${COMPOSE_VERSION:-v2.39.1}"
+  url="https://github.com/docker/compose/releases/download/$compose_version/docker-compose-linux-$arch"
+  checksum_url="https://github.com/docker/compose/releases/download/$compose_version/checksums.txt"
+  echo "Docker Compose Plugin fehlt; installiere Compose $compose_version nach $primary_target"
   mkdir -p "$primary_dir"
   curl -fsSL "$url" -o "$primary_target"
+  # Integritätsprüfung gegen die zum Release gehörende checksums.txt
+  checksums="$tmp_dir/compose-checksums.txt"
+  if curl -fsSL "$checksum_url" -o "$checksums"; then
+    expected="$(grep "docker-compose-linux-$arch$" "$checksums" | awk '{print $1}')"
+    if [[ -z "$expected" ]]; then
+      echo "Prüfsumme für docker-compose-linux-$arch nicht in checksums.txt gefunden." >&2
+      return 1
+    fi
+    actual="$(sha256sum "$primary_target" | awk '{print $1}')"
+    if [[ "$actual" != "$expected" ]]; then
+      echo "SHA-256-Prüfung des Compose-Plugins fehlgeschlagen; breche ab." >&2
+      return 1
+    fi
+    echo "Compose-Plugin Prüfsumme OK."
+  else
+    echo "WARNUNG: checksums.txt konnte nicht geladen werden; überspringe Integritätsprüfung." >&2
+  fi
   chmod 0755 "$primary_target"
 
   for plugin_dir in \
@@ -184,6 +203,7 @@ detect_desktop_user() {
   fi
   candidate="$(find /home -mindepth 1 -maxdepth 1 -type d -printf '%f\n' 2>/dev/null | head -n 1 || true)"
   if [[ -n "$candidate" ]]; then
+    echo "WARNUNG: Desktop-Benutzer konnte nicht eindeutig erkannt werden; rate '$candidate'. Bitte --user angeben, falls falsch." >&2
     USER_NAME="$candidate"
     return 0
   fi
@@ -228,7 +248,8 @@ mkdir -p "$extract_dir"
 echo "Lade camera-appliance Release:"
 echo "  $RELEASE_URL"
 curl -fL "$RELEASE_URL" -o "$archive"
-tar -xzf "$archive" -C "$extract_dir"
+# Als root keine Ownership/Permissions aus dem Archiv übernehmen.
+tar -xzf "$archive" --no-same-owner --no-same-permissions -C "$extract_dir"
 release_binary="$(find_release_binary "$extract_dir")"
 
 install_common_args=(--install-dir "$INSTALL_DIR")

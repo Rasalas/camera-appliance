@@ -6,7 +6,7 @@ Wants=network-online.target
 [Service]
 Type=simple
 Environment=CAMERA_APPLIANCE_KIOSK_URL=http://127.0.0.1:8091/
-ExecStartPre=/usr/bin/env bash -lc 'if ! command -v curl >/dev/null 2>&1 && ! command -v wget >/dev/null 2>&1; then exit 0; fi; for i in {1..60}; do if command -v curl >/dev/null 2>&1 && curl -fsS http://127.0.0.1:8091/api/status >/dev/null; then exit 0; fi; if command -v wget >/dev/null 2>&1 && wget -q -O /dev/null http://127.0.0.1:8091/api/status; then exit 0; fi; sleep 2; done; exit 0'
+ExecStartPre=/usr/bin/env bash -lc 'if ! command -v curl >/dev/null 2>&1 && ! command -v wget >/dev/null 2>&1; then exit 0; fi; for i in {1..60}; do if command -v curl >/dev/null 2>&1 && curl -fsS http://127.0.0.1:8091/api/health >/dev/null; then exit 0; fi; if command -v wget >/dev/null 2>&1 && wget -q -O /dev/null http://127.0.0.1:8091/api/health; then exit 0; fi; sleep 2; done; echo "camera-appliance ist nach 120s nicht erreichbar – Kiosk startet trotzdem, aber der Stack ist defekt." >&2; exit 0'
 ExecStart=/opt/camera-appliance/bin/open-cameras
 Restart=on-failure
 RestartSec=5
