@@ -112,11 +112,24 @@ func Render(ctx context.Context, input RenderInput) (RenderResult, error) {
 	if err := os.MkdirAll(filepath.Dir(input.Output), 0o750); err != nil {
 		return RenderResult{}, err
 	}
-	tmp := input.Output + ".tmp"
-	if err := os.WriteFile(tmp, data, 0o600); err != nil {
+	// Unique temp name per render: concurrent renders must not clobber each
+	// other's file before the atomic rename publishes it.
+	tmp, err := os.CreateTemp(filepath.Dir(input.Output), filepath.Base(input.Output)+".tmp-*")
+	if err != nil {
 		return RenderResult{}, err
 	}
-	if err := os.Rename(tmp, input.Output); err != nil {
+	tmpPath := tmp.Name()
+	_, writeErr := tmp.Write(data)
+	closeErr := tmp.Close()
+	if writeErr == nil {
+		writeErr = closeErr
+	}
+	if writeErr != nil {
+		_ = os.Remove(tmpPath)
+		return RenderResult{}, writeErr
+	}
+	if err := os.Rename(tmpPath, input.Output); err != nil {
+		_ = os.Remove(tmpPath)
 		return RenderResult{}, err
 	}
 	redacted := redactYAML(data)

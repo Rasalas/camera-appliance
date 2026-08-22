@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"crypto/sha256"
+	"database/sql"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
@@ -189,18 +190,12 @@ func (s *Server) getScanRuns(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) getScanRun(w http.ResponseWriter, r *http.Request) {
 	id := strings.TrimPrefix(r.URL.Path, "/api/discovery/runs/")
-	runs, err := s.app.Store.ScanRuns(r.Context(), 100)
-	if err != nil {
-		writeError(w, err, http.StatusInternalServerError)
+	run, err := s.app.Store.ScanRun(r.Context(), id)
+	if errors.Is(err, sql.ErrNoRows) {
+		writeError(w, errors.New("scan run not found"), http.StatusNotFound)
 		return
 	}
-	for _, run := range runs {
-		if run.ID == id {
-			writeJSON(w, run, http.StatusOK)
-			return
-		}
-	}
-	writeError(w, errors.New("scan run not found"), http.StatusNotFound)
+	writeResult(w, run, err)
 }
 
 func (s *Server) getDevices(w http.ResponseWriter, r *http.Request) {
@@ -996,8 +991,9 @@ func (s *Server) getSettings(w http.ResponseWriter, r *http.Request) {
 	if settings["capture_ssh_host"] == "" {
 		settings["capture_ssh_host"] = s.app.Config.CaptureSSHHost
 	}
-	settings["camera_password_set"] = fmt.Sprintf("%t", s.app.Config.TapoPassword != "")
-	settings["camera_password_source"] = s.app.Config.TapoPasswordSource
+	activePassword, activeSource := s.app.CameraCredentials()
+	settings["camera_password_set"] = fmt.Sprintf("%t", activePassword != "")
+	settings["camera_password_source"] = activeSource
 	info := authInfoFromContext(r.Context())
 	authStatus, authErr := s.app.AuthStatus(r.Context(), info.Role, info.ExpiresAt, info.LocalAdminBypass)
 	if authErr == nil {
@@ -1065,8 +1061,7 @@ func (s *Server) setCameraPassword(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err, http.StatusInternalServerError)
 		return
 	}
-	s.app.Config.TapoPassword = req.Password
-	s.app.Config.TapoPasswordSource = source
+	s.app.SetCameraCredentials(req.Password, source)
 	_ = s.app.Store.AddEvent(r.Context(), "info", "settings.secret.updated", "Kamera-Passwort wurde gespeichert", map[string]string{"source": source})
 	writeJSON(w, map[string]string{"status": "ok", "source": source}, http.StatusOK)
 }
