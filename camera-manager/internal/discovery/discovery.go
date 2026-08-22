@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"camera-appliance/camera-manager/internal/fingerprint"
+	"camera-appliance/camera-manager/internal/onvif"
 	"camera-appliance/camera-manager/internal/redaction"
 	"camera-appliance/camera-manager/internal/state"
 )
@@ -152,10 +153,26 @@ func (s *Scanner) probeHost(ctx context.Context, ip, mac string) (Result, bool) 
 	}
 	hostname := reverseName(ip)
 	manufacturer, model := classifyDevice(rtspOpen, onvifOpen, httpSig)
+
+	var onvifInfo *onvif.Info
+	if onvifOpen && s.options.IncludeONVIF {
+		if info, err := s.probeONVIF(ctx, ip); err == nil {
+			onvifInfo = info
+			if info.Manufacturer != "" {
+				manufacturer = info.Manufacturer
+			}
+			if info.Model != "" {
+				model = info.Model
+			}
+		}
+	}
+
 	fp := fingerprint.Normalize(fingerprint.Fingerprint{
 		MACAddress:   mac,
 		Manufacturer: manufacturer,
 		Model:        model,
+		SerialNumber: onvifSerial(onvifInfo),
+		HardwareID:   onvifHardwareID(onvifInfo),
 		Hostname:     hostname,
 		LastIP:       ip,
 	})
@@ -166,6 +183,8 @@ func (s *Scanner) probeHost(ctx context.Context, ip, mac string) (Result, bool) 
 		MACAddress:   fp.MACAddress,
 		Manufacturer: fp.Manufacturer,
 		Model:        fp.Model,
+		SerialNumber: fp.SerialNumber,
+		HardwareID:   fp.HardwareID,
 		Hostname:     fp.Hostname,
 	}
 	checks := map[string]StreamProbe{}
@@ -192,11 +211,52 @@ func (s *Scanner) probeHost(ctx context.Context, ip, mac string) (Result, bool) 
 		"rtsp_port_open":  rtspOpen,
 		"onvif_port_open": onvifOpen,
 		"http_signature":  httpSig,
-		"onvif":           "WS-Discovery is not implemented yet; TCP 2020 candidate check active",
+	}
+	if onvifInfo != nil {
+		raw["onvif_serial"] = fp.SerialNumber
+		raw["onvif_firmware"] = onvifInfo.Firmware
+	} else if onvifOpen {
+		raw["onvif"] = "WS-Discovery is not implemented yet; TCP 2020 candidate check active"
 	}
 	rawJSON, _ := json.Marshal(raw)
 	device.RawJSON = rawJSON
 	return Result{Device: device, StreamChecks: checks, Raw: raw}, true
+}
+
+// probeONVIF asks the camera's device service for stable identity attributes.
+// Credentials are optional; devices that answer anonymously are enriched too.
+func (s *Scanner) probeONVIF(ctx context.Context, ip string) (*onvif.Info, error) {
+	username := ""
+	if len(s.options.Usernames) > 0 {
+		username = s.options.Usernames[0]
+	}
+	client := &onvif.Client{Timeout: s.onvifTimeout()}
+	info, err := client.GetDeviceInformation(ctx, "http://"+net.JoinHostPort(ip, "2020"), username, s.options.Password)
+	if err != nil {
+		return nil, err
+	}
+	return &info, nil
+}
+
+func (s *Scanner) onvifTimeout() time.Duration {
+	if s.options.Timeout*2 < 3*time.Second {
+		return 3 * time.Second
+	}
+	return s.options.Timeout * 2
+}
+
+func onvifSerial(info *onvif.Info) string {
+	if info == nil {
+		return ""
+	}
+	return info.SerialNumber
+}
+
+func onvifHardwareID(info *onvif.Info) string {
+	if info == nil {
+		return ""
+	}
+	return info.HardwareID
 }
 
 func candidateHosts(subnets []Subnet, limit int) []string {

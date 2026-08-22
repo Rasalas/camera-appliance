@@ -169,6 +169,7 @@ func (a *App) Discover(ctx context.Context) (DiscoverySummary, error) {
 		LimitPerCIDR: a.Config.ScanLimit,
 		Usernames:    usernames,
 		Password:     cameraPassword,
+		IncludeONVIF: true,
 	})
 	results, subnets, scanErr := scanner.Scan(ctx)
 	var warnings []string
