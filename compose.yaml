@@ -6,17 +6,30 @@ services:
       - agentdvr
     restart: unless-stopped
     ports:
-      - "8090:8090"
+      # DVR-Weboberfläche nur lokal exponieren; sie ist nicht für das LAN gedacht.
+      - "127.0.0.1:8090:8090"
     volumes:
       - /var/lib/camera-appliance/agentdvr/xml:/AgentDVR/Media/XML
       - /var/lib/camera-appliance/agentdvr/media:/AgentDVR/Media/WebServerRoot/Media
     depends_on:
-      - go2rtc
+      go2rtc:
+        condition: service_healthy
 
   go2rtc:
-    image: alexxit/go2rtc:latest
+    # Versionspin statt :latest – ein Upstream-Push darf die Appliance nicht
+    # unbeabsichtigt verändern. Tag ohne "v"-Präfix; im Sync mit GO2RTC_VERSION
+    # im Makefile halten.
+    image: alexxit/go2rtc:${GO2RTC_IMAGE_TAG:-1.9.14}
     container_name: go2rtc
     restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:1984/api/streams"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
     volumes:
       - /var/lib/camera-appliance/generated/go2rtc.yaml:/config/go2rtc.yaml:ro
     ports:
@@ -34,6 +47,8 @@ services:
     container_name: camera-manager
     restart: unless-stopped
     network_mode: host
+    security_opt:
+      - no-new-privileges:true
     environment:
       CAMERA_APPLIANCE_BIND_ADDR: 0.0.0.0:8091
       CAMERA_APPLIANCE_CONFIG_DIR: /etc/camera-appliance
@@ -43,6 +58,9 @@ services:
       - /opt/camera-appliance:/opt/camera-appliance
       - /etc/camera-appliance:/etc/camera-appliance
       - /var/lib/camera-appliance:/var/lib/camera-appliance
+      # Root-äquivalent: der Manager braucht den Socket nur für go2rtc-Restarts.
+      # Alternative ohne Socket: CAMERA_APPLIANCE_GO2RTC_RESTART_COMMAND mit
+      # deploy/nas/restart-go2rtc.sh (siehe docs/decisions).
       - /var/run/docker.sock:/var/run/docker.sock
 
 networks:
