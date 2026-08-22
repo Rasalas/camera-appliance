@@ -240,8 +240,22 @@ func (a *App) AddManualDevice(ctx context.Context, input ManualDeviceInput) (Man
 		"stream":          stream,
 	}
 	rawJSON, _ := json.Marshal(raw)
+	deviceID := fingerprint.DeviceID(fp)
+	if fp.MACAddress == "" && fp.SerialNumber == "" && fp.ONVIFEndpointRef == "" {
+		// Without a stable identity attribute the fingerprint would fall back
+		// to a fresh random ID on every add. Reuse an existing device for this
+		// IP instead so re-adding a camera does not orphan its credentials.
+		if existing, listErr := a.Store.Devices(ctx); listErr == nil {
+			for _, d := range existing {
+				if d.LastIP == ip && d.ID != "" {
+					deviceID = d.ID
+					break
+				}
+			}
+		}
+	}
 	device := state.Device{
-		ID:           fingerprint.DeviceID(fp),
+		ID:           deviceID,
 		LastSeenAt:   time.Now().UTC(),
 		LastIP:       ip,
 		MACAddress:   fp.MACAddress,
