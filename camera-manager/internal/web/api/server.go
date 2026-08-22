@@ -31,9 +31,10 @@ import (
 )
 
 type Server struct {
-	app    *app.App
-	mux    *http.ServeMux
-	logins *loginLimiter
+	app      *app.App
+	mux      *http.ServeMux
+	logins   *loginLimiter
+	updateMu sync.Mutex
 }
 
 type credentialIdentity struct {
@@ -68,6 +69,7 @@ func (s *Server) Handler() http.Handler {
 
 func (s *Server) routes() {
 	s.mux.HandleFunc("GET /api/auth/status", s.getAuthStatus)
+	s.mux.HandleFunc("GET /api/health", s.getHealth)
 	s.mux.HandleFunc("POST /api/auth/login", s.login)
 	s.mux.HandleFunc("POST /api/auth/logout", s.logout)
 	s.mux.HandleFunc("POST /api/auth/password", s.setAuthPassword)
@@ -122,6 +124,12 @@ func (s *Server) getAuthStatus(w http.ResponseWriter, r *http.Request) {
 	info := authInfoFromContext(r.Context())
 	status, err := s.app.AuthStatus(r.Context(), info.Role, info.ExpiresAt, info.LocalAdminBypass)
 	writeResult(w, status, err)
+}
+
+// getHealth serves a minimal liveness probe without any deployment details.
+// It stays public so post-update healthchecks work with auth enabled.
+func (s *Server) getHealth(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, map[string]string{"status": "ok"}, http.StatusOK)
 }
 
 func (s *Server) login(w http.ResponseWriter, r *http.Request) {
@@ -946,7 +954,8 @@ func (s *Server) restartStack(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) startUpdate(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		URL string `json:"url"`
+		URL    string `json:"url"`
+		Digest string `json:"digest"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil && !errors.Is(err, io.EOF) {
 		writeError(w, err, http.StatusBadRequest)
@@ -961,12 +970,24 @@ func (s *Server) startUpdate(w http.ResponseWriter, r *http.Request) {
 		writeError(w, errors.New("update url is invalid"), http.StatusBadRequest)
 		return
 	}
-	_ = s.app.Store.AddEvent(r.Context(), "info", "update.started", "Update wurde gestartet", map[string]string{"url": updateURL})
-	go s.runUpdate(updateURL)
+	if parsed.Scheme != "https" && os.Getenv("CAMERA_APPLIANCE_ALLOW_INSECURE_UPDATE") != "1" {
+		writeError(w, errors.New("update url muss https verwenden"), http.StatusBadRequest)
+		return
+	}
+	digest := strings.TrimSpace(req.Digest)
+	if !s.updateMu.TryLock() {
+		writeError(w, errors.New("es läuft bereits ein Update"), http.StatusConflict)
+		return
+	}
+	_ = s.app.Store.AddEvent(r.Context(), "info", "update.started", "Update wurde gestartet", map[string]string{"url": redaction.Text(updateURL)})
+	go func() {
+		defer s.updateMu.Unlock()
+		s.runUpdate(updateURL, digest)
+	}()
 	writeJSON(w, map[string]string{"status": "started", "url": updateURL}, http.StatusAccepted)
 }
 
-func (s *Server) runUpdate(updateURL string) {
+func (s *Server) runUpdate(updateURL, digest string) {
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
 	defer cancel()
 	result, err := updater.Apply(ctx, updater.Options{
@@ -1305,7 +1326,7 @@ func authInfoFromContext(ctx context.Context) requestAuthInfo {
 
 func isPublicAuthAPI(r *http.Request) bool {
 	switch r.URL.Path {
-	case "/api/auth/status":
+	case "/api/auth/status", "/api/health":
 		return r.Method == http.MethodGet
 	case "/api/auth/login", "/api/auth/logout", "/api/auth/password":
 		return r.Method == http.MethodPost

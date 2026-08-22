@@ -75,6 +75,10 @@
         <div class="mono-mute">{{ versionDetail }}</div>
       </div>
       <div class="field">
+        <span class="lbl">SHA-256-Prüfsumme (optional)</span>
+        <input v-model="updateDigest" class="input mono" type="text" placeholder="sha256:…" spellcheck="false" />
+      </div>
+      <div class="field">
         <span class="lbl">Update</span>
         <div class="btn-row"><button class="btn primary" :disabled="updating" @click="onUpdate">{{ updating ? 'Update läuft…' : 'Update installieren' }}</button></div>
       </div>
@@ -137,6 +141,7 @@ const {
 } = useSystem()
 
 const restorePath = ref('')
+const updateDigest = ref('')
 const creatingSupportBundle = ref(false)
 const updating = ref(false)
 
@@ -153,7 +158,7 @@ async function onSupportBundle() {
 async function onUpdate() {
   updating.value = true
   try {
-    await startUpdate()
+    await startUpdate(undefined, updateDigest.value.trim() || undefined)
     window.setTimeout(() => void refreshStatus().finally(() => { updating.value = false }), 20000)
   } catch (err) {
     error.value = err instanceof Error ? err.message : 'Update konnte nicht gestartet werden.'
