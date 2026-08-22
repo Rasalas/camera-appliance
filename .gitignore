@@ -25,6 +25,7 @@ agentdvr-data/
 customer/
 local/
 .private/
+private/
 
 # Build outputs
 dist/
