@@ -151,10 +151,22 @@ func readLocalEnvKey(configDir, key string) string {
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
 		if strings.HasPrefix(line, key+"=") {
-			return strings.Trim(strings.TrimPrefix(line, key+"="), `"'`)
+			return unshellQuote(strings.TrimSpace(strings.TrimPrefix(line, key+"=")))
 		}
 	}
 	return ""
+}
+
+// unshellQuote removes exactly one layer of quoting written by shellQuote.
+// Legacy hand-edited double-quoted values are handled too.
+func unshellQuote(value string) string {
+	if len(value) >= 2 && strings.HasPrefix(value, "'") && strings.HasSuffix(value, "'") {
+		return strings.ReplaceAll(value[1:len(value)-1], "'\"'\"'", "'")
+	}
+	if len(value) >= 2 && strings.HasPrefix(value, "\"") && strings.HasSuffix(value, "\"") {
+		return value[1 : len(value)-1]
+	}
+	return value
 }
 
 func writeLocalEnvKey(configDir, key, password string) error {
@@ -178,7 +190,64 @@ func writeLocalEnvKey(configDir, key, password string) error {
 	if !found {
 		out.WriteString(key + "=" + shellQuote(password) + "\n")
 	}
-	return os.WriteFile(path, out.Bytes(), 0o600)
+	if err := os.WriteFile(path, out.Bytes(), 0o600); err != nil {
+		return err
+	}
+	// WriteFile only applies the mode at creation; tighten pre-existing files.
+	if err := os.Chmod(path, 0o600); err != nil {
+		return err
+	}
+	return nil
+}
+
+// DeleteCamera removes a per-camera secret from the keyring and local.env.
+func DeleteCamera(configDir, deviceID string) {
+	if deviceID == "" {
+		return
+	}
+	deleteKeyring(cameraKey(deviceID))
+	removeLocalEnvKey(configDir, localEnvCameraKey(deviceID))
+}
+
+// DeleteIdentity removes a credential identity's secret from the keyring and
+// local.env.
+func DeleteIdentity(configDir, identityID string) {
+	if identityID == "" {
+		return
+	}
+	deleteKeyring(identityKey(identityID))
+	removeLocalEnvKey(configDir, localEnvIdentityKey(identityID))
+}
+
+func deleteKeyring(account string) {
+	if runtime.GOOS != "linux" {
+		return
+	}
+	if _, err := exec.LookPath("secret-tool"); err != nil {
+		return
+	}
+	cmd := exec.Command("secret-tool", "clear", "application", keyringService, "key", account)
+	_ = cmd.Run()
+}
+
+func removeLocalEnvKey(configDir, key string) {
+	path := filepath.Join(configDir, "local.env")
+	existing, err := os.ReadFile(path)
+	if err != nil {
+		return
+	}
+	var out bytes.Buffer
+	scanner := bufio.NewScanner(bytes.NewReader(existing))
+	for scanner.Scan() {
+		line := scanner.Text()
+		if strings.HasPrefix(strings.TrimSpace(line), key+"=") {
+			continue
+		}
+		out.WriteString(line + "\n")
+	}
+	if err := os.WriteFile(path, out.Bytes(), 0o600); err == nil {
+		_ = os.Chmod(path, 0o600)
+	}
 }
 
 func shellQuote(value string) string {

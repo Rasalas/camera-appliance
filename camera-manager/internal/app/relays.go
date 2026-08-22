@@ -13,6 +13,7 @@ import (
 	"syscall"
 	"time"
 
+	"camera-appliance/camera-manager/internal/redaction"
 	"camera-appliance/camera-manager/internal/state"
 )
 
@@ -154,7 +155,7 @@ func (a *App) EnsureManagedRelays(ctx context.Context) ([]RelayStatus, error) {
 		}
 		started, startErr := a.startManagedRelay(ctx, relay, settings)
 		if startErr != nil {
-			message := startErr.Error()
+			message := redaction.Text(startErr.Error())
 			backoffUntil := now.Add(relayBackoffDuration)
 			_ = a.Store.PutSettings(ctx, map[string]string{
 				relayRuntimeKey(relay.ID, "last_error"):    message,
