@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net"
 	"strings"
+	"sync"
 	"time"
 
 	"camera-appliance/camera-manager/internal/config"
@@ -27,6 +28,27 @@ type App struct {
 	Go2RTCRestart func(ctx context.Context) error
 	RelayStart    func(ctx context.Context, relay ManagedRelay) (int, error)
 	RelayStop     func(ctx context.Context, status RelayStatus) error
+
+	// camPassMu guards the mutable Tapo credential fields on Config, which are
+	// written by API handlers and read concurrently by viewer/render/watchdog.
+	camPassMu sync.RWMutex
+}
+
+// CameraCredentials returns the currently active camera password and its
+// source. It is safe for concurrent use.
+func (a *App) CameraCredentials() (password, source string) {
+	a.camPassMu.RLock()
+	defer a.camPassMu.RUnlock()
+	return a.Config.TapoPassword, a.Config.TapoPasswordSource
+}
+
+// SetCameraCredentials updates the active camera password. It is safe for
+// concurrent use.
+func (a *App) SetCameraCredentials(password, source string) {
+	a.camPassMu.Lock()
+	defer a.camPassMu.Unlock()
+	a.Config.TapoPassword = password
+	a.Config.TapoPasswordSource = source
 }
 
 type Status struct {
@@ -138,11 +160,12 @@ func (a *App) Discover(ctx context.Context) (DiscoverySummary, error) {
 	}
 	_ = a.Store.AddEvent(ctx, "info", "scan.started", "Kamerasuche gestartet", map[string]string{"scan_id": run.ID})
 	usernames := a.usernames(ctx)
+	cameraPassword, _ := a.CameraCredentials()
 	scanner := discovery.NewScanner(discovery.Options{
 		Timeout:      a.Config.RequestTimeout,
 		LimitPerCIDR: a.Config.ScanLimit,
 		Usernames:    usernames,
-		Password:     a.Config.TapoPassword,
+		Password:     cameraPassword,
 	})
 	results, subnets, scanErr := scanner.Scan(ctx)
 	var warnings []string
@@ -300,10 +323,11 @@ func (a *App) RenderGo2RTC(ctx context.Context) (go2rtcrender.RenderResult, erro
 		}
 	}
 	endpoints, assessments := a.streamEndpointSelections(ctx, bindings, settings)
+	renderPassword, _ := a.CameraCredentials()
 	result, err := go2rtcrender.Render(ctx, go2rtcrender.RenderInput{
 		Slots:     a.Slots,
 		Bindings:  bindings,
-		Password:  a.Config.TapoPassword,
+		Password:  renderPassword,
 		Passwords: passwords,
 		Endpoints: endpoints,
 		Output:    a.Config.Go2RTCConfigPath(),

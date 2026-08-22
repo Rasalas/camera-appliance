@@ -347,6 +347,25 @@ func (s *Store) ScanRuns(ctx context.Context, limit int) ([]ScanRun, error) {
 	return runs, rows.Err()
 }
 
+// ScanRun returns a single scan run by ID. It returns sql.ErrNoRows when the
+// run does not exist.
+func (s *Store) ScanRun(ctx context.Context, id string) (ScanRun, error) {
+	var r ScanRun
+	var started string
+	var finished sql.NullString
+	err := s.db.QueryRowContext(ctx, `SELECT id,started_at,finished_at,status,coalesce(message,'') FROM scan_runs WHERE id = ?`, id).
+		Scan(&r.ID, &started, &finished, &r.Status, &r.Message)
+	if err != nil {
+		return ScanRun{}, err
+	}
+	r.StartedAt = parseTime(started)
+	if finished.Valid {
+		t := parseTime(finished.String)
+		r.FinishedAt = &t
+	}
+	return r, nil
+}
+
 func (s *Store) AddEvent(ctx context.Context, level, typ, message string, details any) error {
 	var raw []byte
 	if details != nil {
