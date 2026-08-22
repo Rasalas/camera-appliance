@@ -47,6 +47,7 @@
                 :title="`${pane.slot.label} HD`"
                 loading="eager"
                 allow="autoplay; fullscreen; picture-in-picture"
+                @load="markHDFrameReady(pane.alias)"
               />
             </div>
             <div v-if="!shouldRenderPlayer(pane.slot)" class="viewer-placeholder" :class="{ paused: isPausedByPerformance(pane.slot) }">
@@ -886,16 +887,28 @@ function iframeLoading(slot: ViewerSlot): 'eager' | 'lazy' {
   return 'eager'
 }
 
+function appendQuery(url: string, params: Record<string, string>) {
+  const search = new URLSearchParams(params)
+  const separator = url.includes('?') ? '&' : '?'
+  return `${url}${separator}${search.toString()}`
+}
+
 function frameSrc(slot: ViewerSlot) {
   const url = slot.playback?.page_url
   if (!url) return ''
-  return `${url}&fit=${effectiveDisplay(slot).fit_mode}&label=${encodeURIComponent(slot.label)}`
+  return appendQuery(url, {
+    fit: effectiveDisplay(slot).fit_mode,
+    label: slot.label,
+  })
 }
 
 function hdFrameSrc(slot: ViewerSlot) {
   const url = slot.playback?.hd_page_url
   if (!url) return ''
-  return `${url}&fit=${effectiveDisplay(slot).fit_mode}&label=${encodeURIComponent(`${slot.label} HD`)}`
+  return appendQuery(url, {
+    fit: effectiveDisplay(slot).fit_mode,
+    label: `${slot.label} HD`,
+  })
 }
 
 function placeholderMessage(slot: ViewerSlot) {

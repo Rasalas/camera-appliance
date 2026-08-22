@@ -53,6 +53,16 @@
           <input v-model="restorePath" placeholder="/var/lib/camera-appliance/backups/…" style="flex: 1;" />
           <button class="btn" :disabled="!restorePath" @click="onRestore">Wiederherstellen</button>
         </div>
+        <div v-if="confirmingRestore" class="notice warn" style="margin-top: 8px;">
+          <span class="tag">BESTÄTIGEN</span>
+          <div>
+            <div>Wirklich dieses Backup wiederherstellen? Aktuelle Einstellungen und Zuordnungen werden ersetzt.</div>
+            <div class="btn-row" style="margin-top: 8px;">
+              <button class="btn primary" @click="doRestore">Ja, wiederherstellen</button>
+              <button class="btn" @click="confirmingRestore = false">Abbrechen</button>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
     <div v-if="backupResult" class="notice ok">
@@ -141,6 +151,7 @@ const {
 } = useSystem()
 
 const restorePath = ref('')
+const confirmingRestore = ref(false)
 const updateDigest = ref('')
 const creatingSupportBundle = ref(false)
 const updating = ref(false)
@@ -149,7 +160,15 @@ async function onBackup() {
   try { await createBackup() } catch (err) { error.value = err instanceof Error ? err.message : 'Backup konnte nicht erstellt werden.' }
 }
 async function onRestore() {
-  try { await restoreBackup(restorePath.value) } catch (err) { error.value = err instanceof Error ? err.message : 'Wiederherstellung fehlgeschlagen.' }
+  confirmingRestore.value = true
+}
+async function doRestore() {
+  confirmingRestore.value = false
+  try {
+    await restoreBackup(restorePath.value)
+  } catch (err) {
+    error.value = err instanceof Error ? err.message : 'Wiederherstellung fehlgeschlagen.'
+  }
 }
 async function onSupportBundle() {
   creatingSupportBundle.value = true

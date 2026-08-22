@@ -59,7 +59,9 @@ router.beforeEach(async (to) => {
   try {
     auth = await api.authStatus()
   } catch {
-    return true
+    // Fail closed: an unreachable auth endpoint (e.g. during a self-update
+    // restart) must not grant access to admin routes.
+    return to.meta.requiresAdmin || to.meta.requiresViewer ? { path: '/login' } : true
   }
   if (!auth.enabled) return true
   if (to.meta.requiresAdmin && auth.role !== 'admin') {
