@@ -255,7 +255,7 @@ func relayStatusCmd() *cobra.Command {
 func relayActionCmd(action string) *cobra.Command {
 	return &cobra.Command{
 		Use:   action + " RELAY_ID",
-		Short: strings.Title(action) + " a relay",
+		Short: capitalize(action) + " a relay",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			a, err := app.Open(cmd.Context())
@@ -324,6 +324,9 @@ func adminSetPasswordCmd() *cobra.Command {
 			}
 			if password == "" {
 				password = os.Getenv(envName)
+			}
+			if passwordFlagChanged(cmd, "password") {
+				fmt.Fprintln(os.Stderr, "WARNUNG: Passwort wurde per --password übergeben und ist in der Shell-History/Prozessliste sichtbar. Bevorzugt: "+envName)
 			}
 			if strings.TrimSpace(password) == "" {
 				return fmt.Errorf("--password oder %s ist erforderlich", envName)
@@ -756,4 +759,16 @@ func printServiceGroup(label string, services []system.ServiceStatus) {
 func printJSON(value any) {
 	data, _ := json.MarshalIndent(value, "", "  ")
 	fmt.Println(redaction.Text(string(data)))
+}
+
+func capitalize(value string) string {
+	if value == "" {
+		return value
+	}
+	return strings.ToUpper(value[:1]) + value[1:]
+}
+
+func passwordFlagChanged(cmd *cobra.Command, name string) bool {
+	flag := cmd.Flags().Lookup(name)
+	return flag != nil && flag.Changed
 }

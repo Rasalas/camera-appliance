@@ -130,7 +130,7 @@ func (a *App) RunWatchdogOnce(ctx context.Context, cameraCheck bool) (WatchdogRu
 	}
 	startedRelays := 0
 	for _, status := range relayStatuses {
-		if status.Message == "Relay-Prozess gestartet." {
+		if status.Started {
 			startedRelays++
 		}
 	}

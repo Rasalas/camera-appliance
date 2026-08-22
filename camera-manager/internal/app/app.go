@@ -32,6 +32,9 @@ type App struct {
 	// camPassMu guards the mutable Tapo credential fields on Config, which are
 	// written by API handlers and read concurrently by viewer/render/watchdog.
 	camPassMu sync.RWMutex
+	// relayMu serializes relay start/stop/ensure so concurrent triggers
+	// (watchdog + API) cannot race on pidfiles.
+	relayMu sync.Mutex
 }
 
 // CameraCredentials returns the currently active camera password and its

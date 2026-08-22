@@ -20,6 +20,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"camera-appliance/camera-manager/internal/app"
 	authn "camera-appliance/camera-manager/internal/auth"
@@ -769,7 +770,12 @@ func truncate(value string, max int) string {
 	if len(value) <= max {
 		return value
 	}
-	return value[:max] + "..."
+	// Cut at a rune boundary so multi-byte characters stay intact.
+	cut := value[:max]
+	for len(cut) > 0 && !utf8.ValidString(cut) {
+		cut = cut[:len(cut)-1]
+	}
+	return cut + "..."
 }
 
 func (s *Server) deviceReferenceImage(w http.ResponseWriter, r *http.Request, deviceID string) {
