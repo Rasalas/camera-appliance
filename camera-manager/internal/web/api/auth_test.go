@@ -133,6 +133,7 @@ func TestGo2RTCWebSocketProxyUsesGo2RTCOrigin(t *testing.T) {
 	handler := New(a).Handler()
 
 	req := httptest.NewRequest(http.MethodGet, "/go2rtc/api/ws?src=cam1", nil)
+	req.Header.Set("Origin", "http://"+req.Host)
 	res := httptest.NewRecorder()
 	handler.ServeHTTP(res, req)
 	if res.Code != http.StatusOK {
@@ -143,6 +144,130 @@ func TestGo2RTCWebSocketProxyUsesGo2RTCOrigin(t *testing.T) {
 	}
 	if seenOrigin != go2rtc.URL || seenHost == "" {
 		t.Fatalf("expected go2rtc origin and host, got origin=%q host=%q", seenOrigin, seenHost)
+	}
+}
+
+func TestGo2RTCWebSocketProxyRejectsCrossOrigin(t *testing.T) {
+	go2rtc := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Errorf("request should not be proxied, got %s", r.URL.Path)
+	}))
+	defer go2rtc.Close()
+
+	a := newAuthTestApp(t)
+	a.Config.Go2RTCURL = go2rtc.URL
+	handler := New(a).Handler()
+
+	for _, origin := range []string{"", "http://evil.example", "https://127.0.0.1:9999"} {
+		req := httptest.NewRequest(http.MethodGet, "/go2rtc/api/ws?src=cam1", nil)
+		if origin != "" {
+			req.Header.Set("Origin", origin)
+		}
+		res := httptest.NewRecorder()
+		handler.ServeHTTP(res, req)
+		if res.Code != http.StatusForbidden {
+			t.Fatalf("origin %q: expected 403, got %d", origin, res.Code)
+		}
+	}
+}
+
+func TestGo2RTCWebSocketRequiresViewerRoleWhenAuthEnabled(t *testing.T) {
+	go2rtc := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, map[string]string{"status": "ok"}, http.StatusOK)
+	}))
+	defer go2rtc.Close()
+
+	a := newAuthTestApp(t)
+	a.Config.Go2RTCURL = go2rtc.URL
+	if err := a.Store.PutSettings(context.Background(), map[string]string{
+		app.AuthSettingAdminPasswordHash: "x",
+		app.AuthSettingViewerPublic:      "false",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	handler := New(a).Handler()
+
+	req := httptest.NewRequest(http.MethodGet, "/go2rtc/api/ws?src=cam1", nil)
+	req.Header.Set("Origin", "http://"+req.Host)
+	res := httptest.NewRecorder()
+	handler.ServeHTTP(res, req)
+	if res.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401 without session, got %d", res.Code)
+	}
+
+	publicReq := httptest.NewRequest(http.MethodGet, "/go2rtc/api/ws?src=cam1", nil)
+	publicReq.Header.Set("Origin", "http://"+publicReq.Host)
+	publicRes := httptest.NewRecorder()
+	if err := a.Store.PutSettings(context.Background(), map[string]string{app.AuthSettingViewerPublic: "true"}); err != nil {
+		t.Fatal(err)
+	}
+	handler.ServeHTTP(publicRes, publicReq)
+	if publicRes.Code != http.StatusOK {
+		t.Fatalf("expected viewer-public websocket to pass, got %d", publicRes.Code)
+	}
+}
+
+func TestLoginRateLimitBlocksAfterRepeatedFailures(t *testing.T) {
+	a := newAuthTestApp(t)
+	if err := a.SetAuthPassword(context.Background(), "admin", "secret-password"); err != nil {
+		t.Fatal(err)
+	}
+	handler := New(a).Handler()
+	body := strings.NewReader(`{"username":"admin","password":"wrong"}`)
+
+	var status int
+	for i := 0; i < 15; i++ {
+		req := httptest.NewRequest(http.MethodPost, "/api/auth/login", body)
+		body.Reset(`{"username":"admin","password":"wrong"}`)
+		res := httptest.NewRecorder()
+		handler.ServeHTTP(res, req)
+		status = res.Code
+		if status == http.StatusTooManyRequests {
+			return
+		}
+	}
+	t.Fatalf("expected rate limit to kick in, last status %d", status)
+}
+
+func TestLocalAdminBypassRejectsForeignHostHeader(t *testing.T) {
+	a := newAuthTestApp(t)
+	if err := a.Store.PutSettings(context.Background(), map[string]string{
+		app.AuthSettingLocalAdminBypass:  "true",
+		app.AuthSettingAdminPasswordHash: "x",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	handler := New(a).Handler()
+
+	loopbackReq := httptest.NewRequest(http.MethodGet, "/api/status", nil)
+	loopbackReq.RemoteAddr = "127.0.0.1:40000"
+	loopbackReq.Host = "127.0.0.1:8091"
+	loopbackRes := httptest.NewRecorder()
+	handler.ServeHTTP(loopbackRes, loopbackReq)
+
+	rebindReq := httptest.NewRequest(http.MethodGet, "/api/status", nil)
+	rebindReq.RemoteAddr = "127.0.0.1:40001"
+	rebindReq.Host = "evil.example:8091"
+	rebindRes := httptest.NewRecorder()
+	handler.ServeHTTP(rebindRes, rebindReq)
+
+	if loopbackRes.Code != http.StatusOK {
+		t.Fatalf("loopback host should keep bypass, got %d", loopbackRes.Code)
+	}
+	if rebindRes.Code != http.StatusUnauthorized {
+		t.Fatalf("foreign host must not get bypass, got %d", rebindRes.Code)
+	}
+}
+
+func TestCrossOriginStateChangingRequestRejected(t *testing.T) {
+	a := newAuthTestApp(t)
+	handler := New(a).Handler()
+
+	req := httptest.NewRequest(http.MethodPost, "/api/discovery", nil)
+	req.Header.Set("Origin", "http://evil.example")
+	res := httptest.NewRecorder()
+	handler.ServeHTTP(res, req)
+	if res.Code != http.StatusForbidden {
+		t.Fatalf("expected 403 for cross-origin POST, got %d", res.Code)
 	}
 }
 

@@ -17,6 +17,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"camera-appliance/camera-manager/internal/app"
@@ -30,8 +31,9 @@ import (
 )
 
 type Server struct {
-	app *app.App
-	mux *http.ServeMux
+	app    *app.App
+	mux    *http.ServeMux
+	logins *loginLimiter
 }
 
 type credentialIdentity struct {
@@ -55,13 +57,13 @@ const (
 )
 
 func New(a *app.App) *Server {
-	s := &Server{app: a, mux: http.NewServeMux()}
+	s := &Server{app: a, mux: http.NewServeMux(), logins: newLoginLimiter()}
 	s.routes()
 	return s
 }
 
 func (s *Server) Handler() http.Handler {
-	return withJSONHeaders(s.authMiddleware(s.mux))
+	return withSecurityHeaders(withOriginCheck(s.authMiddleware(s.mux)))
 }
 
 func (s *Server) routes() {
@@ -132,8 +134,13 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err, http.StatusBadRequest)
 		return
 	}
+	if !s.logins.Allow(r.RemoteAddr, time.Now()) {
+		writeError(w, errors.New("zu viele fehlgeschlagene Anmeldeversuche, bitte kurz warten"), http.StatusTooManyRequests)
+		return
+	}
 	token, result, err := s.app.Login(r.Context(), req.Username, req.Password, req.Remember)
 	if err != nil {
+		s.logins.RecordFailure(r.RemoteAddr, time.Now())
 		writeError(w, err, http.StatusUnauthorized)
 		return
 	}
@@ -1170,6 +1177,13 @@ func (s *Server) getGo2RTCAsset(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) proxyGo2RTCWebSocket(w http.ResponseWriter, r *http.Request) {
+	// Browsers always send Origin on WebSocket handshakes; a missing or
+	// cross-site Origin means the handshake did not come from this appliance's
+	// own pages, so refuse it before any video frames can be read.
+	if !originMatchesRequest(r.Header.Get("Origin"), r.Host) {
+		writeError(w, errors.New("websocket-origin abgelehnt"), http.StatusForbidden)
+		return
+	}
 	target, err := neturl.Parse(strings.TrimSpace(s.app.Config.Go2RTCURL))
 	if err != nil || target.Scheme == "" || target.Host == "" {
 		writeError(w, errors.New("go2rtc url is invalid"), http.StatusBadGateway)
@@ -1221,7 +1235,7 @@ func (s *Server) authMiddleware(next http.Handler) http.Handler {
 			next.ServeHTTP(w, r)
 			return
 		}
-		if strings.HasPrefix(r.URL.Path, "/api/") {
+		if strings.HasPrefix(r.URL.Path, "/api/") || strings.HasPrefix(r.URL.Path, "/go2rtc/") {
 			if isPublicAuthAPI(r) {
 				next.ServeHTTP(w, r)
 				return
@@ -1259,10 +1273,29 @@ func (s *Server) requestAuthInfo(r *http.Request) requestAuthInfo {
 	if err == nil && !status.Enabled {
 		return requestAuthInfo{Role: authn.RoleAdmin}
 	}
-	if err == nil && status.LocalAdminBypass && isLoopbackRemote(r.RemoteAddr) {
+	if err == nil && status.LocalAdminBypass && isLoopbackRemote(r.RemoteAddr) && isLoopbackHost(r.Host) {
 		return requestAuthInfo{Role: authn.RoleAdmin, LocalAdminBypass: true}
 	}
 	return requestAuthInfo{}
+}
+
+// isLoopbackHost reports whether the request's Host header points at the local
+// machine. This blocks DNS-rebinding attempts: an attacker page can make
+// requests that physically originate from loopback, but their Host header will
+// name the attacker's domain instead of a loopback address.
+func isLoopbackHost(host string) bool {
+	if host == "" {
+		return false
+	}
+	hostname := host
+	if h, _, err := net.SplitHostPort(host); err == nil {
+		hostname = h
+	}
+	hostname = strings.Trim(hostname, "[]")
+	if ip := net.ParseIP(hostname); ip != nil {
+		return ip.IsLoopback()
+	}
+	return strings.EqualFold(hostname, "localhost")
 }
 
 func authInfoFromContext(ctx context.Context) requestAuthInfo {
@@ -1282,7 +1315,7 @@ func isPublicAuthAPI(r *http.Request) bool {
 }
 
 func requiredAPIRole(r *http.Request) string {
-	if r.Method == http.MethodGet && r.URL.Path == "/api/viewer" {
+	if r.Method == http.MethodGet && (r.URL.Path == "/api/viewer" || strings.HasPrefix(r.URL.Path, "/go2rtc/")) {
 		return authn.RoleViewer
 	}
 	return authn.RoleAdmin
@@ -1402,9 +1435,88 @@ func writeError(w http.ResponseWriter, err error, status int) {
 	writeJSON(w, map[string]string{"error": redaction.Text(err.Error())}, status)
 }
 
-func withJSONHeaders(next http.Handler) http.Handler {
+func withSecurityHeaders(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("X-Content-Type-Options", "nosniff")
+		w.Header().Set("Referrer-Policy", "no-referrer")
+		w.Header().Set("X-Frame-Options", "SAMEORIGIN")
+		w.Header().Set("Content-Security-Policy",
+			"default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; "+
+				"img-src 'self' data: blob:; media-src 'self' blob:; connect-src 'self' ws: wss:; "+
+				"font-src 'self'; frame-ancestors 'self'; base-uri 'self'; form-action 'self'; object-src 'none'")
 		next.ServeHTTP(w, r)
 	})
+}
+
+// withOriginCheck rejects state-changing requests whose Origin header names a
+// different site. Browsers attach Origin to cross-site requests even though
+// CORS lets them through for simple requests, so this blocks CSRF regardless
+// of cookie SameSite behaviour.
+func withOriginCheck(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if origin := r.Header.Get("Origin"); origin != "" && !originMatchesRequest(origin, r.Host) {
+			writeError(w, errors.New("cross-origin request abgelehnt"), http.StatusForbidden)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+func originMatchesRequest(origin, host string) bool {
+	parsed, err := neturl.Parse(origin)
+	if err != nil || parsed.Host == "" {
+		return false
+	}
+	return strings.EqualFold(parsed.Host, host)
+}
+
+type loginLimiter struct {
+	mu    sync.Mutex
+	fails map[string]*loginFailures
+}
+
+type loginFailures struct {
+	count    int
+	windowAt time.Time
+}
+
+const (
+	loginFailLimit  = 10
+	loginFailWindow = time.Minute
+)
+
+func newLoginLimiter() *loginLimiter {
+	return &loginLimiter{fails: map[string]*loginFailures{}}
+}
+
+// Allow reports whether a login attempt from addr may proceed or the failure
+// limit within the current window has been exhausted.
+func (l *loginLimiter) Allow(addr string, now time.Time) bool {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	f := l.fails[clientKey(addr)]
+	if f == nil || now.Sub(f.windowAt) >= loginFailWindow {
+		return true
+	}
+	return f.count < loginFailLimit
+}
+
+func (l *loginLimiter) RecordFailure(addr string, now time.Time) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	key := clientKey(addr)
+	f := l.fails[key]
+	if f == nil || now.Sub(f.windowAt) >= loginFailWindow {
+		l.fails[key] = &loginFailures{count: 1, windowAt: now}
+		return
+	}
+	f.count++
+}
+
+func clientKey(addr string) string {
+	host, _, err := net.SplitHostPort(addr)
+	if err != nil {
+		return addr
+	}
+	return host
 }
