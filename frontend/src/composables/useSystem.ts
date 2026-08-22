@@ -248,12 +248,27 @@ async function refreshStatus() {
   ensureRelayDefaults()
 }
 
+// Client-derived or server-injected keys must never be written back to the
+// backend; they only mirror current state.
+const DERIVED_SETTING_KEYS = new Set([
+  'auth_admin_password_set',
+  'auth_viewer_password_set',
+  'camera_password_set',
+  'camera_password_source',
+  'go2rtc_url',
+  'bind_addr',
+])
+
+function writableSettings(): Record<string, string> {
+  return Object.fromEntries(Object.entries(settings).filter(([key]) => !DERIVED_SETTING_KEYS.has(key)))
+}
+
 async function saveSettings(keys?: string[]) {
   error.value = ''
   try {
     const payload = keys
       ? Object.fromEntries(keys.filter((k) => k in settings).map((k) => [k, settings[k]]))
-      : { ...settings }
+      : writableSettings()
     await api.saveSettings(payload)
     showToast('Einstellungen gespeichert')
   } catch (err) {
@@ -335,7 +350,7 @@ function removeRelay(id: string) {
 
 async function relayAction(id: string, action: 'start' | 'stop' | 'restart') {
   error.value = ''
-  await api.saveSettings({ ...settings })
+  await api.saveSettings(writableSettings())
   if (action === 'start') await api.startRelay(id)
   if (action === 'stop') await api.stopRelay(id)
   if (action === 'restart') await api.restartRelay(id)
