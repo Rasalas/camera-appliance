@@ -50,7 +50,7 @@ export const api = {
   stopRelay: (id: string) => request<RelayStatus>(`/api/relays/${encodeURIComponent(id)}/stop`, { method: 'POST' }),
   restartRelay: (id: string) => request<RelayStatus>(`/api/relays/${encodeURIComponent(id)}/restart`, { method: 'POST' }),
   restartStack: () => request('/api/system/restart-stack', { method: 'POST' }),
-  startUpdate: (url?: string) => request<UpdateStartResult>('/api/system/update', { method: 'POST', body: JSON.stringify({ url: url || '' }) }),
+  startUpdate: (url?: string, digest?: string) => request<UpdateStartResult>('/api/system/update', { method: 'POST', body: JSON.stringify({ url: url || '', digest: digest || '' }) }),
   credentialIdentities: () => request<CredentialIdentity[]>('/api/credential-identities'),
   saveCredentialIdentity: (body: { id?: string; name: string; username: string; password?: string; copy_password_from_id?: string }) =>
     request<CredentialIdentity>('/api/credential-identities', { method: 'POST', body: JSON.stringify(body) }),

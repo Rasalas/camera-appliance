@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"crypto/sha256"
+	"database/sql"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
@@ -17,6 +18,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 	"unicode/utf8"
 
@@ -31,8 +33,10 @@ import (
 )
 
 type Server struct {
-	app *app.App
-	mux *http.ServeMux
+	app      *app.App
+	mux      *http.ServeMux
+	logins   *loginLimiter
+	updateMu sync.Mutex
 }
 
 type credentialIdentity struct {
@@ -56,17 +60,18 @@ const (
 )
 
 func New(a *app.App) *Server {
-	s := &Server{app: a, mux: http.NewServeMux()}
+	s := &Server{app: a, mux: http.NewServeMux(), logins: newLoginLimiter()}
 	s.routes()
 	return s
 }
 
 func (s *Server) Handler() http.Handler {
-	return withJSONHeaders(s.authMiddleware(s.mux))
+	return withSecurityHeaders(withOriginCheck(s.authMiddleware(s.mux)))
 }
 
 func (s *Server) routes() {
 	s.mux.HandleFunc("GET /api/auth/status", s.getAuthStatus)
+	s.mux.HandleFunc("GET /api/health", s.getHealth)
 	s.mux.HandleFunc("POST /api/auth/login", s.login)
 	s.mux.HandleFunc("POST /api/auth/logout", s.logout)
 	s.mux.HandleFunc("POST /api/auth/password", s.setAuthPassword)
@@ -123,6 +128,12 @@ func (s *Server) getAuthStatus(w http.ResponseWriter, r *http.Request) {
 	writeResult(w, status, err)
 }
 
+// getHealth serves a minimal liveness probe without any deployment details.
+// It stays public so post-update healthchecks work with auth enabled.
+func (s *Server) getHealth(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, map[string]string{"status": "ok"}, http.StatusOK)
+}
+
 func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Username string `json:"username"`
@@ -133,8 +144,13 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err, http.StatusBadRequest)
 		return
 	}
+	if !s.logins.Allow(r.RemoteAddr, time.Now()) {
+		writeError(w, errors.New("zu viele fehlgeschlagene Anmeldeversuche, bitte kurz warten"), http.StatusTooManyRequests)
+		return
+	}
 	token, result, err := s.app.Login(r.Context(), req.Username, req.Password, req.Remember)
 	if err != nil {
+		s.logins.RecordFailure(r.RemoteAddr, time.Now())
 		writeError(w, err, http.StatusUnauthorized)
 		return
 	}
@@ -190,18 +206,12 @@ func (s *Server) getScanRuns(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) getScanRun(w http.ResponseWriter, r *http.Request) {
 	id := strings.TrimPrefix(r.URL.Path, "/api/discovery/runs/")
-	runs, err := s.app.Store.ScanRuns(r.Context(), 100)
-	if err != nil {
-		writeError(w, err, http.StatusInternalServerError)
+	run, err := s.app.Store.ScanRun(r.Context(), id)
+	if errors.Is(err, sql.ErrNoRows) {
+		writeError(w, errors.New("scan run not found"), http.StatusNotFound)
 		return
 	}
-	for _, run := range runs {
-		if run.ID == id {
-			writeJSON(w, run, http.StatusOK)
-			return
-		}
-	}
-	writeError(w, errors.New("scan run not found"), http.StatusNotFound)
+	writeResult(w, run, err)
 }
 
 func (s *Server) getDevices(w http.ResponseWriter, r *http.Request) {
@@ -235,6 +245,14 @@ func (s *Server) addManualDevice(w http.ResponseWriter, r *http.Request) {
 		if req.Stream == "" {
 			req.Stream = "stream2"
 		}
+		// Persist the password first: a failure here must not leave a saved
+		// username that silently pairs with no credentials.
+		if strings.TrimSpace(req.Password) != "" {
+			if _, err := secrets.SaveCamera(s.app.Config.ConfigDir, result.Device.ID, req.Password); err != nil {
+				writeError(w, err, http.StatusInternalServerError)
+				return
+			}
+		}
 		values := map[string]string{
 			"camera.credentials." + result.Device.ID + ".username": strings.TrimSpace(req.Username),
 			"camera.credentials." + result.Device.ID + ".stream":   strings.TrimSpace(req.Stream),
@@ -242,12 +260,6 @@ func (s *Server) addManualDevice(w http.ResponseWriter, r *http.Request) {
 		if err := s.app.Store.PutSettings(r.Context(), values); err != nil {
 			writeError(w, err, http.StatusInternalServerError)
 			return
-		}
-		if strings.TrimSpace(req.Password) != "" {
-			if _, err := secrets.SaveCamera(s.app.Config.ConfigDir, result.Device.ID, req.Password); err != nil {
-				writeError(w, err, http.StatusInternalServerError)
-				return
-			}
 		}
 	}
 	writeJSON(w, result, http.StatusOK)
@@ -457,7 +469,10 @@ func captureFrame(ctx context.Context, rawURL, sshHost string) ([]byte, error) {
 }
 
 func (s *Server) frameCredentialCandidates(ctx context.Context, device state.Device, username, password, stream string) ([]credentialCandidate, error) {
-	settings, _ := s.app.Store.Settings(ctx)
+	settings, err := s.app.Store.Settings(ctx)
+	if err != nil {
+		return nil, err
+	}
 	stream = strings.TrimSpace(stream)
 	if stream == "" {
 		stream = settings["camera.credentials."+device.ID+".stream"]
@@ -466,11 +481,9 @@ func (s *Server) frameCredentialCandidates(ctx context.Context, device state.Dev
 		stream = "stream2"
 	}
 	username = strings.TrimSpace(username)
-	password = strings.TrimSpace(password)
-	if username == "" {
-		username = strings.TrimSpace(settings["camera.credentials."+device.ID+".username"])
-	}
-	if password == "" {
+	// Passwords are used verbatim; only whitespace-only input is treated as
+	// empty so saved passwords with surrounding spaces keep working.
+	if strings.TrimSpace(password) == "" {
 		password = secrets.LoadCamera(s.app.Config.ConfigDir, device.ID).Value
 	}
 	var candidates []credentialCandidate
@@ -634,6 +647,9 @@ func (s *Server) deleteCredentialIdentity(w http.ResponseWriter, r *http.Request
 		writeError(w, err, http.StatusInternalServerError)
 		return
 	}
+	// Remove the stored secret as well so credentials never outlive their
+	// identity entry.
+	secrets.DeleteIdentity(s.app.Config.ConfigDir, id)
 	_ = s.app.Store.AddEvent(r.Context(), "info", "credentials.identity.deleted", "Kamera-Identität wurde entfernt", map[string]string{"identity_id": id})
 	writeJSON(w, map[string]string{"status": "ok"}, http.StatusOK)
 }
@@ -817,6 +833,17 @@ func (s *Server) setDeviceCredentials(w http.ResponseWriter, r *http.Request, de
 	if req.Stream == "" {
 		req.Stream = "stream2"
 	}
+	source := ""
+	if strings.TrimSpace(req.Password) != "" {
+		var err error
+		// Persist the password first: a failure here must not leave a saved
+		// username that silently pairs with no credentials.
+		source, err = secrets.SaveCamera(s.app.Config.ConfigDir, deviceID, req.Password)
+		if err != nil {
+			writeError(w, err, http.StatusInternalServerError)
+			return
+		}
+	}
 	values := map[string]string{
 		"camera.credentials." + deviceID + ".username": strings.TrimSpace(req.Username),
 		"camera.credentials." + deviceID + ".stream":   strings.TrimSpace(req.Stream),
@@ -824,15 +851,6 @@ func (s *Server) setDeviceCredentials(w http.ResponseWriter, r *http.Request, de
 	if err := s.app.Store.PutSettings(r.Context(), values); err != nil {
 		writeError(w, err, http.StatusInternalServerError)
 		return
-	}
-	source := ""
-	if strings.TrimSpace(req.Password) != "" {
-		var err error
-		source, err = secrets.SaveCamera(s.app.Config.ConfigDir, deviceID, req.Password)
-		if err != nil {
-			writeError(w, err, http.StatusInternalServerError)
-			return
-		}
 	}
 	_ = s.app.Store.AddEvent(r.Context(), "info", "camera.credentials.updated", "Kamera-Zugangsdaten wurden gespeichert", map[string]string{"device_id": deviceID, "password_source": source})
 	secret := secrets.LoadCamera(s.app.Config.ConfigDir, deviceID)
@@ -945,7 +963,8 @@ func (s *Server) restartStack(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) startUpdate(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		URL string `json:"url"`
+		URL    string `json:"url"`
+		Digest string `json:"digest"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil && !errors.Is(err, io.EOF) {
 		writeError(w, err, http.StatusBadRequest)
@@ -960,12 +979,24 @@ func (s *Server) startUpdate(w http.ResponseWriter, r *http.Request) {
 		writeError(w, errors.New("update url is invalid"), http.StatusBadRequest)
 		return
 	}
-	_ = s.app.Store.AddEvent(r.Context(), "info", "update.started", "Update wurde gestartet", map[string]string{"url": updateURL})
-	go s.runUpdate(updateURL)
+	if parsed.Scheme != "https" && os.Getenv("CAMERA_APPLIANCE_ALLOW_INSECURE_UPDATE") != "1" {
+		writeError(w, errors.New("update url muss https verwenden"), http.StatusBadRequest)
+		return
+	}
+	digest := strings.TrimSpace(req.Digest)
+	if !s.updateMu.TryLock() {
+		writeError(w, errors.New("es läuft bereits ein Update"), http.StatusConflict)
+		return
+	}
+	_ = s.app.Store.AddEvent(r.Context(), "info", "update.started", "Update wurde gestartet", map[string]string{"url": redaction.Text(updateURL)})
+	go func() {
+		defer s.updateMu.Unlock()
+		s.runUpdate(updateURL, digest)
+	}()
 	writeJSON(w, map[string]string{"status": "started", "url": updateURL}, http.StatusAccepted)
 }
 
-func (s *Server) runUpdate(updateURL string) {
+func (s *Server) runUpdate(updateURL, digest string) {
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
 	defer cancel()
 	result, err := updater.Apply(ctx, updater.Options{
@@ -1002,8 +1033,9 @@ func (s *Server) getSettings(w http.ResponseWriter, r *http.Request) {
 	if settings["capture_ssh_host"] == "" {
 		settings["capture_ssh_host"] = s.app.Config.CaptureSSHHost
 	}
-	settings["camera_password_set"] = fmt.Sprintf("%t", s.app.Config.TapoPassword != "")
-	settings["camera_password_source"] = s.app.Config.TapoPasswordSource
+	activePassword, activeSource := s.app.CameraCredentials()
+	settings["camera_password_set"] = fmt.Sprintf("%t", activePassword != "")
+	settings["camera_password_source"] = activeSource
 	info := authInfoFromContext(r.Context())
 	authStatus, authErr := s.app.AuthStatus(r.Context(), info.Role, info.ExpiresAt, info.LocalAdminBypass)
 	if authErr == nil {
@@ -1071,8 +1103,7 @@ func (s *Server) setCameraPassword(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err, http.StatusInternalServerError)
 		return
 	}
-	s.app.Config.TapoPassword = req.Password
-	s.app.Config.TapoPasswordSource = source
+	s.app.SetCameraCredentials(req.Password, source)
 	_ = s.app.Store.AddEvent(r.Context(), "info", "settings.secret.updated", "Kamera-Passwort wurde gespeichert", map[string]string{"source": source})
 	writeJSON(w, map[string]string{"status": "ok", "source": source}, http.StatusOK)
 }
@@ -1176,6 +1207,13 @@ func (s *Server) getGo2RTCAsset(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) proxyGo2RTCWebSocket(w http.ResponseWriter, r *http.Request) {
+	// Browsers always send Origin on WebSocket handshakes; a missing or
+	// cross-site Origin means the handshake did not come from this appliance's
+	// own pages, so refuse it before any video frames can be read.
+	if !originMatchesRequest(r.Header.Get("Origin"), r.Host) {
+		writeError(w, errors.New("websocket-origin abgelehnt"), http.StatusForbidden)
+		return
+	}
 	target, err := neturl.Parse(strings.TrimSpace(s.app.Config.Go2RTCURL))
 	if err != nil || target.Scheme == "" || target.Host == "" {
 		writeError(w, errors.New("go2rtc url is invalid"), http.StatusBadGateway)
@@ -1227,7 +1265,7 @@ func (s *Server) authMiddleware(next http.Handler) http.Handler {
 			next.ServeHTTP(w, r)
 			return
 		}
-		if strings.HasPrefix(r.URL.Path, "/api/") {
+		if strings.HasPrefix(r.URL.Path, "/api/") || strings.HasPrefix(r.URL.Path, "/go2rtc/") {
 			if isPublicAuthAPI(r) {
 				next.ServeHTTP(w, r)
 				return
@@ -1265,10 +1303,29 @@ func (s *Server) requestAuthInfo(r *http.Request) requestAuthInfo {
 	if err == nil && !status.Enabled {
 		return requestAuthInfo{Role: authn.RoleAdmin}
 	}
-	if err == nil && status.LocalAdminBypass && isLoopbackRemote(r.RemoteAddr) {
+	if err == nil && status.LocalAdminBypass && isLoopbackRemote(r.RemoteAddr) && isLoopbackHost(r.Host) {
 		return requestAuthInfo{Role: authn.RoleAdmin, LocalAdminBypass: true}
 	}
 	return requestAuthInfo{}
+}
+
+// isLoopbackHost reports whether the request's Host header points at the local
+// machine. This blocks DNS-rebinding attempts: an attacker page can make
+// requests that physically originate from loopback, but their Host header will
+// name the attacker's domain instead of a loopback address.
+func isLoopbackHost(host string) bool {
+	if host == "" {
+		return false
+	}
+	hostname := host
+	if h, _, err := net.SplitHostPort(host); err == nil {
+		hostname = h
+	}
+	hostname = strings.Trim(hostname, "[]")
+	if ip := net.ParseIP(hostname); ip != nil {
+		return ip.IsLoopback()
+	}
+	return strings.EqualFold(hostname, "localhost")
 }
 
 func authInfoFromContext(ctx context.Context) requestAuthInfo {
@@ -1278,7 +1335,7 @@ func authInfoFromContext(ctx context.Context) requestAuthInfo {
 
 func isPublicAuthAPI(r *http.Request) bool {
 	switch r.URL.Path {
-	case "/api/auth/status":
+	case "/api/auth/status", "/api/health":
 		return r.Method == http.MethodGet
 	case "/api/auth/login", "/api/auth/logout", "/api/auth/password":
 		return r.Method == http.MethodPost
@@ -1288,7 +1345,7 @@ func isPublicAuthAPI(r *http.Request) bool {
 }
 
 func requiredAPIRole(r *http.Request) string {
-	if r.Method == http.MethodGet && r.URL.Path == "/api/viewer" {
+	if r.Method == http.MethodGet && (r.URL.Path == "/api/viewer" || strings.HasPrefix(r.URL.Path, "/go2rtc/")) {
 		return authn.RoleViewer
 	}
 	return authn.RoleAdmin
@@ -1408,9 +1465,88 @@ func writeError(w http.ResponseWriter, err error, status int) {
 	writeJSON(w, map[string]string{"error": redaction.Text(err.Error())}, status)
 }
 
-func withJSONHeaders(next http.Handler) http.Handler {
+func withSecurityHeaders(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("X-Content-Type-Options", "nosniff")
+		w.Header().Set("Referrer-Policy", "no-referrer")
+		w.Header().Set("X-Frame-Options", "SAMEORIGIN")
+		w.Header().Set("Content-Security-Policy",
+			"default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; "+
+				"img-src 'self' data: blob:; media-src 'self' blob:; connect-src 'self' ws: wss:; "+
+				"font-src 'self'; frame-ancestors 'self'; base-uri 'self'; form-action 'self'; object-src 'none'")
 		next.ServeHTTP(w, r)
 	})
+}
+
+// withOriginCheck rejects state-changing requests whose Origin header names a
+// different site. Browsers attach Origin to cross-site requests even though
+// CORS lets them through for simple requests, so this blocks CSRF regardless
+// of cookie SameSite behaviour.
+func withOriginCheck(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if origin := r.Header.Get("Origin"); origin != "" && !originMatchesRequest(origin, r.Host) {
+			writeError(w, errors.New("cross-origin request abgelehnt"), http.StatusForbidden)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+func originMatchesRequest(origin, host string) bool {
+	parsed, err := neturl.Parse(origin)
+	if err != nil || parsed.Host == "" {
+		return false
+	}
+	return strings.EqualFold(parsed.Host, host)
+}
+
+type loginLimiter struct {
+	mu    sync.Mutex
+	fails map[string]*loginFailures
+}
+
+type loginFailures struct {
+	count    int
+	windowAt time.Time
+}
+
+const (
+	loginFailLimit  = 10
+	loginFailWindow = time.Minute
+)
+
+func newLoginLimiter() *loginLimiter {
+	return &loginLimiter{fails: map[string]*loginFailures{}}
+}
+
+// Allow reports whether a login attempt from addr may proceed or the failure
+// limit within the current window has been exhausted.
+func (l *loginLimiter) Allow(addr string, now time.Time) bool {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	f := l.fails[clientKey(addr)]
+	if f == nil || now.Sub(f.windowAt) >= loginFailWindow {
+		return true
+	}
+	return f.count < loginFailLimit
+}
+
+func (l *loginLimiter) RecordFailure(addr string, now time.Time) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	key := clientKey(addr)
+	f := l.fails[key]
+	if f == nil || now.Sub(f.windowAt) >= loginFailWindow {
+		l.fails[key] = &loginFailures{count: 1, windowAt: now}
+		return
+	}
+	f.count++
+}
+
+func clientKey(addr string) string {
+	host, _, err := net.SplitHostPort(addr)
+	if err != nil {
+		return addr
+	}
+	return host
 }

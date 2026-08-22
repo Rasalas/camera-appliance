@@ -421,9 +421,14 @@ func supportBundleCmd() *cobra.Command {
 	return cmd
 }
 
+func insecureUpdateAllowed() bool {
+	return os.Getenv("CAMERA_APPLIANCE_ALLOW_INSECURE_UPDATE") == "1"
+}
+
 func installCmd() *cobra.Command {
 	var archivePath string
 	var releaseURL string
+	var digest string
 	var sourceDir string
 	var installDir string
 	var userName string
@@ -441,6 +446,7 @@ func installCmd() *cobra.Command {
 			result, err := updater.Install(cmd.Context(), updater.InstallOptions{
 				Archive:                 archivePath,
 				URL:                     releaseURL,
+				Digest:                  digest,
 				SourceDir:               sourceDir,
 				InstallDir:              installDir,
 				UserName:                userName,
@@ -448,6 +454,7 @@ func installCmd() *cobra.Command {
 				EnableKiosk:             enableKiosk,
 				InstallDesktopLaunchers: installDesktop,
 				NoStart:                 noStart,
+				AllowInsecureURL:        insecureUpdateAllowed(),
 			})
 			printInstallResult(result)
 			return err
@@ -455,6 +462,7 @@ func installCmd() *cobra.Command {
 	}
 	cmd.Flags().StringVar(&archivePath, "archive", "", "local release archive .tar.gz")
 	cmd.Flags().StringVar(&releaseURL, "url", "", "release archive URL")
+	cmd.Flags().StringVar(&digest, "digest", "", "expected sha256 digest of the release archive (sha256:<hex> or bare hex)")
 	cmd.Flags().StringVar(&sourceDir, "source-dir", "", "extracted release directory")
 	cmd.Flags().StringVar(&installDir, "install-dir", updater.DefaultInstallDir, "installed appliance directory")
 	cmd.Flags().StringVar(&userName, "user", os.Getenv("SUDO_USER"), "desktop/kiosk Linux user")
@@ -468,6 +476,7 @@ func installCmd() *cobra.Command {
 func updateCmd() *cobra.Command {
 	var archivePath string
 	var releaseURL string
+	var digest string
 	var installDir string
 	var noRestart bool
 	var noAutoRollback bool
@@ -484,14 +493,16 @@ func updateCmd() *cobra.Command {
 			}
 			defer a.Close()
 			result, err := updater.Apply(cmd.Context(), updater.Options{
-				Config:       a.Config,
-				Archive:      archivePath,
-				URL:          releaseURL,
-				InstallDir:   installDir,
-				NoRestart:    noRestart,
-				AutoRollback: !noAutoRollback,
-				Restart:      updater.StackRestart(a.Config),
-				Healthcheck:  updater.HTTPHealthcheck(a.Config),
+				Config:           a.Config,
+				Archive:          archivePath,
+				URL:              releaseURL,
+				Digest:           digest,
+				InstallDir:       installDir,
+				NoRestart:        noRestart,
+				AutoRollback:     !noAutoRollback,
+				Restart:          updater.StackRestart(a.Config),
+				Healthcheck:      updater.HTTPHealthcheck(a.Config),
+				AllowInsecureURL: insecureUpdateAllowed(),
 			})
 			if result.BackupPath != "" || result.RollbackApplied || len(result.AppliedFiles) > 0 {
 				printJSON(result)
@@ -506,6 +517,7 @@ func updateCmd() *cobra.Command {
 	}
 	cmd.Flags().StringVar(&archivePath, "archive", "", "local release archive .tar.gz")
 	cmd.Flags().StringVar(&releaseURL, "url", "", "release archive URL")
+	cmd.Flags().StringVar(&digest, "digest", "", "expected sha256 digest of the release archive (sha256:<hex> or bare hex)")
 	cmd.Flags().StringVar(&installDir, "install-dir", updater.DefaultInstallDir, "installed appliance directory")
 	cmd.Flags().BoolVar(&noRestart, "no-restart", false, "copy update without restarting services")
 	cmd.Flags().BoolVar(&noAutoRollback, "no-auto-rollback", false, "do not restore previous files when healthcheck fails")

@@ -198,7 +198,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { api } from '../api/client'
 import type { Binding, CredentialIdentity, Device, DeviceCredentials, FrameResult, ProbeResult, RelayStatus, Slot } from '../types'
@@ -209,6 +209,7 @@ const slots = ref<Slot[]>([])
 const busyShow = ref(false)
 const ready = ref(false)
 let displaySaveTimer = 0
+let stopStagePan: (() => void) | null = null
 const loading = ref(true)
 const busy = ref(false)
 const error = ref('')
@@ -525,7 +526,9 @@ function startStagePan(event: PointerEvent) {
   const up = () => {
     window.removeEventListener('pointermove', move)
     window.removeEventListener('pointerup', up)
+    stopStagePan = null
   }
+  stopStagePan = up
   window.addEventListener('pointermove', move)
   window.addEventListener('pointerup', up)
 }
@@ -602,8 +605,23 @@ function clamp(value: number, min: number, max: number) {
 }
 
 onMounted(async () => {
+  await loadDevice(String(route.params.id))
+})
+
+watch(() => route.params.id, (id) => {
+  if (id) void loadDevice(String(id))
+})
+
+onBeforeUnmount(() => {
+  window.clearTimeout(displaySaveTimer)
+  stopStagePan?.()
+})
+
+async function loadDevice(id: string) {
+  loading.value = true
+  ready.value = false
   try {
-    device.value = await api.device(String(route.params.id))
+    device.value = await api.device(id)
     credentials.value = await api.deviceCredentials(device.value.id)
     credentialIdentities.value = await api.credentialIdentities()
     bindings.value = await api.bindings()
@@ -619,7 +637,8 @@ onMounted(async () => {
   } finally {
     loading.value = false
   }
-})
+}
+
 </script>
 
 <style scoped>

@@ -71,7 +71,9 @@ dev-go2rtc:
 	    rm -f "$(GO2RTC_PID)"; \
 	    sleep 1; \
 	  fi; \
-	  docker rm -f go2rtc "$(GO2RTC_CONTAINER)" >/dev/null 2>&1 || true; \
+	  # Nur den Dev-Container entfernen – niemals den Produktiv-Container
+	  # "go2rtc" aus compose.yaml.
+	  docker rm -f "$(GO2RTC_CONTAINER)" >/dev/null 2>&1 || true; \
 	  for _ in 1 2 3 4 5; do \
 	    if ! lsof -nP -iTCP:1984 -sTCP:LISTEN >/dev/null 2>&1; then break; fi; \
 	    sleep 1; \
@@ -147,6 +149,12 @@ release:
 	  --exclude ".env" \
 	  --exclude "local.env" \
 	  --exclude "secrets.env" \
+	  --exclude "private" \
+	  --exclude ".claude" \
+	  --exclude ".github" \
+	  --exclude "CLAUDE.md" \
+	  --exclude "codex-handoff.md" \
+	  --exclude "docs" \
 	  ./ "$(RELEASE_DIR)/$${release_name}/"; \
 	printf '{\n  "version": "%s",\n  "commit": "%s",\n  "build_time": "%s"\n}\n' "$$release_version" "$(COMMIT)" "$(BUILD_TIME)" > "$(RELEASE_DIR)/$${release_name}/manifest.json"; \
 	printf 'VERSION=%s\nCOMMIT=%s\nBUILD_TIME=%s\n' "$$release_version" "$(COMMIT)" "$(BUILD_TIME)" > "$(RELEASE_DIR)/$${release_name}/release.env"; \

@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"camera-appliance/camera-manager/internal/redaction"
 	"camera-appliance/camera-manager/internal/system"
 )
 
@@ -96,7 +97,7 @@ func (a *App) RunWatchdog(ctx context.Context) {
 			}
 			result, err := a.RunWatchdogOnce(ctx, runCameraCheck)
 			if err != nil {
-				result.Error = err.Error()
+				result.Error = redaction.Text(err.Error())
 			}
 			result.NextRunAt = nextRunAt
 			_ = a.saveWatchdogRun(ctx, result)
@@ -125,7 +126,7 @@ func (a *App) RunWatchdogOnce(ctx context.Context, cameraCheck bool) (WatchdogRu
 
 	relayStatuses, relayErr := a.EnsureManagedRelays(ctx)
 	if relayErr != nil {
-		result.Error = relayErr.Error()
+		result.Error = redaction.Text(relayErr.Error())
 	}
 	startedRelays := 0
 	for _, status := range relayStatuses {

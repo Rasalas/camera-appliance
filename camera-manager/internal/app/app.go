@@ -29,9 +29,29 @@ type App struct {
 	RelayStart    func(ctx context.Context, relay ManagedRelay) (int, error)
 	RelayStop     func(ctx context.Context, status RelayStatus) error
 
+	// camPassMu guards the mutable Tapo credential fields on Config, which are
+	// written by API handlers and read concurrently by viewer/render/watchdog.
+	camPassMu sync.RWMutex
 	// relayMu serializes relay start/stop/ensure so concurrent triggers
 	// (watchdog + API) cannot race on pidfiles.
 	relayMu sync.Mutex
+}
+
+// CameraCredentials returns the currently active camera password and its
+// source. It is safe for concurrent use.
+func (a *App) CameraCredentials() (password, source string) {
+	a.camPassMu.RLock()
+	defer a.camPassMu.RUnlock()
+	return a.Config.TapoPassword, a.Config.TapoPasswordSource
+}
+
+// SetCameraCredentials updates the active camera password. It is safe for
+// concurrent use.
+func (a *App) SetCameraCredentials(password, source string) {
+	a.camPassMu.Lock()
+	defer a.camPassMu.Unlock()
+	a.Config.TapoPassword = password
+	a.Config.TapoPasswordSource = source
 }
 
 type Status struct {
@@ -143,11 +163,12 @@ func (a *App) Discover(ctx context.Context) (DiscoverySummary, error) {
 	}
 	_ = a.Store.AddEvent(ctx, "info", "scan.started", "Kamerasuche gestartet", map[string]string{"scan_id": run.ID})
 	usernames := a.usernames(ctx)
+	cameraPassword, _ := a.CameraCredentials()
 	scanner := discovery.NewScanner(discovery.Options{
 		Timeout:      a.Config.RequestTimeout,
 		LimitPerCIDR: a.Config.ScanLimit,
 		Usernames:    usernames,
-		Password:     a.Config.TapoPassword,
+		Password:     cameraPassword,
 	})
 	results, subnets, scanErr := scanner.Scan(ctx)
 	var warnings []string
@@ -160,7 +181,7 @@ func (a *App) Discover(ctx context.Context) (DiscoverySummary, error) {
 	for _, result := range results {
 		device := result.Device
 		if err := a.Store.UpsertDevice(ctx, device); err != nil {
-			warnings = append(warnings, err.Error())
+			warnings = append(warnings, redaction.Text(err.Error()))
 			continue
 		}
 		devices = append(devices, device)
@@ -245,8 +266,22 @@ func (a *App) AddManualDevice(ctx context.Context, input ManualDeviceInput) (Man
 		"stream":          stream,
 	}
 	rawJSON, _ := json.Marshal(raw)
+	deviceID := fingerprint.DeviceID(fp)
+	if fp.MACAddress == "" && fp.SerialNumber == "" && fp.ONVIFEndpointRef == "" {
+		// Without a stable identity attribute the fingerprint would fall back
+		// to a fresh random ID on every add. Reuse an existing device for this
+		// IP instead so re-adding a camera does not orphan its credentials.
+		if existing, listErr := a.Store.Devices(ctx); listErr == nil {
+			for _, d := range existing {
+				if d.LastIP == ip && d.ID != "" {
+					deviceID = d.ID
+					break
+				}
+			}
+		}
+	}
 	device := state.Device{
-		ID:           fingerprint.DeviceID(fp),
+		ID:           deviceID,
 		LastSeenAt:   time.Now().UTC(),
 		LastIP:       ip,
 		MACAddress:   fp.MACAddress,
@@ -291,10 +326,11 @@ func (a *App) RenderGo2RTC(ctx context.Context) (go2rtcrender.RenderResult, erro
 		}
 	}
 	endpoints, assessments := a.streamEndpointSelections(ctx, bindings, settings)
+	renderPassword, _ := a.CameraCredentials()
 	result, err := go2rtcrender.Render(ctx, go2rtcrender.RenderInput{
 		Slots:     a.Slots,
 		Bindings:  bindings,
-		Password:  a.Config.TapoPassword,
+		Password:  renderPassword,
 		Passwords: passwords,
 		Endpoints: endpoints,
 		Output:    a.Config.Go2RTCConfigPath(),
