@@ -244,6 +244,14 @@ func (s *Server) addManualDevice(w http.ResponseWriter, r *http.Request) {
 		if req.Stream == "" {
 			req.Stream = "stream2"
 		}
+		// Persist the password first: a failure here must not leave a saved
+		// username that silently pairs with no credentials.
+		if strings.TrimSpace(req.Password) != "" {
+			if _, err := secrets.SaveCamera(s.app.Config.ConfigDir, result.Device.ID, req.Password); err != nil {
+				writeError(w, err, http.StatusInternalServerError)
+				return
+			}
+		}
 		values := map[string]string{
 			"camera.credentials." + result.Device.ID + ".username": strings.TrimSpace(req.Username),
 			"camera.credentials." + result.Device.ID + ".stream":   strings.TrimSpace(req.Stream),
@@ -251,12 +259,6 @@ func (s *Server) addManualDevice(w http.ResponseWriter, r *http.Request) {
 		if err := s.app.Store.PutSettings(r.Context(), values); err != nil {
 			writeError(w, err, http.StatusInternalServerError)
 			return
-		}
-		if strings.TrimSpace(req.Password) != "" {
-			if _, err := secrets.SaveCamera(s.app.Config.ConfigDir, result.Device.ID, req.Password); err != nil {
-				writeError(w, err, http.StatusInternalServerError)
-				return
-			}
 		}
 	}
 	writeJSON(w, result, http.StatusOK)
@@ -466,7 +468,10 @@ func captureFrame(ctx context.Context, rawURL, sshHost string) ([]byte, error) {
 }
 
 func (s *Server) frameCredentialCandidates(ctx context.Context, device state.Device, username, password, stream string) ([]credentialCandidate, error) {
-	settings, _ := s.app.Store.Settings(ctx)
+	settings, err := s.app.Store.Settings(ctx)
+	if err != nil {
+		return nil, err
+	}
 	stream = strings.TrimSpace(stream)
 	if stream == "" {
 		stream = settings["camera.credentials."+device.ID+".stream"]
@@ -475,11 +480,9 @@ func (s *Server) frameCredentialCandidates(ctx context.Context, device state.Dev
 		stream = "stream2"
 	}
 	username = strings.TrimSpace(username)
-	password = strings.TrimSpace(password)
-	if username == "" {
-		username = strings.TrimSpace(settings["camera.credentials."+device.ID+".username"])
-	}
-	if password == "" {
+	// Passwords are used verbatim; only whitespace-only input is treated as
+	// empty so saved passwords with surrounding spaces keep working.
+	if strings.TrimSpace(password) == "" {
 		password = secrets.LoadCamera(s.app.Config.ConfigDir, device.ID).Value
 	}
 	var candidates []credentialCandidate
@@ -643,6 +646,9 @@ func (s *Server) deleteCredentialIdentity(w http.ResponseWriter, r *http.Request
 		writeError(w, err, http.StatusInternalServerError)
 		return
 	}
+	// Remove the stored secret as well so credentials never outlive their
+	// identity entry.
+	secrets.DeleteIdentity(s.app.Config.ConfigDir, id)
 	_ = s.app.Store.AddEvent(r.Context(), "info", "credentials.identity.deleted", "Kamera-Identität wurde entfernt", map[string]string{"identity_id": id})
 	writeJSON(w, map[string]string{"status": "ok"}, http.StatusOK)
 }
@@ -821,6 +827,17 @@ func (s *Server) setDeviceCredentials(w http.ResponseWriter, r *http.Request, de
 	if req.Stream == "" {
 		req.Stream = "stream2"
 	}
+	source := ""
+	if strings.TrimSpace(req.Password) != "" {
+		var err error
+		// Persist the password first: a failure here must not leave a saved
+		// username that silently pairs with no credentials.
+		source, err = secrets.SaveCamera(s.app.Config.ConfigDir, deviceID, req.Password)
+		if err != nil {
+			writeError(w, err, http.StatusInternalServerError)
+			return
+		}
+	}
 	values := map[string]string{
 		"camera.credentials." + deviceID + ".username": strings.TrimSpace(req.Username),
 		"camera.credentials." + deviceID + ".stream":   strings.TrimSpace(req.Stream),
@@ -828,15 +845,6 @@ func (s *Server) setDeviceCredentials(w http.ResponseWriter, r *http.Request, de
 	if err := s.app.Store.PutSettings(r.Context(), values); err != nil {
 		writeError(w, err, http.StatusInternalServerError)
 		return
-	}
-	source := ""
-	if strings.TrimSpace(req.Password) != "" {
-		var err error
-		source, err = secrets.SaveCamera(s.app.Config.ConfigDir, deviceID, req.Password)
-		if err != nil {
-			writeError(w, err, http.StatusInternalServerError)
-			return
-		}
 	}
 	_ = s.app.Store.AddEvent(r.Context(), "info", "camera.credentials.updated", "Kamera-Zugangsdaten wurden gespeichert", map[string]string{"device_id": deviceID, "password_source": source})
 	secret := secrets.LoadCamera(s.app.Config.ConfigDir, deviceID)

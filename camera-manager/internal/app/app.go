@@ -178,7 +178,7 @@ func (a *App) Discover(ctx context.Context) (DiscoverySummary, error) {
 	for _, result := range results {
 		device := result.Device
 		if err := a.Store.UpsertDevice(ctx, device); err != nil {
-			warnings = append(warnings, err.Error())
+			warnings = append(warnings, redaction.Text(err.Error()))
 			continue
 		}
 		devices = append(devices, device)
