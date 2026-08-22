@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net"
 	"strings"
+	"sync"
 	"time"
 
 	"camera-appliance/camera-manager/internal/config"
@@ -27,6 +28,10 @@ type App struct {
 	Go2RTCRestart func(ctx context.Context) error
 	RelayStart    func(ctx context.Context, relay ManagedRelay) (int, error)
 	RelayStop     func(ctx context.Context, status RelayStatus) error
+
+	// relayMu serializes relay start/stop/ensure so concurrent triggers
+	// (watchdog + API) cannot race on pidfiles.
+	relayMu sync.Mutex
 }
 
 type Status struct {

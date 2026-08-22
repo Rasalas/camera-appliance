@@ -1,6 +1,7 @@
 package app
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -66,6 +67,7 @@ type RelayStatus struct {
 	PID          int                   `json:"pid,omitempty"`
 	ProcessState string                `json:"process_state"`
 	Message      string                `json:"message"`
+	Started      bool                  `json:"started,omitempty"`
 	LastError    string                `json:"last_error,omitempty"`
 	BackoffUntil string                `json:"backoff_until,omitempty"`
 	LogPath      string                `json:"log_path,omitempty"`
@@ -85,6 +87,8 @@ func (a *App) RelayStatuses(ctx context.Context) ([]RelayStatus, error) {
 }
 
 func (a *App) StartRelay(ctx context.Context, id string) (RelayStatus, error) {
+	a.relayMu.Lock()
+	defer a.relayMu.Unlock()
 	relay, settings, err := a.managedRelay(ctx, id)
 	if err != nil {
 		return RelayStatus{}, err
@@ -93,6 +97,8 @@ func (a *App) StartRelay(ctx context.Context, id string) (RelayStatus, error) {
 }
 
 func (a *App) StopRelay(ctx context.Context, id string) (RelayStatus, error) {
+	a.relayMu.Lock()
+	defer a.relayMu.Unlock()
 	relay, settings, err := a.managedRelay(ctx, id)
 	if err != nil {
 		return RelayStatus{}, err
@@ -103,6 +109,15 @@ func (a *App) StopRelay(ctx context.Context, id string) (RelayStatus, error) {
 		status.PID = 0
 		status.ProcessState = "stopped"
 		status.Message = "Kein verwalteter Relay-Prozess läuft."
+		return status, nil
+	}
+	// PID reuse guard: after a reboot the pidfile may name an unrelated
+	// process. Never signal anything that is not our ssh relay.
+	if !processLooksLikeSSH(status.PID) {
+		_ = os.Remove(a.relayPIDPath(relay.ID))
+		status.PID = 0
+		status.ProcessState = "stopped"
+		status.Message = "Veralteter PID-Eintrag (Prozess gehört nicht zum Relay). Eintrag entfernt."
 		return status, nil
 	}
 	if a.RelayStop != nil {
@@ -132,6 +147,8 @@ func (a *App) RestartRelay(ctx context.Context, id string) (RelayStatus, error) 
 }
 
 func (a *App) EnsureManagedRelays(ctx context.Context) ([]RelayStatus, error) {
+	a.relayMu.Lock()
+	defer a.relayMu.Unlock()
 	relays, settings, err := a.managedRelays(ctx)
 	if err != nil {
 		return nil, err
@@ -400,6 +417,7 @@ func (a *App) startManagedRelay(ctx context.Context, relay ManagedRelay, setting
 	status = a.relayStatus(ctx, relay, settings)
 	status.PID = pid
 	status.ProcessState = "running"
+	status.Started = true
 	status.Message = "Relay-Prozess gestartet."
 	status.LastError = ""
 	status.BackoffUntil = ""
@@ -583,6 +601,17 @@ func processAlive(pid int) bool {
 	}
 	err = process.Signal(syscall.Signal(0))
 	return err == nil || errors.Is(err, syscall.EPERM)
+}
+
+// processLooksLikeSSH verifies via /proc that the PID still belongs to an ssh
+// process before we send it signals. On systems without /proc (macOS dev) the
+// check cannot run and we keep the legacy behavior.
+func processLooksLikeSSH(pid int) bool {
+	data, err := os.ReadFile(fmt.Sprintf("/proc/%d/cmdline", pid))
+	if err != nil {
+		return true
+	}
+	return bytes.Contains(data, []byte("ssh"))
 }
 
 func stopProcess(ctx context.Context, pid int) error {
