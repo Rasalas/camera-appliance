@@ -111,9 +111,60 @@ func TestCollectNewerReleasesStopsAtCurrent(t *testing.T) {
 	if len(changes) != 2 {
 		t.Fatalf("expected 2 changes since 0.1.2, got %d", len(changes))
 	}
-	_, none := collectNewerReleases(releases, "0.2.0")
+	newest, none := collectNewerReleases(releases, "0.2.0")
 	if none != nil {
 		t.Fatalf("expected no changes when current is latest, got %+v", none)
+	}
+	if newest != nil {
+		t.Fatalf("expected no latest release when current is newest, got %+v", newest)
+	}
+	// The installed version carries no "v" prefix, GitHub tags do. They must
+	// still compare equal so the UI never advertises the installed release.
+	sameTag, sameChanges := collectNewerReleases(releases, "0.1.5")
+	if sameTag == nil || sameTag.Tag != "v0.2.0" {
+		t.Fatalf("unexpected latest for 0.1.5: %+v", sameTag)
+	}
+	if len(sameChanges) != 1 {
+		t.Fatalf("expected only v0.2.0 to be newer than 0.1.5, got %+v", sameChanges)
+	}
+}
+
+func TestUpdateFlowCheckReportsUpToDateOnEqualVersion(t *testing.T) {
+	_, flow := newFlowTestServer(t)
+	// Newest release in the payload is v0.2.0; the installation matches it.
+	flow.currentVersion = "0.2.0"
+
+	if err := flow.check(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	st := flow.status()
+	if st.Phase != updateUpToDate {
+		t.Fatalf("expected phase up_to_date, got %q (%s)", st.Phase, st.Error)
+	}
+	if st.Latest != nil {
+		t.Fatalf("up_to_date must not carry a latest release, got %+v", st.Latest)
+	}
+	if len(st.Changes) != 0 {
+		t.Fatalf("up_to_date must not carry a changelog, got %+v", st.Changes)
+	}
+	if st.CurrentVersion != "0.2.0" {
+		t.Fatalf("unexpected current version %q", st.CurrentVersion)
+	}
+}
+
+func TestUpdateFlowDownloadRejectedWhenUpToDate(t *testing.T) {
+	_, flow := newFlowTestServer(t)
+	flow.currentVersion = "0.2.0"
+	if err := flow.check(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+
+	a := newAuthTestApp(t)
+	s := New(a)
+	s.updates = flow
+
+	if err := s.startUpdateDownload(context.Background()); err == nil {
+		t.Fatal("expected download to be rejected without a newer release")
 	}
 }
 

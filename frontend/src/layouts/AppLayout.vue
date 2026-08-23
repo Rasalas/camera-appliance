@@ -12,17 +12,22 @@
         <RouterLink v-if="canAdmin" to="/system">System<span class="nav-key">3</span></RouterLink>
       </nav>
 
-      <div class="auth-actions">
-        <button v-if="auth?.enabled && auth.authenticated" class="btn sm ghost rail-login" type="button" @click="logout">Logout</button>
-        <RouterLink v-else-if="auth?.enabled" class="btn sm ghost rail-login" to="/login">Login</RouterLink>
-      </div>
+      <!-- Pinned bottom block: metadata rows, then the auth action, with the
+           update control parked in the lower-right corner of the rail. -->
+      <div class="rail-bottom">
+        <div class="rail-foot">
+          <div class="row"><span>Stand</span><b>{{ clock }}</b></div>
+          <div class="row"><span>Login</span><b>{{ roleLabel }}</b></div>
+          <div class="row"><span>Bind</span><b>127.0.0.1:8091</b></div>
+        </div>
 
-      <UpdatePanel :visible="canAdmin" />
-
-      <div class="rail-foot">
-        <div class="row"><span>Stand</span><b>{{ clock }}</b></div>
-        <div class="row"><span>Login</span><b>{{ roleLabel }}</b></div>
-        <div class="row"><span>Bind</span><b>127.0.0.1:8091</b></div>
+        <div class="rail-tray">
+          <div class="auth-actions">
+            <button v-if="auth?.enabled && auth.authenticated" class="btn sm ghost rail-login" type="button" @click="logout">Logout</button>
+            <RouterLink v-else-if="auth?.enabled" class="btn sm ghost rail-login" to="/login">Login</RouterLink>
+          </div>
+          <UpdatePanel :visible="canAdmin" />
+        </div>
       </div>
     </aside>
 
@@ -129,9 +134,9 @@ onBeforeUnmount(() => {
 }
 .rail-login {
   width: 100%;
-  margin-top: 6px;
 }
 .auth-actions {
   display: grid;
+  min-width: 0;
 }
 </style>
