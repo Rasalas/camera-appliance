@@ -48,8 +48,13 @@ type updateFlowStatus struct {
 	Changes        []updateReleaseInfo `json:"changes,omitempty"`
 	Digest         string              `json:"digest,omitempty"`
 	ArchiveName    string              `json:"archive_name,omitempty"`
-	Error          string              `json:"error,omitempty"`
-	CheckedAt      time.Time           `json:"checked_at,omitempty"`
+	// Download progress in bytes while the phase is downloading. Total is 0
+	// when the server sends no Content-Length, so the UI falls back to an
+	// indeterminate display.
+	Downloaded int64     `json:"downloaded,omitempty"`
+	Total      int64     `json:"total,omitempty"`
+	Error      string    `json:"error,omitempty"`
+	CheckedAt  time.Time `json:"checked_at,omitempty"`
 }
 
 type updateFlow struct {
@@ -136,6 +141,8 @@ func (f *updateFlow) check(ctx context.Context) error {
 	f.st.Changes = changes
 	f.st.Digest = ""
 	f.st.ArchiveName = ""
+	f.st.Downloaded = 0
+	f.st.Total = 0
 	f.st.Error = ""
 	f.st.CheckedAt = time.Now().UTC()
 	if latestInfo == nil {
@@ -208,6 +215,8 @@ func (s *Server) startUpdateDownload(ctx context.Context) error {
 	phase := updateDownloading
 	f.st.Phase = phase
 	f.st.Error = ""
+	f.st.Downloaded = 0
+	f.st.Total = 0
 	url := ""
 	if f.st.Latest != nil {
 		url = f.st.Latest.URL
@@ -217,17 +226,25 @@ func (s *Server) startUpdateDownload(ctx context.Context) error {
 	go func() {
 		downloadCtx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 		defer cancel()
-		path, digest, err := updater.FetchArchive(downloadCtx, url, s.updates.archiveDir, http.DefaultClient)
+		path, digest, err := updater.FetchArchive(downloadCtx, url, s.updates.archiveDir, http.DefaultClient, func(done, total int64) {
+			s.updates.mu.Lock()
+			s.updates.st.Downloaded = done
+			s.updates.st.Total = total
+			s.updates.mu.Unlock()
+		})
 		s.updates.mu.Lock()
 		defer s.updates.mu.Unlock()
 		if err != nil {
 			s.updates.st.Phase = updateFailed
 			s.updates.st.Error = "Download fehlgeschlagen: " + err.Error()
+			s.updates.st.Downloaded = 0
+			s.updates.st.Total = 0
 			return
 		}
 		s.updates.st.Phase = updateReady
 		s.updates.st.Digest = digest
 		s.updates.st.ArchiveName = filepath.Base(path)
+		s.updates.st.Downloaded = s.updates.st.Total
 		_ = s.app.Store.AddEvent(context.Background(), "info", "update.downloaded", "Update wurde heruntergeladen", map[string]string{"digest": digest})
 	}()
 	return nil

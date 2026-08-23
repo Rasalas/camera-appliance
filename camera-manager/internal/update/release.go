@@ -120,9 +120,37 @@ func isNumericVersion(value string) bool {
 	return true
 }
 
+// progressStep throttles progress callbacks so the status mutex is not hit
+// on every chunk of a large archive.
+const progressStep = 256 * 1024
+
+// progressReader counts streamed bytes and reports them through fn, at most
+// once per progressStep and never after an error.
+type progressReader struct {
+	r      io.Reader
+	total  int64
+	done   int64
+	lastAt int64
+	fn     func(done, total int64)
+}
+
+func (p *progressReader) Read(buf []byte) (int, error) {
+	n, err := p.r.Read(buf)
+	if n > 0 && p.fn != nil {
+		p.done += int64(n)
+		if p.done-p.lastAt >= progressStep {
+			p.lastAt = p.done
+			p.fn(p.done, p.total)
+		}
+	}
+	return n, err
+}
+
 // FetchArchive downloads the release archive to dir and returns the file path
-// plus its sha256 hex digest. The caller owns the returned file.
-func FetchArchive(ctx context.Context, url, dir string, httpClient *http.Client) (path, digest string, err error) {
+// plus its sha256 hex digest. onProgress, when non-nil, reports downloaded and
+// total bytes while the transfer advances; total is 0 when the server sends no
+// Content-Length. The caller owns the returned file.
+func FetchArchive(ctx context.Context, url, dir string, httpClient *http.Client, onProgress func(done, total int64)) (path, digest string, err error) {
 	if httpClient == nil {
 		httpClient = http.DefaultClient
 	}
@@ -138,6 +166,10 @@ func FetchArchive(ctx context.Context, url, dir string, httpClient *http.Client)
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return "", "", fmt.Errorf("release download failed: %s", resp.Status)
 	}
+	var body io.Reader = resp.Body
+	if onProgress != nil {
+		body = &progressReader{r: resp.Body, total: resp.ContentLength, fn: onProgress}
+	}
 	if err := os.MkdirAll(dir, 0o750); err != nil {
 		return "", "", err
 	}
@@ -147,7 +179,7 @@ func FetchArchive(ctx context.Context, url, dir string, httpClient *http.Client)
 	}
 	path = file.Name()
 	sum := sha256.New()
-	written, err := io.Copy(io.MultiWriter(file, sum), io.LimitReader(resp.Body, MaxArchiveBytes))
+	written, err := io.Copy(io.MultiWriter(file, sum), io.LimitReader(body, MaxArchiveBytes))
 	closeErr := file.Close()
 	if err == nil {
 		err = closeErr
@@ -158,6 +190,9 @@ func FetchArchive(ctx context.Context, url, dir string, httpClient *http.Client)
 			return "", "", fmt.Errorf("release archive exceeds %d bytes limit", MaxArchiveBytes)
 		}
 		return "", "", err
+	}
+	if onProgress != nil {
+		onProgress(written, resp.ContentLength)
 	}
 	info, err := os.Stat(path)
 	if err == nil {
