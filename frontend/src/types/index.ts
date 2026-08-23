@@ -375,6 +375,9 @@ export interface UpdateFlowStatus {
   changes?: UpdateReleaseInfo[]
   digest?: string
   archive_name?: string
+  /** Download-Fortschritt in Bytes; total = 0 heißt unbekannt (indeterminate). */
+  downloaded?: number
+  total?: number
   error?: string
   checked_at?: string
 }
