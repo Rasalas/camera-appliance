@@ -31,10 +31,13 @@ const (
 )
 
 type updateReleaseInfo struct {
-	Tag         string `json:"tag"`
-	Name        string `json:"name"`
-	Notes       string `json:"notes"`
+	Tag  string `json:"tag"`
+	Name string `json:"name"`
+	// Notes is raw markdown; the UI renders it as text, never as HTML.
+	Notes string `json:"notes"`
+	// URL is the release archive asset, HTMLURL the human release page.
 	URL         string `json:"url"`
+	HTMLURL     string `json:"html_url,omitempty"`
 	PublishedAt string `json:"published_at,omitempty"`
 }
 
@@ -55,14 +58,19 @@ type updateFlow struct {
 	archiveDir string
 	apiBase    string
 	client     *http.Client
+	// currentVersion is the installed version every release is compared
+	// against. Injectable so tests can pin it.
+	currentVersion string
 }
 
 func newUpdateFlow(archiveDir string) *updateFlow {
+	current := version.Current().Version
 	return &updateFlow{
-		archiveDir: archiveDir,
-		apiBase:    updater.DefaultRepoAPI,
-		client:     &http.Client{Timeout: 20 * time.Second},
-		st:         updateFlowStatus{Phase: updateIdle, CurrentVersion: version.Current().Version},
+		archiveDir:     archiveDir,
+		apiBase:        updater.DefaultRepoAPI,
+		client:         &http.Client{Timeout: 20 * time.Second},
+		currentVersion: current,
+		st:             updateFlowStatus{Phase: updateIdle, CurrentVersion: current},
 	}
 }
 
@@ -91,7 +99,7 @@ func (f *updateFlow) setPhase(phase, errText string) {
 // check queries the GitHub releases API and collects notes of every release
 // newer than the installed one.
 func (f *updateFlow) check(ctx context.Context) error {
-	current := version.Current().Version
+	current := f.currentVersion
 	f.setPhase(updateChecking, "")
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, f.apiBase+"/releases?per_page=15", nil)
 	if err != nil {
@@ -153,6 +161,7 @@ func collectNewerReleases(releases []updater.Release, current string) (*updateRe
 			Name:        rel.Name,
 			Notes:       rel.Notes,
 			URL:         rel.ArchiveURL(),
+			HTMLURL:     rel.HTMLURL,
 			PublishedAt: rel.PublishedAt,
 		}
 		if latest == nil {
