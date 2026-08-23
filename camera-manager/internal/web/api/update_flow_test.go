@@ -98,6 +98,49 @@ func TestUpdateFlowCheckCollectsChangesSinceCurrent(t *testing.T) {
 	}
 }
 
+func TestUpdateFlowCheckUsesCompareCommitsWhenReleaseHasNoDetails(t *testing.T) {
+	compareCalled := false
+	mux := http.NewServeMux()
+	mux.HandleFunc("/releases", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`[{
+			"tag_name":"v0.1.8",
+			"name":"camera-appliance v0.1.8",
+			"body":"**Full Changelog**: https://github.com/Rasalas/camera-appliance/compare/v0.1.7...v0.1.8",
+			"published_at":"2026-08-23T00:00:00Z"
+		}]`))
+	})
+	mux.HandleFunc("/compare/v0.1.7...v0.1.8", func(w http.ResponseWriter, _ *http.Request) {
+		compareCalled = true
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"commits":[
+			{"sha":"1234567890abcdef","commit":{"message":"feat: add update progress\n\nMore details"}},
+			{"sha":"abcdef1234567890","commit":{"message":"fix: keep the sheet draggable"}}
+		]}`))
+	})
+	server := httptest.NewServer(mux)
+	defer server.Close()
+
+	flow := newUpdateFlow(t.TempDir())
+	flow.apiBase = server.URL
+	flow.client = server.Client()
+	flow.currentVersion = "0.1.7"
+
+	if err := flow.check(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	st := flow.status()
+	if !compareCalled {
+		t.Fatal("expected compare endpoint to be called")
+	}
+	if len(st.Changes) != 1 {
+		t.Fatalf("expected one release, got %+v", st.Changes)
+	}
+	if !strings.Contains(st.Changes[0].Notes, "feat: add update progress") || !strings.Contains(st.Changes[0].Notes, "abcdef1") {
+		t.Fatalf("expected commit messages in fallback notes, got %q", st.Changes[0].Notes)
+	}
+}
+
 func TestCollectNewerReleasesStopsAtCurrent(t *testing.T) {
 	var releases []updater.Release
 	payload := `[{"tag_name":"v0.2.0"},{"tag_name":"v0.1.5"},{"tag_name":"v0.1.2"}]`
