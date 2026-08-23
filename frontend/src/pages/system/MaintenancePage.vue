@@ -85,6 +85,10 @@
         <div class="mono-mute">{{ versionDetail }}</div>
       </div>
       <div class="field">
+        <span class="lbl">Release-URL (optional, sonst GitHub Latest)</span>
+        <input v-model="updateUrl" class="input mono" type="text" placeholder="http://…/camera-appliance-latest.tar.gz" spellcheck="false" />
+      </div>
+      <div class="field">
         <span class="lbl">SHA-256-Prüfsumme (optional)</span>
         <input v-model="updateDigest" class="input mono" type="text" placeholder="sha256:…" spellcheck="false" />
       </div>
@@ -153,6 +157,7 @@ const {
 const restorePath = ref('')
 const confirmingRestore = ref(false)
 const updateDigest = ref('')
+const updateUrl = ref('')
 const creatingSupportBundle = ref(false)
 const updating = ref(false)
 
@@ -177,7 +182,7 @@ async function onSupportBundle() {
 async function onUpdate() {
   updating.value = true
   try {
-    await startUpdate(undefined, updateDigest.value.trim() || undefined)
+    await startUpdate(updateUrl.value.trim() || undefined, updateDigest.value.trim() || undefined)
     window.setTimeout(() => void refreshStatus().finally(() => { updating.value = false }), 20000)
   } catch (err) {
     error.value = err instanceof Error ? err.message : 'Update konnte nicht gestartet werden.'

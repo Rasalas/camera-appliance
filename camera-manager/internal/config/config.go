@@ -23,6 +23,7 @@ const (
 	DefaultGo2RTCURL    = "http://localhost:1984"
 	DefaultGo2RTCRTSP   = "rtsp://localhost:8554"
 	DefaultComposeFile  = "/opt/camera-appliance/compose.yaml"
+	DefaultInstallDir   = "/opt/camera-appliance"
 	DefaultSlotsRelPath = "config/slots.yaml"
 )
 
@@ -36,6 +37,7 @@ type Config struct {
 	TapoPassword       string
 	TapoPasswordSource string
 	ComposeFile        string
+	InstallDir         string
 	SlotsFile          string
 	FrontendDist       string
 	CaptureSSHHost     string
@@ -66,6 +68,7 @@ func Load() (Config, error) {
 		Go2RTCRTSPURL:  getenv("CAMERA_APPLIANCE_GO2RTC_RTSP_URL", DefaultGo2RTCRTSP),
 		Go2RTCRestart:  strings.TrimSpace(os.Getenv("CAMERA_APPLIANCE_GO2RTC_RESTART_COMMAND")),
 		ComposeFile:    getenv("CAMERA_APPLIANCE_COMPOSE_FILE", DefaultComposeFile),
+		InstallDir:     getenv("CAMERA_APPLIANCE_INSTALL_DIR", DefaultInstallDir),
 		SlotsFile:      getenv("CAMERA_APPLIANCE_SLOTS_FILE", DefaultSlotsRelPath),
 		FrontendDist:   getenv("CAMERA_APPLIANCE_FRONTEND_DIST", "../frontend/dist"),
 		CaptureSSHHost: getenv("CAMERA_APPLIANCE_CAPTURE_SSH_HOST", ""),
