@@ -37,6 +37,7 @@ type Server struct {
 	mux      *http.ServeMux
 	logins   *loginLimiter
 	updateMu sync.Mutex
+	updates  *updateFlow
 }
 
 type credentialIdentity struct {
@@ -60,7 +61,12 @@ const (
 )
 
 func New(a *app.App) *Server {
-	s := &Server{app: a, mux: http.NewServeMux(), logins: newLoginLimiter()}
+	s := &Server{
+		app:     a,
+		mux:     http.NewServeMux(),
+		logins:  newLoginLimiter(),
+		updates: newUpdateFlow(filepath.Join(a.Config.StateDir, "updates")),
+	}
 	s.routes()
 	return s
 }
@@ -97,6 +103,10 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /api/viewer", s.getViewer)
 	s.mux.HandleFunc("POST /api/system/restart-stack", s.restartStack)
 	s.mux.HandleFunc("POST /api/system/update", s.startUpdate)
+	s.mux.HandleFunc("GET /api/system/update/status", s.getUpdateStatus)
+	s.mux.HandleFunc("POST /api/system/update/check", s.checkForUpdate)
+	s.mux.HandleFunc("POST /api/system/update/download", s.downloadUpdate)
+	s.mux.HandleFunc("POST /api/system/update/install", s.startUpdateInstall)
 	s.mux.HandleFunc("GET /api/credential-identities", s.getCredentialIdentities)
 	s.mux.HandleFunc("POST /api/credential-identities", s.saveCredentialIdentity)
 	s.mux.HandleFunc("DELETE /api/credential-identities/{id}", s.deleteCredentialIdentity)
@@ -997,18 +1007,29 @@ func (s *Server) startUpdate(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) runUpdate(updateURL, digest string) {
+	s.runApply(func(ctx context.Context) (updater.Result, error) {
+		return updater.Apply(ctx, updater.Options{
+			Config:       s.app.Config,
+			URL:          updateURL,
+			Digest:       digest,
+			InstallDir:   updater.DefaultInstallDir,
+			AutoRollback: true,
+			Restart:      updater.StackRestart(s.app.Config),
+			Healthcheck:  updater.HTTPHealthcheck(s.app.Config),
+		})
+	}, updateURL)
+}
+
+// runApply executes an update job and records the outcome. It is shared by the
+// URL-based and archive-based (download-then-install) flows.
+func (s *Server) runApply(build func(ctx context.Context) (updater.Result, error), label string) {
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
 	defer cancel()
-	result, err := updater.Apply(ctx, updater.Options{
-		Config:       s.app.Config,
-		URL:          updateURL,
-		InstallDir:   updater.DefaultInstallDir,
-		AutoRollback: true,
-		Restart:      updater.StackRestart(s.app.Config),
-		Healthcheck:  updater.HTTPHealthcheck(s.app.Config),
-	})
+	result, err := build(ctx)
 	if err != nil {
-		_ = s.app.Store.AddEvent(context.Background(), "error", "update.failed", err.Error(), map[string]string{"url": updateURL})
+		_ = s.app.Store.AddEvent(context.Background(), "error", "update.failed", err.Error(), map[string]string{"url": label})
+		s.updates.setPhase(updateFailed, err.Error())
+		s.updates.cleanupCachedArchive()
 		return
 	}
 	_ = s.app.Store.AddEvent(context.Background(), "info", "update.completed", "Update installiert", map[string]string{
@@ -1016,6 +1037,12 @@ func (s *Server) runUpdate(updateURL, digest string) {
 		"commit":  result.NewVersion.Commit,
 		"backup":  result.BackupPath,
 	})
+	s.updates.mu.Lock()
+	s.updates.st.Phase = updateIdle
+	s.updates.st.CurrentVersion = result.NewVersion.Version
+	s.updates.st.Error = ""
+	s.updates.mu.Unlock()
+	s.updates.cleanupCachedArchive()
 }
 
 func (s *Server) getSettings(w http.ResponseWriter, r *http.Request) {

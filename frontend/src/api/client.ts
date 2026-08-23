@@ -1,4 +1,4 @@
-import type { AuthStatus, Binding, CredentialIdentity, Device, DeviceCredentials, EventItem, FrameResult, LoginResult, ManualDeviceResult, ProbeResult, RelayStatus, ScanRun, Slot, StatusResponse, SupportBundleResult, UpdateStartResult, ViewerResponse } from '../types'
+import type { AuthStatus, Binding, CredentialIdentity, Device, DeviceCredentials, EventItem, FrameResult, LoginResult, ManualDeviceResult, ProbeResult, RelayStatus, ScanRun, Slot, StatusResponse, SupportBundleResult, UpdateStartResult, UpdateFlowStatus, ViewerResponse } from '../types'
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(path, {
@@ -51,6 +51,10 @@ export const api = {
   restartRelay: (id: string) => request<RelayStatus>(`/api/relays/${encodeURIComponent(id)}/restart`, { method: 'POST' }),
   restartStack: () => request('/api/system/restart-stack', { method: 'POST' }),
   startUpdate: (url?: string, digest?: string) => request<UpdateStartResult>('/api/system/update', { method: 'POST', body: JSON.stringify({ url: url || '', digest: digest || '' }) }),
+  getUpdateStatus: () => request<UpdateFlowStatus>('/api/system/update/status'),
+  checkForUpdates: () => request<UpdateFlowStatus>('/api/system/update/check', { method: 'POST', body: JSON.stringify({}) }),
+  downloadUpdate: () => request<UpdateFlowStatus>('/api/system/update/download', { method: 'POST', body: JSON.stringify({}) }),
+  installUpdate: () => request<{ status: string }>('/api/system/update/install', { method: 'POST', body: JSON.stringify({}) }),
   credentialIdentities: () => request<CredentialIdentity[]>('/api/credential-identities'),
   saveCredentialIdentity: (body: { id?: string; name: string; username: string; password?: string; copy_password_from_id?: string }) =>
     request<CredentialIdentity>('/api/credential-identities', { method: 'POST', body: JSON.stringify(body) }),

@@ -348,3 +348,32 @@ export interface UpdateStartResult {
   status: string
   url: string
 }
+
+export interface UpdateReleaseInfo {
+  tag: string
+  name?: string
+  notes?: string
+  url: string
+  published_at?: string
+}
+
+export type UpdateFlowPhase =
+  | 'idle'
+  | 'checking'
+  | 'up_to_date'
+  | 'available'
+  | 'downloading'
+  | 'ready'
+  | 'installing'
+  | 'failed'
+
+export interface UpdateFlowStatus {
+  phase: UpdateFlowPhase
+  current_version: string
+  latest?: UpdateReleaseInfo
+  changes?: UpdateReleaseInfo[]
+  digest?: string
+  archive_name?: string
+  error?: string
+  checked_at?: string
+}

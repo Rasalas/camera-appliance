@@ -17,6 +17,8 @@
         <RouterLink v-else-if="auth?.enabled" class="btn sm ghost rail-login" to="/login">Login</RouterLink>
       </div>
 
+      <UpdatePanel :visible="canAdmin" />
+
       <div class="rail-foot">
         <div class="row"><span>Stand</span><b>{{ clock }}</b></div>
         <div class="row"><span>Login</span><b>{{ roleLabel }}</b></div>
@@ -39,6 +41,7 @@ import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { api } from '../api/client'
 import type { AuthStatus } from '../types'
+import UpdatePanel from '../components/UpdatePanel.vue'
 
 const router = useRouter()
 const route = useRoute()
