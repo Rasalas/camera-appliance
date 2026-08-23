@@ -17,14 +17,17 @@ import (
 )
 
 const (
-	DefaultBindAddr     = "127.0.0.1:8091"
-	DefaultConfigDir    = "/etc/camera-appliance"
-	DefaultStateDir     = "/var/lib/camera-appliance"
-	DefaultGo2RTCURL    = "http://localhost:1984"
-	DefaultGo2RTCRTSP   = "rtsp://localhost:8554"
-	DefaultComposeFile  = "/opt/camera-appliance/compose.yaml"
-	DefaultInstallDir   = "/opt/camera-appliance"
-	DefaultSlotsRelPath = "config/slots.yaml"
+	DefaultBindAddr    = "127.0.0.1:8091"
+	DefaultConfigDir   = "/etc/camera-appliance"
+	DefaultStateDir    = "/var/lib/camera-appliance"
+	DefaultGo2RTCURL   = "http://localhost:1984"
+	DefaultGo2RTCRTSP  = "rtsp://localhost:8554"
+	DefaultComposeFile = "/opt/camera-appliance/compose.yaml"
+	DefaultInstallDir  = "/opt/camera-appliance"
+	// RestartStrategy "compose" recreates the Docker stack after updates;
+	// "systemd" restarts the native units instead (NAS deployments).
+	DefaultRestartStrategy = "compose"
+	DefaultSlotsRelPath    = "config/slots.yaml"
 )
 
 type Config struct {
@@ -40,6 +43,7 @@ type Config struct {
 	InstallDir         string
 	SlotsFile          string
 	FrontendDist       string
+	RestartStrategy    string
 	CaptureSSHHost     string
 	ScanLimit          int
 	RequestTimeout     time.Duration
@@ -61,19 +65,20 @@ type slotFile struct {
 func Load() (Config, error) {
 	loadEnvFile(".env")
 	cfg := Config{
-		BindAddr:       getenv("CAMERA_APPLIANCE_BIND_ADDR", DefaultBindAddr),
-		ConfigDir:      getenv("CAMERA_APPLIANCE_CONFIG_DIR", DefaultConfigDir),
-		StateDir:       getenv("CAMERA_APPLIANCE_STATE_DIR", DefaultStateDir),
-		Go2RTCURL:      getenv("CAMERA_APPLIANCE_GO2RTC_URL", DefaultGo2RTCURL),
-		Go2RTCRTSPURL:  getenv("CAMERA_APPLIANCE_GO2RTC_RTSP_URL", DefaultGo2RTCRTSP),
-		Go2RTCRestart:  strings.TrimSpace(os.Getenv("CAMERA_APPLIANCE_GO2RTC_RESTART_COMMAND")),
-		ComposeFile:    getenv("CAMERA_APPLIANCE_COMPOSE_FILE", DefaultComposeFile),
-		InstallDir:     getenv("CAMERA_APPLIANCE_INSTALL_DIR", DefaultInstallDir),
-		SlotsFile:      getenv("CAMERA_APPLIANCE_SLOTS_FILE", DefaultSlotsRelPath),
-		FrontendDist:   getenv("CAMERA_APPLIANCE_FRONTEND_DIST", "../frontend/dist"),
-		CaptureSSHHost: getenv("CAMERA_APPLIANCE_CAPTURE_SSH_HOST", ""),
-		ScanLimit:      getenvInt("CAMERA_APPLIANCE_SCAN_LIMIT", 254),
-		RequestTimeout: time.Duration(getenvInt("CAMERA_APPLIANCE_TIMEOUT_MS", 800)) * time.Millisecond,
+		BindAddr:        getenv("CAMERA_APPLIANCE_BIND_ADDR", DefaultBindAddr),
+		ConfigDir:       getenv("CAMERA_APPLIANCE_CONFIG_DIR", DefaultConfigDir),
+		StateDir:        getenv("CAMERA_APPLIANCE_STATE_DIR", DefaultStateDir),
+		Go2RTCURL:       getenv("CAMERA_APPLIANCE_GO2RTC_URL", DefaultGo2RTCURL),
+		Go2RTCRTSPURL:   getenv("CAMERA_APPLIANCE_GO2RTC_RTSP_URL", DefaultGo2RTCRTSP),
+		Go2RTCRestart:   strings.TrimSpace(os.Getenv("CAMERA_APPLIANCE_GO2RTC_RESTART_COMMAND")),
+		ComposeFile:     getenv("CAMERA_APPLIANCE_COMPOSE_FILE", DefaultComposeFile),
+		InstallDir:      getenv("CAMERA_APPLIANCE_INSTALL_DIR", DefaultInstallDir),
+		SlotsFile:       getenv("CAMERA_APPLIANCE_SLOTS_FILE", DefaultSlotsRelPath),
+		FrontendDist:    getenv("CAMERA_APPLIANCE_FRONTEND_DIST", "../frontend/dist"),
+		RestartStrategy: getenv("CAMERA_APPLIANCE_RESTART_STRATEGY", DefaultRestartStrategy),
+		CaptureSSHHost:  getenv("CAMERA_APPLIANCE_CAPTURE_SSH_HOST", ""),
+		ScanLimit:       getenvInt("CAMERA_APPLIANCE_SCAN_LIMIT", 254),
+		RequestTimeout:  time.Duration(getenvInt("CAMERA_APPLIANCE_TIMEOUT_MS", 800)) * time.Millisecond,
 	}
 	loadEnvFile(filepath.Join(cfg.ConfigDir, "secrets.env"))
 	loadEnvFile(filepath.Join(cfg.ConfigDir, "local.env"))

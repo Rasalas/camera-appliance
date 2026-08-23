@@ -57,6 +57,10 @@ func RestartStack(ctx context.Context, cfg config.Config) error {
 }
 
 func ApplyStack(ctx context.Context, cfg config.Config) error {
+	// Native (non-Docker) deployments restart via systemd instead of compose.
+	if strings.EqualFold(cfg.RestartStrategy, "systemd") {
+		return applyStackSystemd(ctx, cfg)
+	}
 	image, imageFound := currentContainerImage(ctx)
 	detached, err := applyStackMode(image, imageFound, runningInContainer())
 	if err != nil {
@@ -66,6 +70,33 @@ func ApplyStack(ctx context.Context, cfg config.Config) error {
 		return launchDetachedCompose(ctx, cfg, image, "up", "-d", "--build", "--force-recreate", "--remove-orphans")
 	}
 	return dockerCompose(ctx, cfg, "up", "-d", "--build", "--force-recreate", "--remove-orphans")
+}
+
+// applyStackSystemd restarts go2rtc via the configured command (or its unit)
+// and then the manager unit itself. The manager restart is best-effort and
+// non-blocking: when this runs inside the service it terminates this process,
+// which is fine because the update files are already applied at that point.
+func applyStackSystemd(ctx context.Context, cfg config.Config) error {
+	if cfg.Go2RTCRestart != "" {
+		cmd := exec.CommandContext(ctx, cfg.Go2RTCRestart)
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			return fmt.Errorf("go2rtc restart command failed: %w: %s", err, string(out))
+		}
+	} else if err := systemctlTry(ctx, "camera-appliance-go2rtc"); err != nil {
+		return err
+	}
+	_ = systemctlTry(ctx, "--no-block", "restart", "camera-appliance")
+	return nil
+}
+
+func systemctlTry(ctx context.Context, args ...string) error {
+	cmd := exec.CommandContext(ctx, "systemctl", args...)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("systemctl %s failed: %w: %s", strings.Join(args, " "), err, string(out))
+	}
+	return nil
 }
 
 func runningInContainer() bool {
