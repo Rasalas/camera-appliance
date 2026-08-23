@@ -339,3 +339,21 @@ func TestEnsureSingleFlightBlocksConcurrentApply(t *testing.T) {
 		release2()
 	}
 }
+
+func TestShouldSkipCopyPathExcludesRuntimeSecrets(t *testing.T) {
+	for _, path := range []string{
+		".env",
+		"config/local.env",
+		"config/secrets.env",
+		"config/admin-password.txt",
+	} {
+		if !shouldSkipCopyPath(path) {
+			t.Errorf("expected %q to be excluded from release copy and rollback snapshots", path)
+		}
+	}
+	for _, path := range []string{"config/defaults.yaml", "config/slots.yaml", "frontend/dist/index.html"} {
+		if shouldSkipCopyPath(path) {
+			t.Errorf("did not expect %q to be excluded", path)
+		}
+	}
+}
