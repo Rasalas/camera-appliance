@@ -28,6 +28,8 @@ func TestCompareVersions(t *testing.T) {
 		{"1.0", "1.0.0", 0},
 		{"dev", "0.0.1", -1},
 		{"0.2.0", "dev", 1},
+		{"nas", "0.0.1", -1},
+		{"nas", "v0.1.2", -1},
 	}
 	for _, tc := range cases {
 		if got := updater.CompareVersions(tc.a, tc.b); got != tc.want {

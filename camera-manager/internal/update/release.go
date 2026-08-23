@@ -49,17 +49,18 @@ func (r Release) ArchiveURL() string {
 }
 
 // CompareVersions orders dotted release versions. It returns -1 when a < b,
-// 0 when equal and 1 when a > b. Non-numeric parts are compared lexically;
-// a missing part counts as lower. "dev" always compares as older.
+// 0 when equal and 1 when a > b. A missing part counts as 0 ("1.0" == "1.0.0").
+// Versions that are not dotted numbers at all (e.g. "dev", "nas", local build
+// labels) always compare as OLDER, so they never mask available updates.
 func CompareVersions(a, b string) int {
 	a, b = strings.TrimPrefix(strings.TrimSpace(a), "v"), strings.TrimPrefix(strings.TrimSpace(b), "v")
 	if a == b {
 		return 0
 	}
-	if strings.EqualFold(a, "dev") {
+	if !isNumericVersion(a) {
 		return -1
 	}
-	if strings.EqualFold(b, "dev") {
+	if !isNumericVersion(b) {
 		return 1
 	}
 	aParts, bParts := strings.Split(a, "."), strings.Split(b, ".")
@@ -98,6 +99,25 @@ func CompareVersions(a, b string) int {
 		}
 	}
 	return 0
+}
+
+// isNumericVersion reports whether value is built purely from numeric dot
+// separated parts ("1.2.3"). Anything else cannot be ordered against releases.
+func isNumericVersion(value string) bool {
+	if value == "" {
+		return false
+	}
+	for _, part := range strings.Split(value, ".") {
+		if part == "" {
+			return false
+		}
+		for _, r := range part {
+			if r < '0' || r > '9' {
+				return false
+			}
+		}
+	}
+	return true
 }
 
 // FetchArchive downloads the release archive to dir and returns the file path

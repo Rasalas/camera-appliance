@@ -492,6 +492,9 @@ func updateCmd() *cobra.Command {
 				return err
 			}
 			defer a.Close()
+			if installDir == "" {
+				installDir = a.Config.InstallDir
+			}
 			result, err := updater.Apply(cmd.Context(), updater.Options{
 				Config:           a.Config,
 				Archive:          archivePath,
@@ -518,7 +521,7 @@ func updateCmd() *cobra.Command {
 	cmd.Flags().StringVar(&archivePath, "archive", "", "local release archive .tar.gz")
 	cmd.Flags().StringVar(&releaseURL, "url", "", "release archive URL")
 	cmd.Flags().StringVar(&digest, "digest", "", "expected sha256 digest of the release archive (sha256:<hex> or bare hex)")
-	cmd.Flags().StringVar(&installDir, "install-dir", updater.DefaultInstallDir, "installed appliance directory")
+	cmd.Flags().StringVar(&installDir, "install-dir", "", "installed appliance directory (default: CAMERA_APPLIANCE_INSTALL_DIR or "+updater.DefaultInstallDir+")")
 	cmd.Flags().BoolVar(&noRestart, "no-restart", false, "copy update without restarting services")
 	cmd.Flags().BoolVar(&noAutoRollback, "no-auto-rollback", false, "do not restore previous files when healthcheck fails")
 	cmd.AddCommand(updateRollbackCmd())

@@ -179,3 +179,48 @@ compose-config:
 
 clean:
 	rm -rf data frontend/dist bin/camera-appliance
+
+SERVE_PORT ?= 8099
+NAS_HOST ?=
+NAS_PORT ?= 8091
+
+# Build a release locally and serve it on the LAN so an appliance can update
+# over HTTP (requires CAMERA_APPLIANCE_ALLOW_INSECURE_UPDATE=1 on the device).
+serve-update:
+	@set -euo pipefail; \
+	"$(MAKE)" -s release; \
+	digest="$$(shasum -a 256 "$(RELEASE_DIR)/camera-appliance-latest.tar.gz" | awk '{print $$1}')"; \
+	ip="$$(ipconfig getifaddr en0 2>/dev/null || ipconfig getifaddr en1 2>/dev/null || hostname -I 2>/dev/null | awk '{print $$1}' || true)"; \
+	echo; \
+	echo "Release wird bereitgestellt:"; \
+	echo "  URL:    http://$${ip:-<LAN-IP>}:$(SERVE_PORT)/camera-appliance-latest.tar.gz"; \
+	echo "  Digest: sha256:$$digest"; \
+	echo; \
+	echo "Auf dem Gerät einmalig nötig:"; \
+	echo "  Environment=CAMERA_APPLIANCE_ALLOW_INSECURE_UPDATE=1"; \
+	echo "  (danach systemctl daemon-reload && systemctl restart camera-appliance)"; \
+	echo "Strg+C beendet den Server."; \
+	python3 -m http.server $(SERVE_PORT) --bind 0.0.0.0 --directory "$(RELEASE_DIR)"
+
+# One-shot: build, serve temporarily and trigger the update on a NAS appliance
+# via its admin API. Usage:
+#   make update-nas NAS_HOST=192.168.178.11 NAS_PASSWORD=...
+update-nas:
+	@set -euo pipefail; \
+	if [[ -z "$(NAS_HOST)" ]]; then echo "Usage: make update-nas NAS_HOST=<ip> [NAS_PORT=8091] [NAS_PASSWORD=...] [VERSION=x.y.z]"; exit 1; fi; \
+	pass="$$([[ -n '$(NAS_PASSWORD)' ]] && printf '%s' '$(NAS_PASSWORD)' || read -rsp 'Admin-Passwort für $(NAS_HOST): ' pw && printf '%s' "$$pw")"; \
+	"$(MAKE)" -s release; \
+	digest="$$(shasum -a 256 "$(RELEASE_DIR)/camera-appliance-latest.tar.gz" | awk '{print $$1}')"; \
+	ip="$$(ipconfig getifaddr en0 2>/dev/null || ipconfig getifaddr en1 2>/dev/null || true)"; \
+	if [[ -z "$$ip" ]]; then echo "Keine LAN-IP gefunden." >&2; exit 1; fi; \
+	tmp="$$(mktemp -d)"; trap 'rm -rf "$$tmp"' EXIT; \
+	python3 -m http.server $(SERVE_PORT) --bind 0.0.0.0 --directory "$(RELEASE_DIR)" >/dev/null 2>&1 & serve_pid=$$!; \
+	trap 'kill $$serve_pid 2>/dev/null; rm -rf "$$tmp"' EXIT; \
+	status_url="http://$(NAS_HOST):$(NAS_PORT)/api/health"; \
+	curl -fsS --max-time 5 "$$status_url" >/dev/null || { echo "Gerät nicht erreichbar: $$status_url" >&2; exit 1; }; \
+	code=$$(curl -s -o "$$tmp/login.json" -w '%{http_code}' -c "$$tmp/cookies" -X POST "http://$(NAS_HOST):$(NAS_PORT)/api/auth/login" -H 'Content-Type: application/json' -d '{"username":"admin","password":"'"$$pass"'","remember":false}'); \
+	if [[ "$$code" != "200" ]]; then echo "Login fehlgeschlagen ($$code)." >&2; exit 1; fi; \
+	code=$$(curl -s -o "$$tmp/update.json" -w '%{http_code}' -b "$$tmp/cookies" -X POST "http://$(NAS_HOST):$(NAS_PORT)/api/system/update" -H 'Content-Type: application/json' -d '{"url":"http://'"$$ip"':$(SERVE_PORT)/camera-appliance-latest.tar.gz","digest":"sha256:'$$digest'"}'); \
+	if [[ "$$code" != "202" ]]; then echo "Update-Aufruf fehlgeschlagen ($$code):" >&2; cat "$$tmp/update.json" >&2; exit 1; fi; \
+	echo "Update gestartet. Digest: sha256:$$digest"; \
+	echo "Das Gerät lädt jetzt von diesem Rechner und startet anschließend neu."

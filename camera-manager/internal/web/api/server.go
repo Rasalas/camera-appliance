@@ -1012,7 +1012,7 @@ func (s *Server) runUpdate(updateURL, digest string) {
 			Config:       s.app.Config,
 			URL:          updateURL,
 			Digest:       digest,
-			InstallDir:   updater.DefaultInstallDir,
+			InstallDir:   s.app.Config.InstallDir,
 			AutoRollback: true,
 			Restart:      updater.StackRestart(s.app.Config),
 			Healthcheck:  updater.HTTPHealthcheck(s.app.Config),

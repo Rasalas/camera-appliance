@@ -254,7 +254,7 @@ func (s *Server) startUpdateInstall(w http.ResponseWriter, r *http.Request) {
 				Config:           s.app.Config,
 				Archive:          archivePath,
 				Digest:           digest,
-				InstallDir:       updater.DefaultInstallDir,
+				InstallDir:       s.app.Config.InstallDir,
 				AutoRollback:     true,
 				Restart:          updater.StackRestart(s.app.Config),
 				Healthcheck:      updater.HTTPHealthcheck(s.app.Config),
