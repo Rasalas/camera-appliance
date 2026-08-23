@@ -29,12 +29,17 @@ type ServiceStatus struct {
 }
 
 func Check(ctx context.Context, cfg config.Config) Status {
-	return Status{
+	status := Status{
 		Go2RTC:          httpStatus(ctx, "go2rtc", cfg.Go2RTCURL),
 		CameraAppliance: ServiceStatus{Name: "camera-appliance", Online: true, Message: "läuft"},
 		Systemd:         systemdStatuses(ctx, "camera-appliance.service"),
 		Docker:          dockerComposeStatuses(ctx, cfg, "go2rtc", "camera-manager"),
 	}
+	if strings.EqualFold(cfg.RestartStrategy, "systemd") {
+		status.Systemd = systemdUserStatuses(ctx, "camera-appliance.service", "camera-appliance-go2rtc.service")
+		status.Docker = nil
+	}
+	return status
 }
 
 func RestartGo2RTC(ctx context.Context, cfg config.Config) error {
@@ -83,14 +88,15 @@ func applyStackSystemd(ctx context.Context, cfg config.Config) error {
 		if err != nil {
 			return fmt.Errorf("go2rtc restart command failed: %w: %s", err, string(out))
 		}
-	} else if err := systemctlTry(ctx, "camera-appliance-go2rtc"); err != nil {
+	} else if err := systemctlTry(ctx, true, "restart", "camera-appliance-go2rtc"); err != nil {
 		return err
 	}
-	_ = systemctlTry(ctx, "--no-block", "restart", "camera-appliance")
+	_ = systemctlTry(ctx, true, "--no-block", "restart", "camera-appliance")
 	return nil
 }
 
-func systemctlTry(ctx context.Context, args ...string) error {
+func systemctlTry(ctx context.Context, user bool, args ...string) error {
+	args = systemctlArgs(user, args...)
 	cmd := exec.CommandContext(ctx, "systemctl", args...)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
@@ -198,17 +204,27 @@ func restartNativeDevGo2RTC(ctx context.Context, cfg config.Config) error {
 }
 
 func systemdStatuses(ctx context.Context, services ...string) []ServiceStatus {
+	return systemdStatusesWithArgs(ctx, false, services...)
+}
+
+func systemdUserStatuses(ctx context.Context, services ...string) []ServiceStatus {
+	return systemdStatusesWithArgs(ctx, true, services...)
+}
+
+func systemdStatusesWithArgs(ctx context.Context, user bool, services ...string) []ServiceStatus {
 	if _, err := exec.LookPath("systemctl"); err != nil {
 		return []ServiceStatus{{Name: "systemd", Online: false, Message: "systemctl nicht verfügbar"}}
 	}
 	out := make([]ServiceStatus, 0, len(services))
 	for _, service := range services {
-		state, err := commandOutput(ctx, 900*time.Millisecond, "systemctl", "is-active", service)
+		stateArgs := systemctlArgs(user, "is-active", service)
+		state, err := commandOutput(ctx, 900*time.Millisecond, "systemctl", stateArgs...)
 		state = strings.TrimSpace(state)
 		if state == "" && err != nil {
 			state = shortError(err)
 		}
-		enabled, enabledErr := commandOutput(ctx, 900*time.Millisecond, "systemctl", "is-enabled", service)
+		enabledArgs := systemctlArgs(user, "is-enabled", service)
+		enabled, enabledErr := commandOutput(ctx, 900*time.Millisecond, "systemctl", enabledArgs...)
 		enabled = strings.TrimSpace(enabled)
 		message := state
 		if enabled != "" {
@@ -219,6 +235,13 @@ func systemdStatuses(ctx context.Context, services ...string) []ServiceStatus {
 		out = append(out, ServiceStatus{Name: service, Online: state == "active", Message: message})
 	}
 	return out
+}
+
+func systemctlArgs(user bool, args ...string) []string {
+	if !user {
+		return args
+	}
+	return append([]string{"--user"}, args...)
 }
 
 func dockerComposeStatuses(ctx context.Context, cfg config.Config, services ...string) []ServiceStatus {
