@@ -50,6 +50,16 @@ jobs:
           version="${REF_NAME#v}"
           short_commit="${COMMIT:0:7}"
           archive=".release/camera-appliance-${version}-${short_commit}.tar.gz"
+          previous_tag="$(git describe --tags --abbrev=0 "${COMMIT}^" 2>/dev/null || true)"
+          notes_file="$(mktemp)"
+          trap 'rm -f "$notes_file"' EXIT
+          if [[ -n "$previous_tag" ]]; then
+            git log --format='* %s ([%h](https://github.com/Rasalas/camera-appliance/commit/%H))' \
+              "${previous_tag}..${COMMIT}" > "$notes_file"
+          fi
+          if [[ ! -s "$notes_file" ]]; then
+            printf '%s\n' 'No commit details available.' > "$notes_file"
+          fi
           if gh release view "$REF_NAME" >/dev/null 2>&1; then
             gh release upload "$REF_NAME" \
               "$archive" \
@@ -60,6 +70,7 @@ jobs:
               "$archive" \
               ".release/camera-appliance-latest.tar.gz" \
               --title "camera-appliance ${REF_NAME}" \
+              --notes-file "$notes_file" \
               --generate-notes \
               --latest
           fi
