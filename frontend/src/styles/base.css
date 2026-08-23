@@ -137,7 +137,8 @@ input, select, textarea { font: inherit; color: inherit; }
   display: grid; gap: 12px;
 }
 .rail-foot {
-  padding-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid var(--hairline);
   display: grid; gap: 6px;
   font-size: 11px; color: var(--ink-dim);
   letter-spacing: 0.05em;
@@ -145,13 +146,11 @@ input, select, textarea { font: inherit; color: inherit; }
 .rail-foot .row { display: flex; justify-content: space-between; gap: 8px; }
 .rail-foot .row b { color: var(--ink-soft); font-weight: 500; }
 
-/* Auth action on the left, update control parked lower-right. */
+/* Update control: right-aligned above the metadata rows. */
 .rail-tray {
-  display: flex; align-items: center; gap: 10px;
+  display: flex; justify-content: flex-end;
   min-height: 34px;
 }
-.rail-tray > :first-child { flex: 1 1 auto; min-width: 0; }
-.rail-tray > :last-child { flex: 0 0 auto; margin-left: auto; }
 
 /* ---------- Main canvas ------------------------------------------------ */
 .canvas {
@@ -1466,10 +1465,11 @@ details.advanced[open] > summary::before { content: "▾ "; }
   }
   .nav a { padding: 6px 10px; }
   .rail-foot { display: none; }
-  /* Rail is a horizontal strip here: keep the tray inline, drop the metadata. */
-  .rail-bottom { margin-top: 0; width: 100%; }
-  .rail-tray { justify-content: flex-end; }
-  .rail-tray > :first-child { flex: 0 0 auto; }
+  /* Rail is a horizontal strip here: the update control rides along in the
+     brand row, the auth action stays inline at the end. */
+  .rail { position: relative; }
+  .rail-bottom { margin-top: 0; margin-left: auto; display: block; }
+  .rail-tray { position: absolute; top: 16px; right: 16px; min-height: 0; }
   .rail-login { width: auto; }
   .canvas { padding: 18px; }
   .split, .split-3-2, .split-2-3, .workbench { grid-template-columns: 1fr; }

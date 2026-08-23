@@ -354,6 +354,7 @@ export interface UpdateReleaseInfo {
   name?: string
   notes?: string
   url: string
+  html_url?: string
   published_at?: string
 }
 

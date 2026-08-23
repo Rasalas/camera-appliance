@@ -73,9 +73,38 @@
             <template v-else-if="phase === 'available'">
               <p class="update-hint">Installiert {{ status?.current_version || 'unbekannt' }} · neu {{ status?.latest?.tag }}</p>
               <p class="update-label">Was hat sich geändert</p>
-              <ul class="update-notes">
-                <li v-for="(change, i) in changelogLines" :key="i">{{ change }}</li>
-              </ul>
+
+              <ol class="update-changelog">
+                <li v-for="release in changelog" :key="release.tag" class="update-release">
+                  <h4 class="update-release-head">
+                    <a v-if="release.href" class="update-release-tag" :href="release.href" target="_blank" rel="noopener noreferrer">
+                      {{ release.tag }}
+                    </a>
+                    <span v-else class="update-release-tag">{{ release.tag }}</span>
+                    <span v-if="release.date" class="update-release-date">{{ release.date }}</span>
+                  </h4>
+
+                  <ul v-if="release.notes.length" class="update-notes">
+                    <li
+                      v-for="(note, i) in release.notes"
+                      :key="i"
+                      :class="note.type === 'heading' ? 'update-subhead' : 'update-note'"
+                    >
+                      <template v-if="note.type === 'heading'">{{ note.text }}</template>
+                      <template v-else>
+                        <span v-if="note.kind" class="note-kind" :class="note.kind">{{ note.kind }}</span>{{ note.text }}<a
+                          v-if="note.ref && note.refHref"
+                          class="note-ref"
+                          :href="note.refHref"
+                          target="_blank"
+                          rel="noopener noreferrer"
+                        >{{ note.ref }}</a><span v-else-if="note.ref" class="note-ref">{{ note.ref }}</span>
+                      </template>
+                    </li>
+                  </ul>
+                  <p v-else class="update-note-empty">Keine Details veröffentlicht.</p>
+                </li>
+              </ol>
             </template>
 
             <!-- downloading -->
@@ -223,42 +252,128 @@ const shortDigest = computed(() => {
   return digest ? digest.slice(0, 8) + '…' : ''
 })
 
-const changelogLines = computed<string[]>(() => {
-  const lines: string[] = []
-  for (const release of status.value?.changes ?? []) {
-    if (release.tag) lines.push(`${release.tag}`)
-    for (const raw of (release.notes ?? '').split('\n')) {
-      const line = cleanNoteLine(raw)
-      if (line) lines.push(line)
-    }
+/* ---------- Changelog ---------------------------------------------------
+   GitHub release notes are markdown. Render them as one titled block per
+   release with plain text lines — never v-html. Bare compare/PR URLs are
+   collapsed to a "#123" reference so the notes stay readable in a narrow
+   popover. */
+
+const MAX_RELEASES = 6
+const MAX_NOTES_PER_RELEASE = 10
+const CONVENTIONAL = /^(feat|fix|chore|docs|refactor|perf|test|build|ci|style|revert)(\([^)]*\))?!?:\s*/i
+
+type ChangelogNote =
+  | { type: 'heading'; text: string }
+  | { type: 'item'; kind: string; text: string; ref: string; refHref: string }
+
+interface ChangelogRelease {
+  tag: string
+  date: string
+  href: string
+  notes: ChangelogNote[]
+}
+
+const changelog = computed<ChangelogRelease[]>(() => {
+  const releases: ChangelogRelease[] = []
+  for (const release of (status.value?.changes ?? []).slice(0, MAX_RELEASES)) {
+    const notes = parseNotes(release.notes ?? '').slice(0, MAX_NOTES_PER_RELEASE)
+    releases.push({
+      tag: release.tag || 'Unbenannt',
+      date: formatReleaseDate(release.published_at),
+      href: safeHref(release.html_url),
+      notes
+    })
   }
-  // Deduplicate consecutive duplicates and cap the list length.
-  const out: string[] = []
-  for (const line of lines) {
-    if (out.length >= 40) break
-    if (out[out.length - 1] !== line) out.push(line)
-  }
-  return out
+  return releases
 })
 
-function cleanNoteLine(raw: string): string {
-  let line = raw.trim()
-  if (!line) return ''
-  if (/^!\[/.test(line)) return '' // images
-  line = line.replace(/^[-*+]\s+/, '')
-  line = line.replace(/^#+\s+/, '')
-  line = line.replace(/!\[[^\]]*\]\([^)]*\)/g, '')
-  line = line.replace(/\[([^\]]+)\]\([^)]*\)/g, '$1')
-  line = line.replace(/`/g, '')
-  line = line.trim()
-  if (!line) return ''
-  return line.length > 160 ? line.slice(0, 157) + '…' : line
+function parseNotes(raw: string): ChangelogNote[] {
+  const notes: ChangelogNote[] = []
+  let inFence = false
+  for (const line of raw.split('\n')) {
+    const trimmed = line.trim()
+    if (trimmed.startsWith('```')) {
+      inFence = !inFence
+      continue
+    }
+    if (inFence || !trimmed) continue
+
+    const heading = /^#{1,6}\s+(.*)$/.exec(trimmed)
+    if (heading) {
+      const label = cleanMarkdown(heading[1])
+      // GitHub's own section title duplicates the panel label above.
+      if (!label || /^what'?s changed$/i.test(label)) continue
+      notes.push({ type: 'heading', text: label })
+      continue
+    }
+
+    let text = trimmed.replace(/^[-*+]\s+/, '')
+
+    // "… by @someone in https://github.com/o/r/pull/14" → linked ref "#14".
+    let ref = ''
+    let refHref = ''
+    const pull = /\bby\s+@[\w-]+\s+in\s+(\S*?\/pull\/(\d+))/i.exec(text)
+    if (pull) {
+      ref = '#' + pull[2]
+      refHref = safeHref(pull[1])
+      text = text.slice(0, pull.index)
+    }
+
+    text = cleanMarkdown(text)
+    // A compare link adds nothing the release titles do not already show.
+    if (!text || /^full changelog:?$/i.test(text)) continue
+
+    let kind = ''
+    const conventional = CONVENTIONAL.exec(text)
+    if (conventional) {
+      kind = conventional[1].toLowerCase()
+      text = text.slice(conventional[0].length).trim()
+    }
+    if (!text) continue
+    notes.push({ type: 'item', kind, text: truncate(text), ref, refHref })
+  }
+  return notes
+}
+
+function cleanMarkdown(value: string): string {
+  return value
+    .replace(/!\[[^\]]*\]\([^)]*\)/g, '')      // images
+    .replace(/\[([^\]]+)\]\([^)]*\)/g, '$1')   // links → their label
+    .replace(/https?:\/\/\S+/g, '')             // bare urls
+    .replace(/[`*]/g, '')                       // emphasis markers
+    .replace(/\s+/g, ' ')
+    .replace(/[·:,;\-–—]+$/, '')                // punctuation left dangling
+    .trim()
+}
+
+function truncate(text: string): string {
+  return text.length > 160 ? text.slice(0, 157) + '…' : text
+}
+
+// Release notes are third-party text, so only plain http(s) links are ever
+// turned into an href — never javascript:, data: or anything else.
+function safeHref(raw: string | undefined): string {
+  const value = (raw ?? '').trim()
+  if (!value) return ''
+  try {
+    const url = new URL(value)
+    return url.protocol === 'https:' || url.protocol === 'http:' ? url.href : ''
+  } catch {
+    return ''
+  }
+}
+
+function formatReleaseDate(raw: string | undefined): string {
+  if (!raw) return ''
+  const at = new Date(raw)
+  if (Number.isNaN(at.getTime())) return ''
+  return at.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' })
 }
 
 /* ---------- Popover placement ------------------------------------------
-   The rail is a narrow, sticky column, so the popover is teleported to the
-   body and positioned from the trigger rect: it opens upward whenever there
-   is room and is always clamped into the viewport. */
+   The rail is a narrow column, so the popover is teleported to the body and
+   positioned from the trigger rect: it right-aligns to the button, opens
+   upward whenever there is room and is always clamped into the viewport. */
 
 const placement = ref<'up' | 'down'>('up')
 const popStyle = ref<Record<string, string>>({})
@@ -537,16 +652,105 @@ onBeforeUnmount(() => {
   letter-spacing: 0.12em;
   color: var(--ink-dim);
 }
+/* One titled block per release: tag as the heading, notes beneath it. */
+.update-changelog {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 16px;
+}
+.update-release-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin: 0 0 8px;
+  padding-bottom: 5px;
+  border-bottom: 1px solid var(--hairline);
+}
+.update-release-tag {
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  color: var(--ink);
+  text-decoration: none;
+}
+a.update-release-tag:hover { color: var(--live); text-decoration: underline; }
+a.update-release-tag:focus-visible {
+  outline: 2px solid var(--live);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+.update-release-date {
+  margin-left: auto;
+  flex: 0 0 auto;
+  font-size: 10px;
+  letter-spacing: 0.05em;
+  color: var(--ink-dim);
+}
 .update-notes {
   margin: 0;
-  padding-left: 16px;
+  padding: 0;
+  list-style: none;
   display: grid;
-  gap: 5px;
+  gap: 6px;
   font-size: 12px;
   color: var(--ink-soft);
-  line-height: 1.5;
+  line-height: 1.55;
 }
-.update-notes li { overflow-wrap: anywhere; }
+.update-note {
+  position: relative;
+  padding-left: 12px;
+  overflow-wrap: anywhere;
+}
+.update-note::before {
+  content: "";
+  position: absolute;
+  left: 1px;
+  top: 0.62em;
+  width: 3px;
+  height: 3px;
+  border-radius: 999px;
+  background: var(--ink-dim);
+}
+/* Conventional-commit type as a quiet chip, matching the RTSP/ONVIF tags. */
+.note-kind {
+  display: inline-block;
+  margin-right: 6px;
+  padding: 0 5px;
+  border: 1px solid var(--hairline-strong);
+  border-radius: 3px;
+  font-size: 9px;
+  line-height: 15px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ink-mute);
+  vertical-align: 1px;
+}
+/* Only new features get colour; fixes and chores stay neutral so a long list
+   of them does not read as a wall of warnings. */
+.note-kind.feat { color: var(--live); border-color: rgba(181, 232, 83, 0.35); }
+.note-ref {
+  margin-left: 6px;
+  font-size: 10.5px;
+  color: var(--ink-dim);
+  text-decoration: none;
+  white-space: nowrap;
+}
+a.note-ref:hover { color: var(--live); text-decoration: underline; }
+a.note-ref:focus-visible {
+  outline: 2px solid var(--live);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+.update-subhead {
+  margin: 4px 0 0;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.11em;
+  color: var(--ink-mute);
+}
+.update-note-empty { margin: 0; font-size: 11.5px; color: var(--ink-dim); }
 .update-warn { margin: 0; font-size: 11.5px; color: var(--warn); line-height: 1.5; }
 .update-error { margin: 0; font-size: 12px; color: var(--danger); overflow-wrap: anywhere; }
 .update-foot {

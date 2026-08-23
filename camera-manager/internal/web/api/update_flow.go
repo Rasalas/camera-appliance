@@ -31,10 +31,13 @@ const (
 )
 
 type updateReleaseInfo struct {
-	Tag         string `json:"tag"`
-	Name        string `json:"name"`
-	Notes       string `json:"notes"`
+	Tag  string `json:"tag"`
+	Name string `json:"name"`
+	// Notes is raw markdown; the UI renders it as text, never as HTML.
+	Notes string `json:"notes"`
+	// URL is the release archive asset, HTMLURL the human release page.
 	URL         string `json:"url"`
+	HTMLURL     string `json:"html_url,omitempty"`
 	PublishedAt string `json:"published_at,omitempty"`
 }
 
@@ -158,6 +161,7 @@ func collectNewerReleases(releases []updater.Release, current string) (*updateRe
 			Name:        rel.Name,
 			Notes:       rel.Notes,
 			URL:         rel.ArchiveURL(),
+			HTMLURL:     rel.HTMLURL,
 			PublishedAt: rel.PublishedAt,
 		}
 		if latest == nil {
