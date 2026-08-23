@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -91,5 +92,19 @@ func TestApplyStackModeFailsClosedInsideContainerWithoutImage(t *testing.T) {
 func TestApplyStackModeIgnoresErrorOutputWhenDiscoveryFailed(t *testing.T) {
 	if _, err := applyStackMode("docker inspect error text", false, true); err == nil {
 		t.Fatal("expected failed image discovery with nonempty error output to fail closed")
+	}
+}
+
+func TestSystemctlArgsForUserUnits(t *testing.T) {
+	got := systemctlArgs(true, "--no-block", "restart", "camera-appliance")
+	want := []string{"--user", "--no-block", "restart", "camera-appliance"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("systemctlArgs() = %v, want %v", got, want)
+	}
+
+	got = systemctlArgs(false, "is-active", "camera-appliance")
+	want = []string{"is-active", "camera-appliance"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("systemctlArgs() = %v, want %v", got, want)
 	}
 }
