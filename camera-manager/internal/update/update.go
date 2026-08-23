@@ -923,7 +923,8 @@ func shouldSkipCopyPath(rel string) bool {
 			return true
 		}
 		switch lower {
-		case ".git", ".private", "data", "node_modules", ".release":
+		case ".git", ".private", "data", "node_modules", ".release",
+			".env", "local.env", "secrets.env", "admin-password.txt":
 			return true
 		}
 	}
