@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"camera-appliance/camera-manager/internal/config"
+	"camera-appliance/camera-manager/internal/state"
 )
 
 func newBackupTestConfig(t *testing.T) config.Config {
@@ -22,7 +23,11 @@ func newBackupTestConfig(t *testing.T) config.Config {
 	if err := os.MkdirAll(cfg.ConfigDir, 0o750); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(cfg.DBPath(), []byte("db"), 0o600); err != nil {
+	db, err := state.Open(context.Background(), cfg.DBPath())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(cfg.ConfigDir, "local.env"), []byte("TAPO_CAMERA_PASSWORD=x\n"), 0o600); err != nil {
@@ -62,8 +67,12 @@ func TestCreateArchiveHasRestrictedPermissions(t *testing.T) {
 func TestRestoreClampsArchivePermissions(t *testing.T) {
 	cfg := newBackupTestConfig(t)
 	archive := filepath.Join(t.TempDir(), "crafted.tar.gz")
+	db, err := os.ReadFile(cfg.DBPath())
+	if err != nil {
+		t.Fatal(err)
+	}
 	buildTar(t, archive, map[string]tarEntry{
-		"var/lib/camera-appliance/state.db": {content: "restored-db", mode: 0o777},
+		"var/lib/camera-appliance/state.db": {content: string(db), mode: 0o777},
 		"etc/camera-appliance/local.env":    {content: "PASSWORD=secret\n", mode: 0o644},
 	})
 	if _, err := Restore(context.Background(), cfg, archive); err != nil {

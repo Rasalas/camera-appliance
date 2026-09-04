@@ -2,7 +2,9 @@ package app
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
 	"strings"
@@ -180,8 +182,8 @@ func (a *App) Discover(ctx context.Context) (DiscoverySummary, error) {
 	}
 	devices := make([]state.Device, 0, len(results))
 	for _, result := range results {
-		device := result.Device
-		if err := a.Store.UpsertDevice(ctx, device); err != nil {
+		device, err := a.Store.ReconcileDevice(ctx, result.Device)
+		if err != nil {
 			warnings = append(warnings, redaction.Text(err.Error()))
 			continue
 		}
@@ -214,6 +216,22 @@ func (a *App) Assign(ctx context.Context, binding state.Binding) error {
 	}
 	if binding.StreamName == "" {
 		binding.StreamName = "stream2"
+	}
+	knownSlot := false
+	for _, slot := range a.Slots {
+		if slot.ID == binding.SlotID {
+			knownSlot = true
+			break
+		}
+	}
+	if !knownSlot {
+		return fmt.Errorf("%w: unbekannter Platz %s", state.ErrInvalidBinding, binding.SlotID)
+	}
+	if _, err := a.Store.Device(ctx, binding.DeviceID); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return fmt.Errorf("%w: unbekanntes Gerät", state.ErrInvalidBinding)
+		}
+		return err
 	}
 	binding.Enabled = true
 	if err := a.Store.UpsertBinding(ctx, binding); err != nil {
@@ -268,19 +286,6 @@ func (a *App) AddManualDevice(ctx context.Context, input ManualDeviceInput) (Man
 	}
 	rawJSON, _ := json.Marshal(raw)
 	deviceID := fingerprint.DeviceID(fp)
-	if fp.MACAddress == "" && fp.SerialNumber == "" && fp.ONVIFEndpointRef == "" {
-		// Without a stable identity attribute the fingerprint would fall back
-		// to a fresh random ID on every add. Reuse an existing device for this
-		// IP instead so re-adding a camera does not orphan its credentials.
-		if existing, listErr := a.Store.Devices(ctx); listErr == nil {
-			for _, d := range existing {
-				if d.LastIP == ip && d.ID != "" {
-					deviceID = d.ID
-					break
-				}
-			}
-		}
-	}
 	device := state.Device{
 		ID:           deviceID,
 		LastSeenAt:   time.Now().UTC(),
@@ -291,7 +296,8 @@ func (a *App) AddManualDevice(ctx context.Context, input ManualDeviceInput) (Man
 		Hostname:     fp.Hostname,
 		RawJSON:      rawJSON,
 	}
-	if err := a.Store.UpsertDevice(ctx, device); err != nil {
+	device, err = a.Store.ReconcileDevice(ctx, device)
+	if err != nil {
 		return ManualDeviceResult{}, err
 	}
 	message := "Kamera wurde hinzugefügt."

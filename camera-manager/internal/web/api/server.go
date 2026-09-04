@@ -1476,7 +1476,11 @@ func clearSessionCookie(w http.ResponseWriter, r *http.Request) {
 
 func writeResult(w http.ResponseWriter, value any, err error) {
 	if err != nil {
-		writeError(w, err, http.StatusInternalServerError)
+		status := http.StatusInternalServerError
+		if errors.Is(err, state.ErrInvalidBinding) {
+			status = http.StatusBadRequest
+		}
+		writeError(w, err, status)
 		return
 	}
 	writeJSON(w, value, http.StatusOK)

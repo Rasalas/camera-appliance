@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"camera-appliance/camera-manager/internal/config"
+	"camera-appliance/camera-manager/internal/state"
 )
 
 func TestApplyReleaseCreatesBackupAndCopiesFiles(t *testing.T) {
@@ -195,6 +196,13 @@ func newTestConfig(t *testing.T) config.Config {
 		t.Fatal(err)
 	}
 	writeFile(t, filepath.Join(stateDir, "generated", "go2rtc.yaml"), "streams: {}\n")
+	db, err := state.Open(context.Background(), filepath.Join(stateDir, "state.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
 	return config.Config{
 		StateDir:      stateDir,
 		ConfigDir:     configDir,
