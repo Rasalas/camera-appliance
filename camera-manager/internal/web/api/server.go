@@ -25,19 +25,21 @@ import (
 	"camera-appliance/camera-manager/internal/app"
 	authn "camera-appliance/camera-manager/internal/auth"
 	"camera-appliance/camera-manager/internal/backup"
+	"camera-appliance/camera-manager/internal/config"
 	"camera-appliance/camera-manager/internal/redaction"
 	"camera-appliance/camera-manager/internal/secrets"
 	"camera-appliance/camera-manager/internal/state"
 	"camera-appliance/camera-manager/internal/system"
 	updater "camera-appliance/camera-manager/internal/update"
+	"camera-appliance/camera-manager/internal/version"
 )
 
 type Server struct {
-	app      *app.App
-	mux      *http.ServeMux
-	logins   *loginLimiter
-	updateMu sync.Mutex
-	updates  *updateFlow
+	app            *app.App
+	mux            *http.ServeMux
+	logins         *loginLimiter
+	startUpdateJob func(context.Context, config.Config, updater.Request) (updater.Job, error)
+	updates        *updateFlow
 }
 
 type credentialIdentity struct {
@@ -62,10 +64,11 @@ const (
 
 func New(a *app.App) *Server {
 	s := &Server{
-		app:     a,
-		mux:     http.NewServeMux(),
-		logins:  newLoginLimiter(),
-		updates: newUpdateFlow(filepath.Join(a.Config.StateDir, "updates")),
+		app:            a,
+		mux:            http.NewServeMux(),
+		logins:         newLoginLimiter(),
+		startUpdateJob: updater.StartJob,
+		updates:        newUpdateFlow(filepath.Join(a.Config.StateDir, "updates")),
 	}
 	s.routes()
 	return s
@@ -138,10 +141,11 @@ func (s *Server) getAuthStatus(w http.ResponseWriter, r *http.Request) {
 	writeResult(w, status, err)
 }
 
-// getHealth serves a minimal liveness probe without any deployment details.
+// getHealth identifies the running release without exposing deployment paths.
 // It stays public so post-update healthchecks work with auth enabled.
 func (s *Server) getHealth(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, map[string]string{"status": "ok"}, http.StatusOK)
+	current := version.Current()
+	writeJSON(w, map[string]string{"status": "ok", "version": current.Version, "commit": current.Commit}, http.StatusOK)
 }
 
 func (s *Server) login(w http.ResponseWriter, r *http.Request) {
@@ -985,60 +989,11 @@ func (s *Server) startUpdate(w http.ResponseWriter, r *http.Request) {
 		writeError(w, errors.New("update url is invalid"), http.StatusBadRequest)
 		return
 	}
-	if parsed.Scheme != "https" && os.Getenv("CAMERA_APPLIANCE_ALLOW_INSECURE_UPDATE") != "1" {
+	if parsed.Scheme != "https" && !(parsed.Scheme == "http" && insecureUpdateAllowed()) {
 		writeError(w, errors.New("update url muss https verwenden"), http.StatusBadRequest)
 		return
 	}
-	digest := strings.TrimSpace(req.Digest)
-	if !s.updateMu.TryLock() {
-		writeError(w, errors.New("es läuft bereits ein Update"), http.StatusConflict)
-		return
-	}
-	_ = s.app.Store.AddEvent(r.Context(), "info", "update.started", "Update wurde gestartet", map[string]string{"url": redaction.Text(updateURL)})
-	go func() {
-		defer s.updateMu.Unlock()
-		s.runUpdate(updateURL, digest)
-	}()
-	writeJSON(w, map[string]string{"status": "started", "url": updateURL}, http.StatusAccepted)
-}
-
-func (s *Server) runUpdate(updateURL, digest string) {
-	s.runApply(func(ctx context.Context) (updater.Result, error) {
-		return updater.Apply(ctx, updater.Options{
-			Config:       s.app.Config,
-			URL:          updateURL,
-			Digest:       digest,
-			InstallDir:   s.app.Config.InstallDir,
-			AutoRollback: true,
-			Restart:      updater.StackRestart(s.app.Config),
-			Healthcheck:  updater.HTTPHealthcheck(s.app.Config),
-		})
-	}, updateURL)
-}
-
-// runApply executes an update job and records the outcome. It is shared by the
-// URL-based and archive-based (download-then-install) flows.
-func (s *Server) runApply(build func(ctx context.Context) (updater.Result, error), label string) {
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
-	defer cancel()
-	result, err := build(ctx)
-	if err != nil {
-		_ = s.app.Store.AddEvent(context.Background(), "error", "update.failed", err.Error(), map[string]string{"url": label})
-		s.updates.setPhase(updateFailed, err.Error())
-		s.updates.cleanupCachedArchive()
-		return
-	}
-	_ = s.app.Store.AddEvent(context.Background(), "info", "update.completed", "Update installiert", map[string]string{
-		"version": result.NewVersion.Version,
-		"commit":  result.NewVersion.Commit,
-		"backup":  result.BackupPath,
-	})
-	s.updates.mu.Lock()
-	s.updates.st.Phase = updateIdle
-	s.updates.st.CurrentVersion = result.NewVersion.Version
-	s.updates.st.Error = ""
-	s.updates.mu.Unlock()
-	s.updates.cleanupCachedArchive()
+	s.submitUpdate(w, r, updater.Request{URL: updateURL, Digest: strings.TrimSpace(req.Digest), AutoRollback: true, AllowInsecureURL: insecureUpdateAllowed()})
 }
 
 func (s *Server) getSettings(w http.ResponseWriter, r *http.Request) {
