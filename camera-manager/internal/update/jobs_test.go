@@ -226,11 +226,17 @@ func TestAutomaticRollbackChecksPreviousVersion(t *testing.T) {
 	}))
 	defer server.Close()
 	cfg.BindAddr, cfg.Go2RTCURL = server.URL, server.URL
-	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	restarts := 0
 	result, err := Apply(ctx, Options{Config: cfg, Archive: req.Archive, InstallDir: cfg.InstallDir, AutoRollback: true,
-		Restart: func(context.Context) error { restarts++; return nil },
+		Restart: func(context.Context) error {
+			restarts++
+			if restarts == 1 {
+				time.AfterFunc(300*time.Millisecond, cancel)
+			}
+			return nil
+		},
 	})
 	if err == nil || !result.RollbackApplied || restarts != 2 {
 		t.Fatalf("unexpected result %+v, restarts=%d, err=%v", result, restarts, err)
