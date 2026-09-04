@@ -31,6 +31,14 @@ This runs the Go backend on `127.0.0.1:8091` and Vite with API proxying.
 make test
 ```
 
+This runs the Go and frontend tests. Use `go test -race ./...` in
+`camera-manager` to check concurrent credential changes and the other Go tests
+with the race detector.
+
+The pull request workflow runs the race detector, Go vet, frontend tests and
+the production frontend build. Viewer layout transformations live in
+`frontend/src/pages/viewerMosaic.ts` and can be tested without a browser.
+
 ## Build
 
 ```bash

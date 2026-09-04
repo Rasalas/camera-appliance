@@ -151,18 +151,14 @@ import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import type { CSSProperties } from 'vue'
 import { api } from '../api/client'
 import type { AuthStatus, CameraDisplay, ViewerResponse, ViewerSlot, ViewerSlotState } from '../types'
-import { defaultMosaicTree } from './viewerMosaic'
-import type { MosaicLeaf, MosaicNode } from './viewerMosaic'
+import { ROOT_TARGET, layoutGeometry, treeSlots, setRatioAtPath, reconcileTree, dockCamera, parseMosaic } from './viewerMosaic'
+import type { MosaicNode, PaneRect, GutterRect, Side } from './viewerMosaic'
 
 // --- Mosaic layout model -----------------------------------------------------
 // A binary split tree, like VSCode editor groups. A leaf shows one camera; a
 // split divides its area into two children (row = side by side, col = stacked)
 // with a ratio for the first child. Cameras dock onto a pane's edge to create a
 // new split, or onto the centre to swap.
-type Rect = { x: number; y: number; w: number; h: number }
-type Side = 'left' | 'right' | 'top' | 'bottom' | 'center'
-type PaneRect = { alias: string; rect: Rect }
-type GutterRect = { id: string; path: string; dir: 'row' | 'col'; rect: Rect; line: Rect }
 
 const viewer = ref<ViewerResponse>()
 const auth = ref<AuthStatus>()
@@ -189,7 +185,6 @@ const gridEl = ref<HTMLElement>()
 const dragSourceAlias = ref('')
 const dockTarget = ref('')
 const dockSide = ref<Side>('center')
-const ROOT_TARGET = '__root__'
 
 let refreshTimer = 0
 let controlsTimer = 0
@@ -224,35 +219,8 @@ const showHud = computed(() => !isFullscreen.value && (controlsVisible.value || 
 
 // --- Tree geometry -----------------------------------------------------------
 
-function computeRects(node: MosaicNode, rect: Rect, path: string, leaves: PaneRect[], gutters: GutterRect[]) {
-  if (node.type === 'leaf') {
-    leaves.push({ alias: node.slot, rect })
-    return
-  }
-  const ratio = clamp(node.ratio, 0.05, 0.95)
-  if (node.dir === 'row') {
-    const aw = rect.w * ratio
-    const aRect = { x: rect.x, y: rect.y, w: aw, h: rect.h }
-    const bRect = { x: rect.x + aw, y: rect.y, w: rect.w - aw, h: rect.h }
-    gutters.push({ id: path, path, dir: 'row', rect, line: { x: rect.x + aw, y: rect.y, w: 0, h: rect.h } })
-    computeRects(node.a, aRect, path + 'a', leaves, gutters)
-    computeRects(node.b, bRect, path + 'b', leaves, gutters)
-  } else {
-    const ah = rect.h * ratio
-    const aRect = { x: rect.x, y: rect.y, w: rect.w, h: ah }
-    const bRect = { x: rect.x, y: rect.y + ah, w: rect.w, h: rect.h - ah }
-    gutters.push({ id: path, path, dir: 'col', rect, line: { x: rect.x, y: rect.y + ah, w: rect.w, h: 0 } })
-    computeRects(node.a, aRect, path + 'a', leaves, gutters)
-    computeRects(node.b, bRect, path + 'b', leaves, gutters)
-  }
-}
 
-const geometry = computed(() => {
-  const leaves: PaneRect[] = []
-  const gutters: GutterRect[] = []
-  if (mosaic.value) computeRects(mosaic.value, { x: 0, y: 0, w: 100, h: 100 }, '', leaves, gutters)
-  return { leaves, gutters }
-})
+const geometry = computed(() => layoutGeometry(mosaic.value))
 
 const panes = computed(() => {
   const map = slotByAlias.value
@@ -314,78 +282,6 @@ const dockOverlayStyle = computed(() => {
 })
 
 // --- Tree transforms (immutable) --------------------------------------------
-
-function leaf(slot: string): MosaicLeaf {
-  return { type: 'leaf', slot }
-}
-
-function treeSlots(node: MosaicNode | undefined, out: string[] = []): string[] {
-  if (!node) return out
-  if (node.type === 'leaf') out.push(node.slot)
-  else {
-    treeSlots(node.a, out)
-    treeSlots(node.b, out)
-  }
-  return out
-}
-
-function removeSlot(node: MosaicNode, slot: string): MosaicNode | null {
-  if (node.type === 'leaf') return node.slot === slot ? null : node
-  const a = removeSlot(node.a, slot)
-  const b = removeSlot(node.b, slot)
-  if (a === null) return b
-  if (b === null) return a
-  return { ...node, a, b }
-}
-
-function splitAtLeaf(node: MosaicNode, targetSlot: string, source: MosaicLeaf, side: Side): MosaicNode {
-  if (node.type === 'leaf') {
-    if (node.slot !== targetSlot) return node
-    if (side === 'left') return { type: 'split', dir: 'row', ratio: 0.5, a: source, b: node }
-    if (side === 'right') return { type: 'split', dir: 'row', ratio: 0.5, a: node, b: source }
-    if (side === 'top') return { type: 'split', dir: 'col', ratio: 0.5, a: source, b: node }
-    if (side === 'bottom') return { type: 'split', dir: 'col', ratio: 0.5, a: node, b: source }
-    return node
-  }
-  return { ...node, a: splitAtLeaf(node.a, targetSlot, source, side), b: splitAtLeaf(node.b, targetSlot, source, side) }
-}
-
-function swapSlots(node: MosaicNode, a: string, b: string): MosaicNode {
-  if (node.type === 'leaf') {
-    if (node.slot === a) return leaf(b)
-    if (node.slot === b) return leaf(a)
-    return node
-  }
-  return { ...node, a: swapSlots(node.a, a, b), b: swapSlots(node.b, a, b) }
-}
-
-function setRatioAtPath(node: MosaicNode, path: string, ratio: number): MosaicNode {
-  if (path === '') {
-    return node.type === 'split' ? { ...node, ratio: clamp(ratio, 0.05, 0.95) } : node
-  }
-  if (node.type !== 'split') return node
-  const head = path[0]
-  const rest = path.slice(1)
-  if (head === 'a') return { ...node, a: setRatioAtPath(node.a, rest, ratio) }
-  return { ...node, b: setRatioAtPath(node.b, rest, ratio) }
-}
-
-function reconcileTree(tree: MosaicNode | undefined, aliases: string[]): MosaicNode {
-  if (!aliases.length) return leaf('cam1')
-  if (!tree) return defaultMosaicTree(aliases)
-  let next: MosaicNode | undefined = tree
-  for (const slot of treeSlots(next)) {
-    if (!aliases.includes(slot)) {
-      next = next ? removeSlot(next, slot) ?? undefined : undefined
-    }
-  }
-  for (const alias of aliases) {
-    if (!treeSlots(next).includes(alias)) {
-      next = next ? { type: 'split', dir: 'row', ratio: 0.7, a: next, b: leaf(alias) } : leaf(alias)
-    }
-  }
-  return next ?? defaultMosaicTree(aliases)
-}
 
 // --- Mosaic interactions -----------------------------------------------------
 
@@ -505,26 +401,7 @@ function hitTest(clientX: number, clientY: number): { alias: string; side: Side 
 }
 
 function applyDock(sourceAlias: string, targetAlias: string, side: Side) {
-  if (!mosaic.value || sourceAlias === targetAlias) return
-  // Dock to the outer edge of the whole layout → wrap the entire tree in a new split,
-  // giving the camera a full-height column (left/right) or full-width row (top/bottom).
-  if (targetAlias === ROOT_TARGET) {
-    if (side === 'center') return
-    const rest = removeSlot(mosaic.value, sourceAlias)
-    if (!rest) return
-    const src = leaf(sourceAlias)
-    const dir: 'row' | 'col' = side === 'left' || side === 'right' ? 'row' : 'col'
-    const sourceFirst = side === 'left' || side === 'top'
-    setTree({ type: 'split', dir, ratio: 0.5, a: sourceFirst ? src : rest, b: sourceFirst ? rest : src })
-    return
-  }
-  if (side === 'center') {
-    setTree(swapSlots(mosaic.value, sourceAlias, targetAlias))
-    return
-  }
-  const withoutSource = removeSlot(mosaic.value, sourceAlias)
-  if (!withoutSource) return
-  setTree(splitAtLeaf(withoutSource, targetAlias, leaf(sourceAlias), side))
+  if (mosaic.value) setTree(dockCamera(mosaic.value, sourceAlias, targetAlias, side))
 }
 
 function startGutterDrag(event: PointerEvent, gutter: GutterRect) {
@@ -572,29 +449,6 @@ async function saveMosaic() {
   } catch (err) {
     error.value = err instanceof Error ? err.message : 'Layout konnte nicht gespeichert werden.'
   }
-}
-
-function parseMosaic(raw: string | undefined): MosaicNode | undefined {
-  if (!raw) return undefined
-  try {
-    return normalizeNode(JSON.parse(raw))
-  } catch {
-    return undefined
-  }
-}
-
-function normalizeNode(value: unknown): MosaicNode | undefined {
-  if (!value || typeof value !== 'object') return undefined
-  const node = value as Record<string, unknown>
-  if (node.type === 'leaf' && typeof node.slot === 'string') return leaf(node.slot)
-  if (node.type === 'split' && (node.dir === 'row' || node.dir === 'col')) {
-    const a = normalizeNode(node.a)
-    const b = normalizeNode(node.b)
-    if (!a || !b) return undefined
-    const ratio = typeof node.ratio === 'number' ? clamp(node.ratio, 0.05, 0.95) : 0.5
-    return { type: 'split', dir: node.dir, ratio, a, b }
-  }
-  return undefined
 }
 
 // --- Chrome: controls auto-hide, spotlight, edit, fullscreen -----------------
