@@ -1,5 +1,6 @@
 import { computed, reactive, ref } from 'vue'
 import { api } from '../api/client'
+import { settingsPatch, relaySettingKeys } from './settingsDraft'
 import type {
   AuthRole,
   AuthStatus,
@@ -31,7 +32,8 @@ const credentialIdentities = ref<CredentialIdentity[]>([])
 const error = ref('')
 const toast = ref('')
 const passwordSource = ref('unbekannt')
-let loaded = false
+let baseline: Record<string, string> = {}
+let loadPending: Promise<void> | undefined
 
 const relayIds = computed(() => settingList(settings['camera.relay.ids']))
 const relayStatuses = computed(() => status.value?.relays ?? [])
@@ -224,10 +226,18 @@ function ensurePerformanceDefault() {
   if (!settings['viewer.performance.mode']) settings['viewer.performance.mode'] = 'quality'
 }
 
-async function loadAll(force = false) {
-  if (loaded && !force) return
+function loadAll(): Promise<void> {
+  if (loadPending) return loadPending
+  loadPending = loadSystem().finally(() => { loadPending = undefined })
+  return loadPending
+}
+
+async function loadSystem() {
   try {
-    Object.assign(settings, await api.settings())
+    const fresh = await api.settings()
+    const pending = settingsPatch(settings, baseline, Object.keys(settings))
+    for (const key of Object.keys(settings)) delete settings[key]
+    Object.assign(settings, fresh)
     passwordSource.value = settings.camera_password_source === 'keyring' ? 'Betriebssystem-Keyring' : (settings.camera_password_source || 'unbekannt')
     authStatus.value = await api.authStatus()
     ensureAuthDefaults()
@@ -235,7 +245,8 @@ async function loadAll(force = false) {
     credentialIdentities.value = await api.credentialIdentities()
     events.value = await api.events()
     ensurePerformanceDefault()
-    loaded = true
+    baseline = { ...settings }
+    Object.assign(settings, pending)
   } catch (err) {
     error.value = err instanceof Error ? err.message : 'Konnte nicht geladen werden.'
   }
@@ -248,31 +259,17 @@ async function refreshStatus() {
   ensureRelayDefaults()
 }
 
-// Client-derived or server-injected keys must never be written back to the
-// backend; they only mirror current state.
-const DERIVED_SETTING_KEYS = new Set([
-  'auth_admin_password_set',
-  'auth_viewer_password_set',
-  'camera_password_set',
-  'camera_password_source',
-  'go2rtc_url',
-  'bind_addr',
-])
-
-function writableSettings(): Record<string, string> {
-  return Object.fromEntries(Object.entries(settings).filter(([key]) => !DERIVED_SETTING_KEYS.has(key)))
-}
-
-async function saveSettings(keys?: string[]) {
+async function saveSettings(keys: string[]): Promise<boolean> {
   error.value = ''
   try {
-    const payload = keys
-      ? Object.fromEntries(keys.filter((k) => k in settings).map((k) => [k, settings[k]]))
-      : writableSettings()
-    await api.saveSettings(payload)
+    const payload = settingsPatch(settings, baseline, keys)
+    if (Object.keys(payload).length) await api.saveSettings(payload)
+    Object.assign(baseline, payload)
     showToast('Einstellungen gespeichert')
+    return true
   } catch (err) {
     error.value = err instanceof Error ? err.message : 'Speichern fehlgeschlagen.'
+    return false
   }
 }
 
@@ -290,10 +287,9 @@ async function saveCameraPassword(password: string) {
 }
 
 async function saveAuthPassword(role: AuthRole, password: string) {
-  const wasEnabled = authStatus.value?.enabled ?? false
   error.value = ''
   await api.setAuthPassword({ role, password })
-  if (role === 'admin' && !wasEnabled) {
+  if (role === 'admin') {
     await api.login({ username: 'admin', password })
     window.dispatchEvent(new Event('auth-changed'))
   }
@@ -350,7 +346,7 @@ function removeRelay(id: string) {
 
 async function relayAction(id: string, action: 'start' | 'stop' | 'restart') {
   error.value = ''
-  await api.saveSettings(writableSettings())
+  if (!await saveSettings(relaySettingKeys(id))) throw new Error(error.value)
   if (action === 'start') await api.startRelay(id)
   if (action === 'stop') await api.stopRelay(id)
   if (action === 'restart') await api.restartRelay(id)

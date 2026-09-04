@@ -30,10 +30,13 @@ type App struct {
 	Go2RTCRestart func(ctx context.Context) error
 	RelayStart    func(ctx context.Context, relay ManagedRelay) (int, error)
 	RelayStop     func(ctx context.Context, status RelayStatus) error
+	Scan          func(context.Context, discovery.Options) ([]discovery.Result, []discovery.Subnet, error)
+	discoveryMu   sync.Mutex
 
-	// camPassMu guards the mutable Tapo credential fields on Config, which are
-	// written by API handlers and read concurrently by viewer/render/watchdog.
-	camPassMu sync.RWMutex
+	// Runtime credentials are kept outside the immutable process configuration.
+	camPassMu            sync.RWMutex
+	cameraPassword       string
+	cameraPasswordSource string
 	// relayMu serializes relay start/stop/ensure so concurrent triggers
 	// (watchdog + API) cannot race on pidfiles.
 	relayMu sync.Mutex
@@ -44,7 +47,7 @@ type App struct {
 func (a *App) CameraCredentials() (password, source string) {
 	a.camPassMu.RLock()
 	defer a.camPassMu.RUnlock()
-	return a.Config.TapoPassword, a.Config.TapoPasswordSource
+	return a.cameraPassword, a.cameraPasswordSource
 }
 
 // SetCameraCredentials updates the active camera password. It is safe for
@@ -52,8 +55,8 @@ func (a *App) CameraCredentials() (password, source string) {
 func (a *App) SetCameraCredentials(password, source string) {
 	a.camPassMu.Lock()
 	defer a.camPassMu.Unlock()
-	a.Config.TapoPassword = password
-	a.Config.TapoPasswordSource = source
+	a.cameraPassword = password
+	a.cameraPasswordSource = source
 }
 
 type Status struct {
@@ -109,6 +112,8 @@ func Open(ctx context.Context) (*App, error) {
 		return nil, err
 	}
 	a := &App{Config: cfg, Store: store, Slots: slots}
+	secret := secrets.Load(cfg.ConfigDir)
+	a.SetCameraCredentials(secret.Value, secret.Source)
 	if err := a.applyNetworkAccess(ctx); err != nil {
 		_ = store.Close()
 		return nil, err
@@ -159,6 +164,8 @@ func (a *App) Status(ctx context.Context) (Status, error) {
 }
 
 func (a *App) Discover(ctx context.Context) (DiscoverySummary, error) {
+	a.discoveryMu.Lock()
+	defer a.discoveryMu.Unlock()
 	run, err := a.Store.StartScan(ctx)
 	if err != nil {
 		return DiscoverySummary{}, err
@@ -166,14 +173,20 @@ func (a *App) Discover(ctx context.Context) (DiscoverySummary, error) {
 	_ = a.Store.AddEvent(ctx, "info", "scan.started", "Kamerasuche gestartet", map[string]string{"scan_id": run.ID})
 	usernames := a.usernames(ctx)
 	cameraPassword, _ := a.CameraCredentials()
-	scanner := discovery.NewScanner(discovery.Options{
+	options := discovery.Options{
 		Timeout:      a.Config.RequestTimeout,
 		LimitPerCIDR: a.Config.ScanLimit,
 		Usernames:    usernames,
 		Password:     cameraPassword,
 		IncludeONVIF: true,
-	})
-	results, subnets, scanErr := scanner.Scan(ctx)
+	}
+	scan := a.Scan
+	if scan == nil {
+		scan = func(ctx context.Context, options discovery.Options) ([]discovery.Result, []discovery.Subnet, error) {
+			return discovery.NewScanner(options).Scan(ctx)
+		}
+	}
+	results, subnets, scanErr := scan(ctx, options)
 	var warnings []string
 	if scanErr != nil {
 		_ = a.Store.FinishScan(ctx, run.ID, "failed", redaction.Text(scanErr.Error()))
@@ -207,7 +220,17 @@ func (a *App) Discover(ctx context.Context) (DiscoverySummary, error) {
 	if len(runs) > 0 {
 		run = runs[0]
 	}
-	return DiscoverySummary{Run: run, Subnets: subnets, Devices: devices, Warnings: warnings}, nil
+	summary := DiscoverySummary{Run: run, Subnets: subnets, Devices: devices, Warnings: warnings}
+	settings, err := a.Store.Settings(ctx)
+	if err != nil {
+		return summary, err
+	}
+	if boolSetting(settings, "render_after_discovery", false) {
+		if _, err := a.RenderConfiguredGo2RTC(ctx); err != nil {
+			return summary, err
+		}
+	}
+	return summary, nil
 }
 
 func (a *App) Assign(ctx context.Context, binding state.Binding) error {

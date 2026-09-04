@@ -42,9 +42,10 @@
 import { onMounted, ref } from 'vue'
 import { api } from '../../api/client'
 import { useSystem } from '../../composables/useSystem'
+import { accessSettingKeys } from '../../composables/settingsDraft'
 import type { AuthRole } from '../../types'
 
-const { settings, loadAll, saveAuthPassword, setBool, error } = useSystem()
+const { settings, loadAll, saveAuthPassword, saveSettings, setBool, error } = useSystem()
 const adminPassword = ref('')
 const viewerPassword = ref('')
 const saving = ref<AuthRole | ''>('')
@@ -67,12 +68,7 @@ async function applyAccessSettings() {
   applyingNetwork.value = true
   error.value = ''
   try {
-    await api.saveSettings({
-      'network.lan_access_enabled': settings['network.lan_access_enabled'] || 'false',
-      'auth.viewer_public': settings['auth.viewer_public'] || 'true',
-      'auth.local_admin_bypass': settings['auth.local_admin_bypass'] || 'false',
-      'auth.session_hours': settings['auth.session_hours'] || '12'
-    })
+    if (!await saveSettings(accessSettingKeys)) { applyingNetwork.value = false; return }
     void api.restartStack().catch(() => undefined)
     window.setTimeout(() => window.location.reload(), 10000)
   } catch (err) {

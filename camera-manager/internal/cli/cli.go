@@ -50,7 +50,12 @@ func serveCmd() *cobra.Command {
 				return err
 			}
 			defer a.Close()
-			go a.RunWatchdog(ctx)
+			go func() {
+				if err := a.RunStartup(ctx); err != nil {
+					_ = a.Store.AddEvent(ctx, "error", "startup.discovery.failed", redaction.Text(err.Error()), nil)
+				}
+				a.RunWatchdog(ctx)
+			}()
 			server := &http.Server{Addr: a.Config.BindAddr, Handler: api.New(a).Handler()}
 			errCh := make(chan error, 1)
 			go func() {
@@ -167,7 +172,7 @@ func renderCmd() *cobra.Command {
 				return err
 			}
 			defer a.Close()
-			result, err := a.RenderGo2RTC(cmd.Context())
+			result, err := a.RenderConfiguredGo2RTC(cmd.Context())
 			if err != nil {
 				return err
 			}
@@ -192,10 +197,7 @@ func restartGo2RTCCmd() *cobra.Command {
 				return err
 			}
 			defer a.Close()
-			if _, err := a.RenderGo2RTC(cmd.Context()); err != nil {
-				return err
-			}
-			if err := system.RestartGo2RTC(cmd.Context(), a.Config); err != nil {
+			if err := a.RestartStreams(cmd.Context()); err != nil {
 				return err
 			}
 			fmt.Println("go2rtc wurde neu gestartet")

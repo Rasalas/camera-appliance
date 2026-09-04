@@ -127,18 +127,18 @@ async function onAction(action: 'start' | 'stop' | 'restart') {
 
 async function onAutoStartChange(e: Event) {
   settings[relaySettingKey(relayId.value, 'auto_start')] = (e.target as HTMLInputElement).checked ? 'true' : 'false'
-  await saveSettings([relaySettingKey(relayId.value, 'auto_start')])
+  if (!await saveSettings([relaySettingKey(relayId.value, 'auto_start')])) return
   await refreshStatus()
 }
 
 async function onSaveConfig() {
-  await saveSettings(['name', 'ssh_target', 'host', 'bind_host', 'port_base'].map((field) => relaySettingKey(relayId.value, field)))
+  if (!await saveSettings(['name', 'ssh_target', 'host', 'bind_host', 'port_base'].map((field) => relaySettingKey(relayId.value, field)))) return
   await onAction('restart')
 }
 
 async function onRemove() {
   removeRelay(relayId.value)
-  await saveSettings()
+  if (!await saveSettings(['camera.relay.ids'])) return
   await refreshStatus()
   await router.push('/system/relays')
 }

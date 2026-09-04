@@ -55,6 +55,7 @@
 import { onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useSystem } from '../../composables/useSystem'
+import { relaySettingKeys } from '../../composables/settingsDraft'
 
 const router = useRouter()
 const {
@@ -90,7 +91,7 @@ async function onAddRelay() {
   try {
     const id = addRelay({ id: sanitizeID(relayDraft.name), name: relayDraft.name, host: relayDraft.host, sshTarget: relayDraft.sshTarget })
     if (!id) return
-    await saveSettings()
+    if (!await saveSettings(['camera.relay.ids', ...relaySettingKeys(id)])) return
     showRelayModal.value = false
     await relayAction(id, 'start').catch((err) => {
       error.value = err instanceof Error ? err.message : 'Relay konnte nicht gestartet werden.'

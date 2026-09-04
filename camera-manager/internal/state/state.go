@@ -445,6 +445,10 @@ func (s *Store) PutSettings(ctx context.Context, values map[string]string) error
 }
 
 func (s *Store) SaveAuthSession(ctx context.Context, session AuthSession) error {
+	return saveAuthSession(ctx, s.db, session)
+}
+
+func saveAuthSession(ctx context.Context, db executor, session AuthSession) error {
 	if session.TokenHash == "" {
 		return errors.New("session token hash is required")
 	}
@@ -458,7 +462,7 @@ func (s *Store) SaveAuthSession(ctx context.Context, session AuthSession) error 
 	if session.ExpiresAt.IsZero() {
 		return errors.New("session expiry is required")
 	}
-	_, err := s.db.ExecContext(ctx, `INSERT INTO auth_sessions (token_hash,role,created_at,expires_at) VALUES (?,?,?,?)
+	_, err := db.ExecContext(ctx, `INSERT INTO auth_sessions (token_hash,role,created_at,expires_at) VALUES (?,?,?,?)
 		ON CONFLICT(token_hash) DO UPDATE SET role=excluded.role, created_at=excluded.created_at, expires_at=excluded.expires_at`,
 		session.TokenHash, session.Role, formatTime(session.CreatedAt), formatTime(session.ExpiresAt))
 	return err

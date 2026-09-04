@@ -8,7 +8,9 @@
     "build": "vue-tsc --noEmit && vite build",
     "test:embed": "node --test tests/embed-status.test.js",
     "test:mosaic": "node --test --experimental-strip-types src/pages/viewerMosaic.test.ts",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test:settings": "node --test --experimental-strip-types src/composables/settingsDraft.test.ts",
+    "test": "npm run test:embed && npm run test:mosaic && npm run test:settings"
   },
   "dependencies": {
     "@fontsource-variable/jetbrains-mono": "^5.2.8",

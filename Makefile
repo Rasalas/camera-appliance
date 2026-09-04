@@ -38,7 +38,7 @@ help:
 	@echo "  make dev-hot         Run backend API and Vite UI with hot reload"
 	@echo "  make dev-go2rtc      Start local go2rtc helper"
 	@echo "  make stop-dev-go2rtc Stop local go2rtc helper"
-	@echo "  make test            Run Go tests"
+	@echo "  make test            Run backend and frontend tests"
 	@echo "  make build           Build frontend and Go binary"
 	@echo "  make release         Build a redacted release archive; suggests VERSION with tagger"
 	@echo "  make status          Run local status command"
@@ -164,6 +164,7 @@ release:
 
 test:
 	cd camera-manager && go test ./...
+	cd frontend && npm test
 
 status: backend-build
 	./bin/camera-appliance status
