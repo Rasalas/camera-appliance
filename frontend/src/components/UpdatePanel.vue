@@ -115,6 +115,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { api } from '../api/client'
+import { createUpdateClient } from '../composables/updateClient'
 import type { UpdateFlowPhase, UpdateFlowStatus } from '../types'
 import UpdateInfo from './UpdateInfo.vue'
 
@@ -457,59 +458,14 @@ function unbindPopListeners() {
 
 /* ---------- API flow ------------------------------------------------------ */
 
-async function refresh() {
-  try {
-    status.value = await api.getUpdateStatus()
-  } catch {
-    /* keep last state */
-  }
-  schedulePoll()
-}
-
-async function check() {
-  busy.value = true
-  try {
-    status.value = await api.checkForUpdates()
-  } catch {
-    await refresh()
-  } finally {
-    busy.value = false
-    schedulePoll()
-  }
-}
-
-async function download() {
-  busy.value = true
-  try {
-    status.value = await api.downloadUpdate()
-  } catch (err) {
-    status.value = { ...(status.value ?? { phase: 'idle', current_version: '' }), phase: 'failed', error: err instanceof Error ? err.message : 'Download fehlgeschlagen.' }
-  } finally {
-    busy.value = false
-    schedulePoll()
-  }
-}
-
-async function install() {
-  busy.value = true
-  try {
-    await api.installUpdate()
-    await refresh()
-  } catch (err) {
-    status.value = { ...(status.value ?? { phase: 'idle', current_version: '' }), phase: 'failed', error: err instanceof Error ? err.message : 'Installation fehlgeschlagen.' }
-  } finally {
-    busy.value = false
-    schedulePoll()
-  }
-}
-
-// Poll faster than before so the ring fills smoothly.
-function schedulePoll() {
-  window.clearInterval(pollTimer)
-  if (status.value?.phase === 'downloading' || status.value?.phase === 'installing') {
-    pollTimer = window.setInterval(() => void refresh(), 1000)
-  }
-}
+const updateClient = createUpdateClient(api, {
+  publish: value => { status.value = value },
+  busy: value => { busy.value = value },
+  reload: () => window.location.reload(),
+  schedule: callback => { pollTimer = window.setTimeout(callback, 1000) },
+  cancel: () => window.clearTimeout(pollTimer)
+})
+const { refresh, check, download, install } = updateClient
 
 watch(hoverOpen, (isOpen) => {
   if (!isOpen) {
@@ -573,7 +529,7 @@ onMounted(() => {
 })
 
 onBeforeUnmount(() => {
-  window.clearInterval(pollTimer)
+  updateClient.close()
   window.clearInterval(autoCheckTimer)
   window.clearTimeout(enterTimer)
   window.clearTimeout(closeTimer)

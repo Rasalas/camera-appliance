@@ -370,6 +370,16 @@ export type UpdateFlowPhase =
   | 'failed'
 
 export interface UpdateFlowStatus {
+  job?: {
+    id: string
+    phase: 'queued' | 'installing' | 'complete' | 'failed'
+    error?: string
+    result?: {
+      new_version?: { version: string; commit?: string }
+      old_version?: { version: string; commit?: string }
+      rollback_applied?: boolean
+    }
+  }
   phase: UpdateFlowPhase
   current_version: string
   latest?: UpdateReleaseInfo
