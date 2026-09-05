@@ -1,5 +1,7 @@
 import type { AuthStatus, Binding, CredentialIdentity, Device, DeviceCredentials, EventItem, FrameResult, LoginResult, ManualDeviceResult, ProbeResult, RelayStatus, ScanRun, Slot, StatusResponse, SupportBundleResult, UpdateStartResult, UpdateFlowStatus, ViewerResponse } from '../types'
 
+import type { UploadSettings, UploadCrop, SnapshotUploadResult, UploadScheduleInput, UploadScheduleStatus, UploadNaming } from '../types'
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(path, {
     ...init,
@@ -17,6 +19,17 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export const api = {
+  uploadSchedule: (id: string) => request<UploadScheduleStatus>(`/api/devices/${encodeURIComponent(id)}/upload-schedule`),
+  uploadNaming: (id: string) => request<UploadNaming>(`/api/devices/${encodeURIComponent(id)}/upload-naming`),
+  saveUploadNaming: (id: string, body: UploadNaming) => request<UploadNaming>(`/api/devices/${encodeURIComponent(id)}/upload-naming`, { method: 'PUT', body: JSON.stringify(body) }),
+  saveUploadSchedule: (id: string, body: UploadScheduleInput) => request<UploadScheduleStatus>(`/api/devices/${encodeURIComponent(id)}/upload-schedule`, { method: 'PUT', body: JSON.stringify(body) }),
+  uploadSettings: () => request<UploadSettings>('/api/snapshot-upload'),
+  saveUploadSettings: (body: Omit<UploadSettings, 'password_set'> & { password: string; clear_password?: boolean }) =>
+    request<UploadSettings>('/api/snapshot-upload', { method: 'PUT', body: JSON.stringify(body) }),
+  uploadCrop: (id: string) => request<UploadCrop>(`/api/devices/${encodeURIComponent(id)}/upload-crop`),
+  saveUploadCrop: (id: string, crop: UploadCrop) => request<UploadCrop>(`/api/devices/${encodeURIComponent(id)}/upload-crop`, { method: 'PUT', body: JSON.stringify(crop) }),
+  uploadSnapshot: (id: string, body: { username: string; password: string; stream: string; crop: UploadCrop }) =>
+    request<SnapshotUploadResult>(`/api/devices/${encodeURIComponent(id)}/upload-snapshot`, { method: 'POST', body: JSON.stringify(body) }),
   authStatus: () => request<AuthStatus>('/api/auth/status'),
   login: (body: { username: string; password: string; remember?: boolean }) =>
     request<LoginResult>('/api/auth/login', { method: 'POST', body: JSON.stringify(body) }),

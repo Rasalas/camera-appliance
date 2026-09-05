@@ -5,7 +5,7 @@ RUN npm ci
 COPY frontend/ ./
 RUN npm run build
 
-FROM golang:1.23-bookworm AS backend
+FROM golang:1.26-bookworm AS backend
 ARG VERSION=dev
 ARG COMMIT=local
 ARG BUILD_TIME=
@@ -22,7 +22,7 @@ RUN CGO_ENABLED=0 go build \
   -o /out/camera-appliance ./cmd/camera-appliance
 
 FROM debian:bookworm-slim
-RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates iproute2 docker.io docker-compose libsecret-tools openssh-client && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates iproute2 docker.io docker-compose libsecret-tools openssh-client ffmpeg && rm -rf /var/lib/apt/lists/*
 COPY --from=backend /out/camera-appliance /usr/local/bin/camera-appliance
 COPY --from=frontend /src/frontend/dist /opt/camera-appliance/frontend/dist
 COPY compose.yaml /opt/camera-appliance/compose.yaml

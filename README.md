@@ -96,6 +96,74 @@ The viewer consumes only stable go2rtc aliases:
 
 Do not put camera DHCP IPs into viewer configuration.
 
+## Einzelbilder per FTP/SFTP hochladen
+
+Unter **System → Bild-Upload** lassen sich Protokoll, Server, Port, Benutzername,
+Passwort und ein vorhandenes Zielverzeichnis konfigurieren. SFTP benötigt zusätzlich
+den SHA256-Fingerabdruck des SSH-Hostschlüssels vom Serverbetreiber. FTP ist
+unverschlüsselt; SFTP verschlüsselt sowohl Bilder als auch Zugangsdaten.
+
+In **Einrichtung → Kamera → Bild-Upload** nimmt „Jetzt hochladen“ ein neues JPEG
+aus dem ausgewählten Kamerastream auf. Der vorhandene
+Kamerazugang und die direkte oder Relay-Verbindung werden weiterverwendet.
+Die Kameravorschau lädt beim Öffnen automatisch. „Ausschnitt“ erlaubt die Auswahl
+eines Rahmens im Originalbild; Prozentwerte stehen unter „Genaue Werte“ zur Verfügung.
+Änderungen werden automatisch pro Kamera gespeichert, mit kurzer Status- oder
+Fehlermeldung. Der Upload verwendet immer die aktuell angezeigte Auswahl.
+Mit „Vollbild“ wird alternativ das gesamte Originalbild
+hochgeladen. Die Anzeige-Transforms des Viewers ändern das Upload-Bild nicht.
+
+Unter „Automatisch“ sind pro Kamera Uploads jede Minute, alle 5 oder 15 Minuten
+und jede Stunde wählbar. „Aus“ deaktiviert sie. Der Hintergrunddienst verwendet
+den gespeicherten Kamerazugang, Stream und Bildbereich und läuft auch bei
+geschlossenem Browser. Der erste Lauf erfolgt nach dem gewählten Intervall;
+Einstellungen und nächster Termin bleiben bei Neustarts erhalten. Verpasste
+Intervalle werden zu höchstens einem Lauf zusammengefasst. Uploads laufen
+nacheinander; ein laufender Upload wird beim Deaktivieren noch beendet.
+
+Optional pausiert eine tägliche Ruhezeit die automatischen Uploads. Auch
+„22:00 bis 07:00“ über Mitternacht ist möglich. Der Beginn ist eingeschlossen,
+das Ende nicht. Maßgeblich ist die angezeigte lokale Gerätezeit, einschließlich
+Sommerzeitwechsel; die Docker-Konfiguration übernimmt dafür `/etc/localtime`
+vom Host. Bei Beginn der Ruhezeit wird ein laufender automatischer Upload
+abgebrochen. Nach der Pause wird ein fälliger Lauf ausgeführt, ohne die ausgelassenen
+Bilder nachzuholen. Der manuelle Upload bleibt auch während der Ruhezeit möglich.
+Status, letzter Erfolg und Fehler erscheinen in der Kameradetailseite.
+
+Unter „Dateien“ legt jede Kamera fest, ob jeder Upload eine neue Datei erhält
+oder dieselbe Datei ersetzt. Standard bleibt ein eindeutiger Name mit
+Kamera-Kennung und UTC-Zeit. Für ein stets aktuelles Bild „Dieselbe Datei ersetzen“
+wählen und z. B. `hof.jpg` eingeben. Die Auswahl wird automatisch gespeichert und
+gilt für manuelle und automatische Uploads sowie Vollbilder und Ausschnitte.
+Der feste Name darf höchstens 120 Zeichen enthalten, beginnt mit einem Buchstaben
+oder einer Zahl und verwendet nur `A–Z`, `a–z`, `0–9`, Punkt, Bindestrich und
+Unterstrich sowie die Endung `.jpg` oder `.jpeg`. Verzeichnisse gehören in die
+Server-Einstellungen. Jede Kamera sollte einen eigenen festen Namen erhalten,
+sonst ersetzen sich ihre Bilder gegenseitig.
+
+Das Zielverzeichnis muss existieren und Schreiben sowie Umbenennen erlauben.
+Eine Übertragung wird zunächst unter einem eindeutigen `.part`-Namen geschrieben
+und erst nach vollständiger Übertragung unter dem endgültigen JPEG-Namen
+veröffentlicht. FTP muss das Ersetzen per Rename erlauben; für SFTP wird die
+Server-Erweiterung `posix-rename@openssh.com` verwendet. Verweigert der Server
+die Ersetzung, wird ein Fehler gemeldet. Die bisherige Zieldatei wird nicht vorab
+gelöscht. Bei Netzwerkabbruch können
+`.part`-Dateien auf dem Server zurückbleiben. Ein Upload hat maximal 30 Sekunden
+Übertragungszeit zuzüglich der bestehenden Aufnahmezeit von bis zu 8 Sekunden.
+
+Das Serverpasswort liegt mit Dateimodus `0600` in
+`/etc/camera-appliance/snapshot-upload-password.json`. Die API liefert nur zurück,
+ob ein Passwort vorhanden ist. Ein leeres Passwortfeld behält das gespeicherte
+Passwort für dasselbe Ziel; Änderungen an Server, Port, Protokoll, Benutzer oder
+SSH-Hostschlüssel benötigen ein neues Passwort. Das Passwort lässt sich dort auch
+löschen. Geschützte Backups enthalten diese Datei, Support-Bundles nicht.
+
+Die Funktion erfordert `ffmpeg` für die vorhandene Einzelbildaufnahme. Installer
+und Docker-Image bringen es mit; bei älteren nativen Installationen kann es mit
+`sudo apt install ffmpeg` nachinstalliert werden. Bei einem Capture-Hop muss es auf
+dem konfigurierten SSH-Host verfügbar sein. Der Go-Build benötigt Go 1.26 oder neuer
+für die verwendeten SSH/SFTP-Bibliotheken.
+
 ## Optional AgentDVR
 
 AgentDVR is not required for normal install, startup, status, or camera display. It remains available only as an optional Docker Compose profile for NVR experiments:
@@ -119,6 +187,7 @@ The bootstrap installer installs the remaining base dependencies where possible:
 
 - `ca-certificates`
 - `tar`
+- `ffmpeg`
 - Docker Engine (`docker.io`)
 - Docker Compose plugin (`docker-compose-plugin`)
 

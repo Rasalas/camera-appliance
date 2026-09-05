@@ -3,6 +3,7 @@ import ViewerPage from '../pages/ViewerPage.vue'
 import SetupPage from '../pages/SetupPage.vue'
 import SystemLayout from '../layouts/SystemLayout.vue'
 import SystemGeneralPage from '../pages/system/GeneralPage.vue'
+import SystemUploadPage from '../pages/system/UploadPage.vue'
 import SystemAccessPage from '../pages/system/AccessPage.vue'
 import SystemNetworkPage from '../pages/system/NetworkPage.vue'
 import SystemRelayDetailPage from '../pages/system/RelayDetailPage.vue'
@@ -26,6 +27,7 @@ const router = createRouter({
       children: [
         { path: '', redirect: '/system/allgemein' },
         { path: 'allgemein', name: 'system-general', component: SystemGeneralPage },
+        { path: 'bild-upload', name: 'system-upload', component: SystemUploadPage },
         { path: 'zugriff', name: 'system-access', component: SystemAccessPage },
         { path: 'relays', name: 'system-relays', component: SystemNetworkPage },
         { path: 'relays/:id', name: 'system-relay', component: SystemRelayDetailPage },

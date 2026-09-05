@@ -10,7 +10,8 @@
     "test:mosaic": "node --test --experimental-strip-types src/pages/viewerMosaic.test.ts",
     "preview": "vite preview",
     "test:settings": "node --test --experimental-strip-types src/composables/settingsDraft.test.ts",
-    "test": "npm run test:embed && npm run test:mosaic && npm run test:settings"
+    "test:upload-crop": "node --test --experimental-strip-types src/composables/uploadCropDraft.test.ts",
+    "test": "npm run test:embed && npm run test:mosaic && npm run test:settings && npm run test:upload-crop"
   },
   "dependencies": {
     "@fontsource-variable/jetbrains-mono": "^5.2.8",

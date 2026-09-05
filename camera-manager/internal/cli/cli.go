@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -58,11 +59,20 @@ func serveCmd() *cobra.Command {
 				}
 				a.RunWatchdog(ctx)
 			}()
-			server := &http.Server{Addr: a.Config.BindAddr, Handler: api.New(a).Handler()}
+			apiServer := api.New(a)
+			server := &http.Server{Addr: a.Config.BindAddr, Handler: apiServer.Handler()}
+			listener, err := net.Listen("tcp", a.Config.BindAddr)
+			if err != nil {
+				return err
+			}
+			defer listener.Close()
+			schedulerDone := make(chan struct{})
+			go func() { defer close(schedulerDone); apiServer.RunUploadScheduler(ctx) }()
+			defer func() { stop(); <-schedulerDone }()
 			errCh := make(chan error, 1)
 			go func() {
 				fmt.Printf("camera-appliance läuft auf http://%s\n", a.Config.BindAddr)
-				errCh <- server.ListenAndServe()
+				errCh <- server.Serve(listener)
 			}()
 			select {
 			case <-ctx.Done():

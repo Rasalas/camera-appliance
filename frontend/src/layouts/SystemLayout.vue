@@ -33,6 +33,7 @@ const { settings, error, toast, versionLabel, loadAll } = useSystem()
 
 const tabs = [
   { to: '/system/allgemein', label: 'Allgemein' },
+  { to: '/system/bild-upload', label: 'Bild-Upload' },
   { to: '/system/zugriff', label: 'Zugriff' },
   { to: '/system/relays', label: 'Relays' },
   { to: '/system/identitaeten', label: 'Identitäten' },

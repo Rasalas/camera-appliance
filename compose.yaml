@@ -57,6 +57,7 @@ services:
     volumes:
       - /opt/camera-appliance:/opt/camera-appliance
       - /etc/camera-appliance:/etc/camera-appliance
+      - /etc/localtime:/etc/localtime:ro
       - /var/lib/camera-appliance:/var/lib/camera-appliance
       # Root-äquivalent: der Manager braucht den Socket nur für go2rtc-Restarts.
       # Alternative ohne Socket: CAMERA_APPLIANCE_GO2RTC_RESTART_COMMAND mit

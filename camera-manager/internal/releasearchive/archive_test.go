@@ -1,17 +1,17 @@
 package releasearchive
 
 import (
-"archive/tar"
-"compress/gzip"
-"context"
-"crypto/sha256"
-"encoding/hex"
-"net/http"
-"net/http/httptest"
-"os"
-"path/filepath"
-"strings"
-"testing"
+	"archive/tar"
+	"compress/gzip"
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
 )
 
 func TestValidateSourceRequiresHTTPS(t *testing.T) {
@@ -130,7 +130,7 @@ func TestPrepareOwnsDownloadAndStagingLifetime(t *testing.T) {
 }
 
 func TestPrepareRejectsUnsafeInputWithoutLeavingPartialRelease(t *testing.T) {
-	for _, name := range []string{"release/secrets.env", "release/.private/password", "../escape"} {
+	for _, name := range []string{"release/secrets.env", "release/.private/password", "release/snapshot-upload-password.json", "release/.upload-password-temp", "../escape"} {
 		t.Run(name, func(t *testing.T) {
 			archive := testArchive(t, map[string]string{"release/bin/camera-appliance": "binary", name: "sensitive"})
 			workspace := t.TempDir()

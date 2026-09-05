@@ -381,3 +381,49 @@ export interface UpdateFlowStatus {
   error?: string
   checked_at?: string
 }
+export interface UploadSettings {
+  protocol: 'ftp' | 'sftp'
+  host: string
+  port: number
+  username: string
+  directory: string
+  host_key: string
+  password_set: boolean
+}
+
+export interface UploadCrop {
+  enabled: boolean
+  x: number
+  y: number
+  width: number
+  height: number
+}
+
+export interface SnapshotUploadResult {
+  filename: string
+  width: number
+  height: number
+  bytes: number
+}
+
+export interface UploadNaming {
+  mode: 'unique' | 'fixed'
+  filename: string
+}
+
+export interface UploadScheduleInput {
+  enabled: boolean
+  interval_seconds: number
+  quiet_hours: { enabled: boolean; start: string; end: string }
+}
+
+export interface UploadScheduleStatus extends UploadScheduleInput {
+  next_run?: string
+  running: boolean
+  last_attempt?: string
+  last_success?: string
+  last_error?: string
+  quiet_now: boolean
+  device_time: string
+  time_zone: string
+}

@@ -1,0 +1,61 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="675" viewBox="0 0 1200 675">
+  <defs>
+    <linearGradient id="sky" x2="0" y2="1"><stop stop-color="#aabfc9"/><stop offset="1" stop-color="#dce2dc"/></linearGradient>
+    <linearGradient id="wall" x2="1" y2="1"><stop stop-color="#e5dfd0"/><stop offset="1" stop-color="#b9b6a8"/></linearGradient>
+    <linearGradient id="yard" x2="0" y2="1"><stop stop-color="#bab9ad"/><stop offset="1" stop-color="#8c9290"/></linearGradient>
+    <pattern id="paving" width="88" height="42" patternUnits="userSpaceOnUse"><path d="M0 0H88V42H0ZM44 0V42" fill="none" stroke="#818987" stroke-width="1" opacity=".45"/></pattern>
+    <pattern id="garage" width="20" height="24" patternUnits="userSpaceOnUse"><rect width="20" height="24" fill="#717a79"/><path d="M0 22H20" stroke="#4b5658" stroke-width="2"/></pattern>
+  </defs>
+  <rect width="1200" height="675" fill="url(#sky)"/>
+  <path d="M0 192Q115 99 217 174Q320 105 417 180Q513 93 645 170Q764 107 886 169Q1020 88 1200 175V344H0Z" fill="#839385"/>
+  <path d="M0 225Q110 138 213 227Q278 157 390 225L470 346H0ZM977 256Q1080 132 1200 199V370H933Z" fill="#697e6c"/>
+  <path d="M0 338L1200 327V675H0Z" fill="url(#yard)"/>
+  <path d="M0 338L1200 327V675H0Z" fill="url(#paving)"/>
+  <path d="M0 383L410 360 305 675H0Z" fill="#738769"/>
+  <path d="M0 390L386 370 304 660H0Z" fill="#80916e"/>
+  <path d="M384 365L410 363 325 675H302Z" fill="#d1cdbd"/>
+  <path d="M269 222L620 164 690 218 692 372 270 407Z" fill="url(#wall)"/>
+  <path d="M211 229L421 77 696 184 640 210 425 125 281 233Z" fill="#555e63"/>
+  <path d="M421 77L696 184 644 211 425 127Z" fill="#3d484e"/>
+  <path d="M456 105L489 113V67L456 59Z" fill="#8d887d"/>
+  <path d="M302 259L378 249V324L302 334Z" fill="#e8e7dc"/>
+  <path d="M310 266L369 258V317L310 325Z" fill="#6b8790"/>
+  <path d="M339 262V321M310 292L369 284" stroke="#d9dbd2" stroke-width="5"/>
+  <path d="M430 239L506 229V305L430 314Z" fill="#e8e7dc"/>
+  <path d="M438 247L498 238V298L438 306Z" fill="#637e88"/>
+  <path d="M466 243V301M438 274L498 265" stroke="#d9dbd2" stroke-width="5"/>
+  <path d="M553 249L606 243V375L553 380Z" fill="#4f605f"/>
+  <path d="M590 313L598 312" stroke="#c7cbbd" stroke-width="4"/>
+  <path d="M627 217L1030 237V402L627 377Z" fill="#cac8bc"/>
+  <path d="M613 206L821 137 1054 225 1030 247 628 226Z" fill="#48575d"/>
+  <path d="M821 137L1054 225 1030 247 814 164Z" fill="#37484e"/>
+  <path d="M676 259L966 273V385L676 370Z" fill="#465253"/>
+  <path d="M686 269L956 282V375L686 361Z" fill="url(#garage)"/>
+  <path d="M811 324L838 325" stroke="#b7c1bc" stroke-width="5"/>
+  <path d="M629 377L1030 402 1138 460 689 430Z" fill="#5a6564" opacity=".3"/>
+  <path d="M279 406L621 379 673 400 290 442Z" fill="#6c716b" opacity=".3"/>
+  <path d="M68 283L143 298 139 447 63 466Z" fill="#8f9990"/>
+  <path d="M75 299L132 310 130 434 72 448Z" fill="#bcc0af"/>
+  <path d="M61 286L148 301 146 312 59 297Z" fill="#626d68"/>
+  <path d="M144 388L330 368M142 420L321 400" stroke="#586966" stroke-width="5"/>
+  <path d="M173 386L170 420M211 382L207 414M249 378L244 407M286 374L280 403" stroke="#586966" stroke-width="4"/>
+  <path d="M329 351L344 350 336 418 321 419Z" fill="#52655f"/>
+  <path d="M963 430L1200 466V489L961 451Z" fill="#5f7268"/>
+  <path d="M966 480L1200 533V553L964 501Z" fill="#5f7268"/>
+  <path d="M980 415V515M1032 423V532M1094 437V551M1161 443V574" stroke="#50665d" stroke-width="14"/>
+  <ellipse cx="215" cy="510" rx="86" ry="34" fill="#4e645a" opacity=".25"/>
+  <path d="M184 500L176 386 193 383 204 501Z" fill="#7c7660"/>
+  <ellipse cx="178" cy="347" rx="90" ry="73" fill="#587359"/>
+  <ellipse cx="145" cy="333" rx="60" ry="55" fill="#6a8464"/>
+  <ellipse cx="207" cy="318" rx="60" ry="54" fill="#728c69"/>
+  <ellipse cx="213" cy="373" rx="68" ry="45" fill="#627d5e"/>
+  <path d="M527 368L541 367 545 396 525 398Z" fill="#8c7561"/>
+  <ellipse cx="535" cy="357" rx="24" ry="26" fill="#536f54"/>
+  <path d="M993 373L1013 374 1018 407 989 406Z" fill="#8c7561"/>
+  <ellipse cx="1002" cy="366" rx="29" ry="33" fill="#526b53"/>
+  <path d="M412 641L711 456 867 467 721 675H364Z" fill="#c5c5b7" opacity=".12"/>
+  <rect x="24" y="22" width="247" height="39" rx="3" fill="#1c2929" opacity=".8"/>
+  <circle cx="43" cy="42" r="4" fill="#c5ec68"/>
+  <text x="59" y="49" fill="#f0f3e8" font-family="monospace" font-size="18">HOFKAMERA · TESTBILD</text>
+  <text x="945" y="47" fill="#f3f5ed" font-family="monospace" font-size="18">05.09.2026 12:00</text>
+</svg>
