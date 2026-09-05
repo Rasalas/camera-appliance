@@ -406,10 +406,9 @@ func newViewerTestApp(t *testing.T, go2rtcURL, password string) *App {
 		StateDir:       dir,
 		Go2RTCURL:      go2rtcURL,
 		Go2RTCRTSPURL:  "rtsp://localhost:8554",
-		TapoPassword:   password,
 		RequestTimeout: 100 * time.Millisecond,
 	}
-	return &App{
+	a := &App{
 		Config: cfg,
 		Store:  store,
 		Slots:  slots,
@@ -417,6 +416,8 @@ func newViewerTestApp(t *testing.T, go2rtcURL, password string) *App {
 			return nil
 		},
 	}
+	a.SetCameraCredentials(password, "test")
+	return a
 }
 
 func writeGeneratedGo2RTC(t *testing.T, cfg config.Config, data string) {

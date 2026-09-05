@@ -2,7 +2,7 @@
   <section class="panel card">
     <div class="panel-head">
       <h2>Watchdog</h2>
-      <button class="btn sm primary" @click="saveSettings()">Speichern</button>
+      <button class="btn sm primary" @click="saveSettings(maintenanceSettingKeys)">Speichern</button>
     </div>
 
     <div style="display: grid; gap: 8px;">
@@ -146,6 +146,7 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
 import { useSystem } from '../../composables/useSystem'
+import { maintenanceSettingKeys } from '../../composables/settingsDraft'
 
 const {
   settings, status, events, backupResult, supportBundleResult, updateResult, error,

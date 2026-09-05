@@ -84,7 +84,7 @@ func (a *App) SetAuthPassword(ctx context.Context, role, password string) error 
 	if role == authn.RoleViewer {
 		key = AuthSettingViewerPasswordHash
 	}
-	if err := a.Store.PutSettings(ctx, map[string]string{key: hash}); err != nil {
+	if err := a.Store.ReplaceAuthPassword(ctx, key, role, hash); err != nil {
 		return err
 	}
 	_ = a.Store.AddEvent(ctx, "info", "auth.password.updated", "Login-Passwort wurde aktualisiert", map[string]string{"role": role})
@@ -124,7 +124,7 @@ func (a *App) Login(ctx context.Context, username, password string, remember boo
 	if err := a.Store.DeleteExpiredAuthSessions(ctx, now); err != nil {
 		return "", LoginResult{}, err
 	}
-	if err := a.Store.SaveAuthSession(ctx, state.AuthSession{
+	if err := a.Store.SaveAuthSessionForPassword(ctx, key, storedHash, state.AuthSession{
 		TokenHash: authn.TokenHash(token),
 		Role:      role,
 		CreatedAt: now,

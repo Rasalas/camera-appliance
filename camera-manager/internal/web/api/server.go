@@ -915,16 +915,12 @@ func (s *Server) replaceBinding(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) renderGo2RTC(w http.ResponseWriter, r *http.Request) {
-	result, err := s.app.RenderGo2RTC(r.Context())
+	result, err := s.app.RenderConfiguredGo2RTC(r.Context())
 	writeResult(w, result, err)
 }
 
 func (s *Server) restartGo2RTC(w http.ResponseWriter, r *http.Request) {
-	if _, err := s.app.RenderGo2RTC(r.Context()); err != nil {
-		writeResult(w, map[string]string{"status": "render_failed"}, err)
-		return
-	}
-	err := system.RestartGo2RTC(r.Context(), s.app.Config)
+	err := s.app.RestartStreams(r.Context())
 	if err == nil {
 		_ = s.app.Store.AddEvent(r.Context(), "info", "go2rtc.restarted", "go2rtc wurde neu gestartet", nil)
 	}
@@ -1087,34 +1083,11 @@ func (s *Server) putSettings(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err, http.StatusBadRequest)
 		return
 	}
-	delete(settings, "camera_password")
-	delete(settings, app.AuthSettingAdminPasswordHash)
-	delete(settings, app.AuthSettingViewerPasswordHash)
-	delete(settings, "auth_admin_password_set")
-	delete(settings, "auth_viewer_password_set")
-	delete(settings, "camera_password_set")
-	delete(settings, "camera_password_source")
-	delete(settings, "bind_addr")
-	delete(settings, "go2rtc_url")
-	if value, present := settings[app.NetworkSettingLANAccess]; present {
-		if value != "true" && value != "false" {
-			writeError(w, errors.New("LAN-Zugriff muss true oder false sein"), http.StatusBadRequest)
-			return
-		}
-		if value == "true" {
-			current, err := s.app.Store.Settings(r.Context())
-			if err != nil {
-				writeError(w, err, http.StatusInternalServerError)
-				return
-			}
-			if current[app.AuthSettingAdminPasswordHash] == "" {
-				writeError(w, errors.New("Vor dem LAN-Zugriff muss ein Admin-Passwort gesetzt werden"), http.StatusBadRequest)
-				return
-			}
-		}
+	if err := s.app.UpdateSettings(r.Context(), settings); err != nil {
+		writeError(w, err, http.StatusBadRequest)
+		return
 	}
-	err := s.app.Store.PutSettings(r.Context(), settings)
-	writeResult(w, map[string]string{"status": "ok"}, err)
+	writeJSON(w, map[string]string{"status": "ok"}, http.StatusOK)
 }
 
 func (s *Server) setCameraPassword(w http.ResponseWriter, r *http.Request) {
@@ -1130,7 +1103,7 @@ func (s *Server) setCameraPassword(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err, http.StatusInternalServerError)
 		return
 	}
-	s.app.SetCameraCredentials(req.Password, source)
+	s.app.SetCameraCredentials(strings.TrimSpace(req.Password), source)
 	_ = s.app.Store.AddEvent(r.Context(), "info", "settings.secret.updated", "Kamera-Passwort wurde gespeichert", map[string]string{"source": source})
 	writeJSON(w, map[string]string{"status": "ok", "source": source}, http.StatusOK)
 }

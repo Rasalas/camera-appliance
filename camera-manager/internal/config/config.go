@@ -12,8 +12,6 @@ import (
 	"time"
 
 	"gopkg.in/yaml.v3"
-
-	"camera-appliance/camera-manager/internal/secrets"
 )
 
 const (
@@ -31,22 +29,20 @@ const (
 )
 
 type Config struct {
-	BindAddr           string
-	ConfigDir          string
-	StateDir           string
-	Go2RTCURL          string
-	Go2RTCRTSPURL      string
-	Go2RTCRestart      string
-	TapoPassword       string
-	TapoPasswordSource string
-	ComposeFile        string
-	InstallDir         string
-	SlotsFile          string
-	FrontendDist       string
-	RestartStrategy    string
-	CaptureSSHHost     string
-	ScanLimit          int
-	RequestTimeout     time.Duration
+	BindAddr        string
+	ConfigDir       string
+	StateDir        string
+	Go2RTCURL       string
+	Go2RTCRTSPURL   string
+	Go2RTCRestart   string
+	ComposeFile     string
+	InstallDir      string
+	SlotsFile       string
+	FrontendDist    string
+	RestartStrategy string
+	CaptureSSHHost  string
+	ScanLimit       int
+	RequestTimeout  time.Duration
 }
 
 type Slot struct {
@@ -80,11 +76,6 @@ func Load() (Config, error) {
 		ScanLimit:       getenvInt("CAMERA_APPLIANCE_SCAN_LIMIT", 254),
 		RequestTimeout:  time.Duration(getenvInt("CAMERA_APPLIANCE_TIMEOUT_MS", 800)) * time.Millisecond,
 	}
-	loadEnvFile(filepath.Join(cfg.ConfigDir, "secrets.env"))
-	loadEnvFile(filepath.Join(cfg.ConfigDir, "local.env"))
-	secret := secrets.Load(cfg.ConfigDir)
-	cfg.TapoPassword = secret.Value
-	cfg.TapoPasswordSource = secret.Source
 	if env := os.Getenv("CAMERA_APPLIANCE_STATE_DIR"); env == "" {
 		cfg.StateDir = writableStateDir(cfg.StateDir)
 	}

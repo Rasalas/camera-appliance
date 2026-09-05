@@ -2,7 +2,7 @@
   <section class="panel card">
     <div class="panel-head">
       <h2>Einstellungen</h2>
-      <button class="btn sm primary" @click="saveSettings()">Speichern</button>
+      <button class="btn sm primary" @click="saveSettings(generalSettingKeys)">Speichern</button>
     </div>
 
     <div class="split">
@@ -20,7 +20,7 @@
       </div>
       <div class="field">
         <span class="lbl">go2rtc-URL</span>
-        <input v-model="settings.go2rtc_url" placeholder="http://localhost:1984" />
+        <input :value="settings.go2rtc_url" readonly placeholder="http://localhost:1984" />
       </div>
       <div class="field">
         <span class="lbl">Capture-Hop per SSH</span>
@@ -69,6 +69,7 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
 import { useSystem } from '../../composables/useSystem'
+import { generalSettingKeys } from '../../composables/settingsDraft'
 
 const { settings, passwordSource, viewerPerformanceOptions, viewerPerformanceDescription, loadAll, saveSettings, saveCameraPassword, setBool, error } = useSystem()
 const cameraPassword = ref('')

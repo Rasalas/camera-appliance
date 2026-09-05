@@ -32,6 +32,9 @@ func Load(configDir string) Result {
 	if value := readLocalEnvKey(configDir, envKey); value != "" {
 		return Result{Value: value, Source: "local.env"}
 	}
+	if value := readEnvKey(filepath.Join(configDir, "secrets.env"), envKey); value != "" {
+		return Result{Value: value, Source: "secrets.env"}
+	}
 	return Result{}
 }
 
@@ -142,7 +145,11 @@ func saveKeyring(account, password string) error {
 }
 
 func readLocalEnvKey(configDir, key string) string {
-	file, err := os.Open(filepath.Join(configDir, "local.env"))
+	return readEnvKey(filepath.Join(configDir, "local.env"), key)
+}
+
+func readEnvKey(path, key string) string {
+	file, err := os.Open(path)
 	if err != nil {
 		return ""
 	}
