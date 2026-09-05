@@ -18,6 +18,8 @@ import (
 	_ "modernc.org/sqlite"
 )
 
+var ErrInvalidBinding = errors.New("ungültige Kamera-Zuordnung")
+
 type Store struct {
 	db *sql.DB
 }
@@ -97,7 +99,10 @@ func Open(ctx context.Context, dbPath string) (*Store, error) {
 	if err := os.MkdirAll(filepath.Dir(dbPath), 0o750); err != nil {
 		return nil, err
 	}
-	db, err := sql.Open("sqlite", dbPath)
+	if err := prepareDatabaseFile(dbPath); err != nil {
+		return nil, err
+	}
+	db, err := sql.Open("sqlite", sqliteURI(dbPath, "rwc"))
 	if err != nil {
 		return nil, err
 	}
@@ -175,6 +180,14 @@ func (s *Store) Slots(ctx context.Context) ([]config.Slot, error) {
 }
 
 func (s *Store) UpsertDevice(ctx context.Context, d Device) error {
+	return upsertDevice(ctx, s.db, d)
+}
+
+type executor interface {
+	ExecContext(context.Context, string, ...any) (sql.Result, error)
+}
+
+func upsertDevice(ctx context.Context, db executor, d Device) error {
 	now := time.Now().UTC()
 	if d.ID == "" {
 		d.ID = fingerprint.DeviceID(d.Fingerprint())
@@ -185,15 +198,17 @@ func (s *Store) UpsertDevice(ctx context.Context, d Device) error {
 	if d.LastSeenAt.IsZero() {
 		d.LastSeenAt = now
 	}
-	_, err := s.db.ExecContext(ctx, `INSERT INTO devices (id,first_seen_at,last_seen_at,last_ip,mac_address,onvif_endpoint_ref,serial_number,manufacturer,model,hardware_id,hostname,raw_json)
+	_, err := db.ExecContext(ctx, `INSERT INTO devices (id,first_seen_at,last_seen_at,last_ip,mac_address,onvif_endpoint_ref,serial_number,manufacturer,model,hardware_id,hostname,raw_json)
 		VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
 		ON CONFLICT(id) DO UPDATE SET last_seen_at=excluded.last_seen_at,last_ip=excluded.last_ip,mac_address=coalesce(nullif(excluded.mac_address,''),devices.mac_address),onvif_endpoint_ref=coalesce(nullif(excluded.onvif_endpoint_ref,''),devices.onvif_endpoint_ref),serial_number=coalesce(nullif(excluded.serial_number,''),devices.serial_number),manufacturer=coalesce(nullif(excluded.manufacturer,''),devices.manufacturer),model=coalesce(nullif(excluded.model,''),devices.model),hardware_id=coalesce(nullif(excluded.hardware_id,''),devices.hardware_id),hostname=coalesce(nullif(excluded.hostname,''),devices.hostname),raw_json=coalesce(nullif(excluded.raw_json,''),devices.raw_json)`,
 		d.ID, formatTime(d.FirstSeenAt), formatTime(d.LastSeenAt), d.LastIP, d.MACAddress, d.ONVIFEndpointRef, d.SerialNumber, d.Manufacturer, d.Model, d.HardwareID, d.Hostname, string(d.RawJSON))
 	return err
 }
 
+const deviceSelect = `SELECT id,first_seen_at,last_seen_at,coalesce(last_ip,''),coalesce(mac_address,''),coalesce(onvif_endpoint_ref,''),coalesce(serial_number,''),coalesce(manufacturer,''),coalesce(model,''),coalesce(hardware_id,''),coalesce(hostname,''),coalesce(raw_json,'') FROM devices`
+
 func (s *Store) Devices(ctx context.Context) ([]Device, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT id,first_seen_at,last_seen_at,coalesce(last_ip,''),coalesce(mac_address,''),coalesce(onvif_endpoint_ref,''),coalesce(serial_number,''),coalesce(manufacturer,''),coalesce(model,''),coalesce(hardware_id,''),coalesce(hostname,''),coalesce(raw_json,'') FROM devices ORDER BY last_seen_at DESC`)
+	rows, err := s.db.QueryContext(ctx, deviceSelect+" ORDER BY last_seen_at DESC")
 	if err != nil {
 		return nil, err
 	}
@@ -210,7 +225,7 @@ func (s *Store) Devices(ctx context.Context) ([]Device, error) {
 }
 
 func (s *Store) Device(ctx context.Context, id string) (Device, error) {
-	row := s.db.QueryRowContext(ctx, `SELECT id,first_seen_at,last_seen_at,coalesce(last_ip,''),coalesce(mac_address,''),coalesce(onvif_endpoint_ref,''),coalesce(serial_number,''),coalesce(manufacturer,''),coalesce(model,''),coalesce(hardware_id,''),coalesce(hostname,''),coalesce(raw_json,'') FROM devices WHERE id=?`, id)
+	row := s.db.QueryRowContext(ctx, deviceSelect+" WHERE id=?", id)
 	return scanDevice(row)
 }
 
@@ -261,7 +276,7 @@ func (s *Store) UpsertBinding(ctx context.Context, b Binding) error {
 
 func (s *Store) Bindings(ctx context.Context) ([]Binding, error) {
 	rows, err := s.db.QueryContext(ctx, `SELECT b.slot_id,b.device_id,coalesce(b.label,''),coalesce(b.username,''),b.stream_name,b.enabled,b.created_at,b.updated_at,
-		d.id,d.first_seen_at,d.last_seen_at,coalesce(d.last_ip,''),coalesce(d.mac_address,''),coalesce(d.onvif_endpoint_ref,''),coalesce(d.serial_number,''),coalesce(d.manufacturer,''),coalesce(d.model,''),coalesce(d.hardware_id,''),coalesce(d.hostname,''),coalesce(d.raw_json,'')
+		coalesce(d.id,''),coalesce(d.first_seen_at,''),coalesce(d.last_seen_at,''),coalesce(d.last_ip,''),coalesce(d.mac_address,''),coalesce(d.onvif_endpoint_ref,''),coalesce(d.serial_number,''),coalesce(d.manufacturer,''),coalesce(d.model,''),coalesce(d.hardware_id,''),coalesce(d.hostname,''),coalesce(d.raw_json,'')
 		FROM bindings b LEFT JOIN devices d ON d.id=b.device_id ORDER BY b.slot_id`)
 	if err != nil {
 		return nil, err
