@@ -90,7 +90,7 @@ func TestSnapshotEndpointsRequireAdmin(t *testing.T) {
 	}
 	h := New(a).Handler()
 	cookie := loginCookie(t, h, "viewer", "viewer-pass")
-	for _, route := range []struct{ method, path string }{{"GET", "/api/snapshot-upload"}, {"PUT", "/api/snapshot-upload"}, {"GET", "/api/devices/device/upload-crop"}, {"PUT", "/api/devices/device/upload-crop"}, {"POST", "/api/devices/device/upload-snapshot"}, {"GET", "/api/devices/device/upload-schedule"}, {"PUT", "/api/devices/device/upload-schedule"}, {"GET", "/api/devices/device/upload-naming"}, {"PUT", "/api/devices/device/upload-naming"}} {
+	for _, route := range []struct{ method, path string }{{"GET", "/api/snapshot-upload"}, {"PUT", "/api/snapshot-upload"}, {"GET", "/api/devices/device/upload-crop"}, {"PUT", "/api/devices/device/upload-crop"}, {"POST", "/api/devices/device/upload-snapshot"}, {"GET", "/api/devices/device/upload-schedule"}, {"PUT", "/api/devices/device/upload-schedule"}, {"GET", "/api/devices/device/upload-naming"}, {"PUT", "/api/devices/device/upload-naming"}, {"GET", "/api/devices/device/upload-image-settings"}, {"PUT", "/api/devices/device/upload-image-settings"}} {
 		if res := performJSON(h, route.method, route.path, nil, cookie); res.Code != http.StatusForbidden {
 			t.Fatalf("viewer allowed %s %s: %d", route.method, route.path, res.Code)
 		}

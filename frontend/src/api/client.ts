@@ -1,6 +1,6 @@
 import type { AuthStatus, Binding, CredentialIdentity, Device, DeviceCredentials, EventItem, FrameResult, LoginResult, ManualDeviceResult, ProbeResult, RelayStatus, ScanRun, Slot, StatusResponse, SupportBundleResult, UpdateStartResult, UpdateFlowStatus, ViewerResponse } from '../types'
 
-import type { UploadSettings, UploadCrop, SnapshotUploadResult, UploadScheduleInput, UploadScheduleStatus, UploadNaming } from '../types'
+import type { UploadSettings, UploadCrop, SnapshotUploadResult, UploadScheduleInput, UploadScheduleStatus, UploadNaming, UploadImageSettings } from '../types'
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(path, {
@@ -20,6 +20,8 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
 export const api = {
   uploadSchedule: (id: string) => request<UploadScheduleStatus>(`/api/devices/${encodeURIComponent(id)}/upload-schedule`),
+  uploadImageSettings: (id: string) => request<UploadImageSettings>(`/api/devices/${encodeURIComponent(id)}/upload-image-settings`),
+  saveUploadImageSettings: (id: string, body: UploadImageSettings) => request<UploadImageSettings>(`/api/devices/${encodeURIComponent(id)}/upload-image-settings`, { method: 'PUT', body: JSON.stringify(body) }),
   uploadNaming: (id: string) => request<UploadNaming>(`/api/devices/${encodeURIComponent(id)}/upload-naming`),
   saveUploadNaming: (id: string, body: UploadNaming) => request<UploadNaming>(`/api/devices/${encodeURIComponent(id)}/upload-naming`, { method: 'PUT', body: JSON.stringify(body) }),
   saveUploadSchedule: (id: string, body: UploadScheduleInput) => request<UploadScheduleStatus>(`/api/devices/${encodeURIComponent(id)}/upload-schedule`, { method: 'PUT', body: JSON.stringify(body) }),

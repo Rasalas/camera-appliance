@@ -63,7 +63,7 @@ async function save(input: UploadScheduleInput) {
   saving.value = true; error.value = ''
   const draft = { ...input, quiet_hours: { ...input.quiet_hours } }
   try {
-    if (draft.enabled && !await props.beforeEnable()) throw new Error('Bitte zuerst Bildausschnitt und Dateieinstellungen prüfen und speichern lassen.')
+    if (draft.enabled && !await props.beforeEnable()) throw new Error('Bitte zuerst Bildausschnitt, Privatbereiche, Zeitangabe und Dateieinstellungen prüfen und speichern lassen.')
     apply(await api.saveUploadSchedule(props.deviceId, draft))
   } catch (err) { error.value = err instanceof Error ? err.message : 'Zeitsteuerung konnte nicht gespeichert werden.' }
   finally { saving.value = false }

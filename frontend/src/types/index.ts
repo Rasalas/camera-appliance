@@ -91,6 +91,7 @@ export interface ProbeResult {
 }
 
 export interface FrameResult {
+  captured_at: string
   content_type: string
   image_base64: string
   sha256: string
@@ -404,6 +405,19 @@ export interface SnapshotUploadResult {
   width: number
   height: number
   bytes: number
+}
+
+export interface UploadMask {
+  id: string
+  mode: 'black' | 'pixelate'
+  x: number
+  y: number
+  width: number
+  height: number
+}
+export interface UploadImageSettings {
+  masks: UploadMask[]
+  timestamp: boolean
 }
 
 export interface UploadNaming {
