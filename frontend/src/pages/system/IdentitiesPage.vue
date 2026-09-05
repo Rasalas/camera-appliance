@@ -38,7 +38,7 @@
   <div v-if="showIdentityModal" class="modal-backdrop" @click.self="closeIdentityModal">
     <form class="modal" @submit.prevent="onSaveIdentity">
       <div class="modal-head">
-        <div><div class="eyebrow">Kamera-Identitäten</div><h2>{{ identityForm.id ? 'Identität bearbeiten' : 'Identität hinzufügen' }}</h2></div>
+        <div><h2>{{ identityForm.id ? 'Identität bearbeiten' : 'Identität hinzufügen' }}</h2></div>
         <button class="btn icon sm ghost" type="button" title="Schließen" aria-label="Schließen" @click="closeIdentityModal">×</button>
       </div>
       <div class="identity-form-grid">
@@ -59,7 +59,7 @@
   <div v-if="deleteCandidate" class="modal-backdrop" @click.self="closeDeleteModal">
     <div class="modal confirm-modal" role="dialog" aria-modal="true" aria-labelledby="identity-delete-title">
       <div class="modal-head">
-        <div><div class="eyebrow">Entfernen</div><h2 id="identity-delete-title">Identität entfernen?</h2></div>
+        <div><h2 id="identity-delete-title">Identität entfernen?</h2></div>
         <button class="btn icon sm ghost" type="button" title="Schließen" aria-label="Schließen" @click="closeDeleteModal">×</button>
       </div>
       <p class="mono-mute">„{{ deleteCandidate.name }}“ wird aus den gespeicherten Kamera-Identitäten entfernt. Bestehende Kamera-Zuordnungen bleiben unverändert.</p>

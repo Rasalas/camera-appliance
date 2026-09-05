@@ -22,3 +22,9 @@ test('saving one form leaves edits to another form pending', () => {
   assert.deepEqual(saved, { 'capture_ssh_host': 'relay' })
   assert.deepEqual(settingsPatch(draft, baseline, maintenanceSettingKeys), { 'watchdog.enabled': 'false' })
 })
+
+test('number inputs produce string settings and equivalent numbers stay clean', () => {
+  const baseline = { 'auth.session_hours': '12', 'watchdog.fast_interval_seconds': '30' }
+  const draft = { 'auth.session_hours': 24, 'watchdog.fast_interval_seconds': 30 }
+  assert.deepEqual(settingsPatch(draft, baseline, Object.keys(draft)), { 'auth.session_hours': '24' })
+})

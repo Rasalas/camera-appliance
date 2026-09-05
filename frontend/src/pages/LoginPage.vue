@@ -1,7 +1,6 @@
 <template>
   <header class="topline">
     <div>
-      <div class="eyebrow">Zugriff · Lokaler Login</div>
       <h1 class="headline">Login.</h1>
     </div>
     <div class="meta">

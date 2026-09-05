@@ -114,22 +114,19 @@
 
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { api } from '../api/client'
-import { createUpdateClient } from '../composables/updateClient'
-import type { UpdateFlowPhase, UpdateFlowStatus } from '../types'
+import { useUpdateFlow } from '../composables/useUpdateFlow'
+import type { UpdateFlowPhase } from '../types'
 import UpdateInfo from './UpdateInfo.vue'
 
 const props = defineProps<{ visible: boolean }>()
 
-const status = ref<UpdateFlowStatus>()
-const busy = ref(false)
+const { status, busy, client: updateClient } = useUpdateFlow()
 const triggerEl = ref<HTMLButtonElement>()
 const popEl = ref<HTMLElement>()
 const sheetEl = ref<HTMLElement>()
 const hoverOpen = ref(false)
 const mobileOpen = ref(false)
 let started = false
-let pollTimer = 0
 let autoCheckTimer = 0
 let enterTimer = 0
 let closeTimer = 0
@@ -458,13 +455,6 @@ function unbindPopListeners() {
 
 /* ---------- API flow ------------------------------------------------------ */
 
-const updateClient = createUpdateClient(api, {
-  publish: value => { status.value = value },
-  busy: value => { busy.value = value },
-  reload: () => window.location.reload(),
-  schedule: callback => { pollTimer = window.setTimeout(callback, 1000) },
-  cancel: () => window.clearTimeout(pollTimer)
-})
 const { refresh, check, download, install } = updateClient
 
 watch(hoverOpen, (isOpen) => {
@@ -529,7 +519,6 @@ onMounted(() => {
 })
 
 onBeforeUnmount(() => {
-  updateClient.close()
   window.clearInterval(autoCheckTimer)
   window.clearTimeout(enterTimer)
   window.clearTimeout(closeTimer)

@@ -1,10 +1,7 @@
 <template>
   <header class="topline">
     <div>
-      <div class="eyebrow">
-        <RouterLink to="/einrichtung" class="mono-mute">← Einrichtung</RouterLink>
-        &nbsp;·&nbsp; Kamera-Diagnose
-      </div>
+      <nav aria-label="Zurück"><RouterLink to="/einrichtung" class="mono-mute">← Kameras</RouterLink></nav>
       <h1 class="headline">{{ title }}</h1>
     </div>
     <div v-if="device" class="meta sig-row">
@@ -23,9 +20,9 @@
       <button class="btn" :class="{ live: shown }" type="button" :disabled="busyShow" @click="toggleShow">
         {{ busyShow ? '…' : shown ? '✓ Sichtbar in der Ansicht' : 'In der Ansicht anzeigen' }}
       </button>
-      <RouterLink v-if="shown" class="btn ghost" to="/">Zur Kameras-Ansicht</RouterLink>
+      <RouterLink v-if="shown" class="btn ghost" to="/">Zur Live-Ansicht</RouterLink>
       <div class="spacer" />
-      <span class="mono-mute" style="font-size: 11px;">{{ shown ? 'Position wird in der Kameras-Ansicht festgelegt.' : 'Anzeigen, dann in der Ansicht platzieren.' }}</span>
+      <span class="mono-mute" style="font-size: 11px;">{{ shown ? 'Position wird in der Live-Ansicht festgelegt.' : 'Anzeigen, dann in der Ansicht platzieren.' }}</span>
     </div>
 
     <div class="split">

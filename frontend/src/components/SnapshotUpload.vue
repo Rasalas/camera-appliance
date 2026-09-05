@@ -1,8 +1,8 @@
 <template>
   <section class="panel card snapshot-editor">
     <div class="panel-head">
-      <div><div class="eyebrow">{{ cameraLabel }}</div><h2>Bild-Upload</h2></div>
-      <RouterLink class="server-link mono-mute" to="/system/bild-upload">Server einstellen</RouterLink>
+      <h2>Bild-Upload</h2>
+      <RouterLink class="server-link mono-mute" to="/kameras/bild-upload">Server einstellen</RouterLink>
     </div>
     <div v-if="settingsError || saveError" class="notice err" role="alert">{{ settingsError || saveError }}</div>
     <UploadImageEditor ref="imageEditor" v-model:crop="crop" :device-id="deviceId" :camera-label="cameraLabel" :src="previewSrc" :captured-at="capturedAt" :busy="uploading" :crop-loading="cropLoading" :crop-status="saveStatus" :preview-loading="previewLoading" :preview-error="previewError" @selecting="selectionChanged" />
@@ -111,7 +111,6 @@ onBeforeUnmount(() => { void autosave.close() })
 <style scoped>
 .snapshot-editor { gap: 16px; }
 .notice { overflow-wrap: anywhere; }
-.panel-head .eyebrow { margin-bottom: 6px; }
 .server-link { font-size: 11px; }
 .upload-footer { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
 .crop-inputs { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; border: 0; margin: 12px 0 0; padding: 0; }

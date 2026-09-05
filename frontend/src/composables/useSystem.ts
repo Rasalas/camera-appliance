@@ -33,6 +33,7 @@ const error = ref('')
 const toast = ref('')
 const passwordSource = ref('unbekannt')
 let baseline: Record<string, string> = {}
+const settingsLoaded = ref(false), baselineRevision = ref(0)
 let loadPending: Promise<void> | undefined
 
 const relayIds = computed(() => settingList(settings['camera.relay.ids']))
@@ -47,13 +48,6 @@ const restartCooldownLabel = computed(() => {
   if (watchdog.path_restart_pending) return `Ausstehend bis ${watchdogDate(watchdog.path_restart_cooldown_until)}`
   if (watchdog.path_restart_last_at) return `Letzter Restart ${watchdogDate(watchdog.path_restart_last_at)}`
   return 'Kein Cooldown aktiv.'
-})
-const versionLabel = computed(() => {
-  const info = status.value?.version
-  if (!info) return 'dev'
-  const version = info.version || 'dev'
-  const commit = info.commit && info.commit !== 'local' ? ` (${info.commit})` : ''
-  return `${version}${commit}`
 })
 const versionDetail = computed(() => {
   const info = status.value?.version
@@ -246,6 +240,8 @@ async function loadSystem() {
     events.value = await api.events()
     ensurePerformanceDefault()
     baseline = { ...settings }
+    baselineRevision.value++
+    settingsLoaded.value = true
     Object.assign(settings, pending)
   } catch (err) {
     error.value = err instanceof Error ? err.message : 'Konnte nicht geladen werden.'
@@ -259,12 +255,24 @@ async function refreshStatus() {
   ensureRelayDefaults()
 }
 
+function settingsDirty(keys: string[]) {
+  void baselineRevision.value
+  return Object.keys(settingsPatch(settings, baseline, keys)).length > 0
+}
+function discardSettings(keys: string[]) {
+  for (const key of keys) {
+    if (key in baseline) settings[key] = baseline[key]
+    else delete settings[key]
+  }
+}
+
 async function saveSettings(keys: string[]): Promise<boolean> {
   error.value = ''
   try {
     const payload = settingsPatch(settings, baseline, keys)
     if (Object.keys(payload).length) await api.saveSettings(payload)
     Object.assign(baseline, payload)
+    baselineRevision.value++
     showToast('Einstellungen gespeichert')
     return true
   } catch (err) {
@@ -275,7 +283,6 @@ async function saveSettings(keys: string[]): Promise<boolean> {
 
 const backupResult = ref<{ path: string; warning: string }>()
 const supportBundleResult = ref<SupportBundleResult>()
-const updateResult = ref<UpdateStartResult>()
 
 async function saveCameraPassword(password: string) {
   error.value = ''
@@ -369,24 +376,19 @@ async function createSupportBundle() {
   showToast('Support-Bundle erstellt')
 }
 
-async function startUpdate(url?: string, digest?: string) {
-  updateResult.value = await api.startUpdate(url, digest)
-  showToast('Update gestartet')
-}
-
 export function useSystem() {
   return {
     // state
-    settings, status, authStatus, events, credentialIdentities, error, toast, passwordSource,
-    viewerPerformanceOptions, backupResult, supportBundleResult, updateResult,
+    settings, settingsLoaded, settingsDirty, discardSettings, status, authStatus, events, credentialIdentities, error, toast, passwordSource,
+    viewerPerformanceOptions, backupResult, supportBundleResult,
     // computeds
     relayIds, relayStatuses, cameraBindings, watchdogEnabled, watchdogRestartOnChange, watchdogRestartGo2RTC,
-    restartCooldownLabel, versionLabel, versionDetail, viewerPerformanceDescription,
+    restartCooldownLabel, versionDetail, viewerPerformanceDescription,
     // actions
     loadAll, refreshStatus, saveSettings, showToast,
     saveCameraPassword, saveAuthPassword,
     loadCredentialIdentities, saveCredentialIdentity, deleteCredentialIdentity,
-    addRelay, removeRelay, relayAction, createBackup, restoreBackup, createSupportBundle, startUpdate,
+    addRelay, removeRelay, relayAction, createBackup, restoreBackup, createSupportBundle,
     // helpers
     setBool, boolSetting, formatTime, watchdogDate, levelClass, passwordSourceLabel, sanitizeID,
     relaySettingKey, relayEndpointKey, pathPolicyKey, relayName, relayHost, relayAutoStart, relayStatusFor,

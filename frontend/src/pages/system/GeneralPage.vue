@@ -1,16 +1,13 @@
 <template>
-  <section class="panel card">
-    <div class="panel-head">
-      <h2>Einstellungen</h2>
-      <button class="btn sm primary" @click="saveSettings(generalSettingKeys)">Speichern</button>
-    </div>
-
-    <div class="split">
+  <form class="panel card" @submit.prevent="saveCamPassword">
+    <div class="panel-head"><h2>Kamera-Passwort</h2></div>
+    <p class="mono-mute">Gemeinsames Passwort für Kameras ohne eigenen gespeicherten Zugang.</p>
       <div class="field">
         <span class="lbl">Kamera-Passwort</span>
         <div class="btn-row" style="align-items: stretch;">
-          <input v-model="cameraPassword" type="password" :placeholder="settings.camera_password_set === 'true' ? '••••••••••••' : 'Passwort setzen'" style="flex: 1;" />
-          <button class="btn" :disabled="!cameraPassword || savingPassword" @click="saveCamPassword">
+          <input v-model="cameraPassword" type="password" :disabled="savingPassword" :placeholder="settings.camera_password_set === 'true' ? '••••••••••••' : 'Passwort setzen'" style="flex: 1;" />
+          <button class="btn ghost" type="button" :disabled="!cameraPassword || savingPassword" @click="cameraPassword = ''; passwordError = ''; passwordMessage = ''">Abbrechen</button>
+          <button class="btn" :disabled="!cameraPassword || savingPassword" type="submit">
             {{ savingPassword ? 'Speichert…' : 'Passwort speichern' }}
           </button>
         </div>
@@ -18,6 +15,12 @@
           {{ settings.camera_password_set === 'true' ? `Gespeichert über ${passwordSource}` : 'Noch kein Kamera-Passwort gespeichert.' }}
         </div>
       </div>
+    <div v-if="cameraPassword" role="status" class="mono-mute">Ungespeichertes Passwort</div>
+    <div v-else-if="passwordMessage" role="status" class="mono-mute">{{ passwordMessage }}</div>
+    <div v-if="passwordError" role="alert" class="notice err">{{ passwordError }}</div>
+  </form>
+  <SettingsForm title="Verbindungen und Automatik" :setting-keys="connectionKeys">
+    <div class="split">
       <div class="field">
         <span class="lbl">go2rtc-URL</span>
         <input :value="settings.go2rtc_url" readonly placeholder="http://localhost:1984" />
@@ -43,13 +46,9 @@
         <div><div class="lbl-main">go2rtc nach Änderungen neu starten</div><div class="lbl-sub">Streams stehen sofort am Player bereit.</div></div>
       </label>
     </div>
-  </section>
+  </SettingsForm>
 
-  <section class="panel card">
-    <div class="panel-head">
-      <h2>Anzeige</h2>
-      <div class="right">Raster und Zuschnitt werden in der Kameras-Ansicht bearbeitet</div>
-    </div>
+  <SettingsForm title="Anzeige" :setting-keys="['viewer.performance.mode']">
     <div class="split">
       <div class="field">
         <span class="lbl">Performance</span>
@@ -60,28 +59,34 @@
       </div>
       <div class="field">
         <span class="lbl">Kiosk</span>
-        <div class="btn-row"><RouterLink class="btn" to="/">Kameras-Ansicht öffnen</RouterLink></div>
+        <div class="btn-row"><RouterLink class="btn" to="/">Live-Ansicht öffnen</RouterLink></div>
       </div>
     </div>
-  </section>
+  </SettingsForm>
 </template>
 
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
 import { useSystem } from '../../composables/useSystem'
 import { generalSettingKeys } from '../../composables/settingsDraft'
+import SettingsForm from '../../components/SettingsForm.vue'
+const connectionKeys = generalSettingKeys.filter(key => key !== 'viewer.performance.mode')
 
-const { settings, passwordSource, viewerPerformanceOptions, viewerPerformanceDescription, loadAll, saveSettings, saveCameraPassword, setBool, error } = useSystem()
+const { settings, passwordSource, viewerPerformanceOptions, viewerPerformanceDescription, loadAll, saveCameraPassword, setBool } = useSystem()
 const cameraPassword = ref('')
 const savingPassword = ref(false)
+const passwordMessage=ref(''),passwordError=ref('')
 
 async function saveCamPassword() {
+  if(savingPassword.value)return
   savingPassword.value = true
+  passwordMessage.value='';passwordError.value=''
   try {
     await saveCameraPassword(cameraPassword.value)
     cameraPassword.value = ''
+    passwordMessage.value='Kamera-Passwort gespeichert.'
   } catch (err) {
-    error.value = err instanceof Error ? err.message : 'Passwort konnte nicht gespeichert werden.'
+    passwordError.value = err instanceof Error ? err.message : 'Passwort konnte nicht gespeichert werden.'
   } finally {
     savingPassword.value = false
   }

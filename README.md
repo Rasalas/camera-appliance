@@ -98,12 +98,25 @@ Do not put camera DHCP IPs into viewer configuration.
 
 ## Einzelbilder per FTP/SFTP hochladen
 
-Unter **System → Bild-Upload** lassen sich Protokoll, Server, Port, Benutzername,
+Die Seitenleiste trennt **Live-Ansicht**, **Kameras**, **System** und **Wartung**.
+Unter System stehen Allgemein, Zugriff, Relays und Identitäten. Wartung enthält
+fünf eigene Seiten: Watchdog, Sicherung, Version und Updates, Support-Bundle und
+Ereignisprotokoll. Bestehende Links wie `/system/bild-upload`, `/backup` und
+`/events` werden auf die passenden Seiten weitergeleitet. Auf schmalen
+Bildschirmen öffnet **Menü** dieselbe Navigation.
+
+Einstellungsformulare zeigen ungespeicherte Änderungen sowie Fehler direkt am
+Formular. Speichern und Abbrechen gelten jeweils für den benannten Bereich;
+beispielsweise hat **Anzeige** einen eigenen Speicherknopf. Bildausschnitt,
+Privatbereiche und Zeitangabe in den Kameradetails werden weiterhin automatisch
+gespeichert und zeigen ihren Speicherzustand an.
+
+Unter **Kameras → Bild-Upload** lassen sich Protokoll, Server, Port, Benutzername,
 Passwort und ein vorhandenes Zielverzeichnis konfigurieren. SFTP benötigt zusätzlich
 den SHA256-Fingerabdruck des SSH-Hostschlüssels vom Serverbetreiber. FTP ist
 unverschlüsselt; SFTP verschlüsselt sowohl Bilder als auch Zugangsdaten.
 
-In **Einrichtung → Kamera → Bild-Upload** nimmt „Jetzt hochladen“ ein neues JPEG
+In **Kameras → Kamera → Bild-Upload** nimmt „Jetzt hochladen“ ein neues JPEG
 aus dem ausgewählten Kamerastream auf. Der vorhandene
 Kamerazugang und die direkte oder Relay-Verbindung werden weiterverwendet.
 Die Kameravorschau lädt beim Öffnen automatisch. „Ausschnitt“ erlaubt die Auswahl
@@ -162,7 +175,7 @@ festen Namen oder Ordner erhalten, sonst ersetzen sich ihre Bilder gegenseitig.
 
 Im Feld „Verzeichnis“ kann jede Kamera ein eigenes Ziel angeben, z. B.
 `/bilder/hof` oder `bilder/garage`. Ein leeres Feld verwendet weiterhin das
-Standardverzeichnis unter **System → Bild-Upload**. Ein Kamera-Verzeichnis
+Standardverzeichnis unter **Kameras → Bild-Upload**. Ein Kamera-Verzeichnis
 ersetzt dieses Ziel vollständig und wird nicht daran angehängt. Relative Pfade
 beginnen für FTP und SFTP im Anmeldeverzeichnis des Servers; absolute Pfade
 beginnen mit `/`. Unterordner und Leerzeichen innerhalb von Ordnernamen sind

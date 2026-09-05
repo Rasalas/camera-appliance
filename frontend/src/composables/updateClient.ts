@@ -52,13 +52,13 @@ export function createUpdateClient(api: UpdateAPI, hooks: Hooks) {
     })().finally(() => { reading = undefined; poll() })
     return reading
   }
-  async function perform(action: 'check' | 'download' | 'install') {
+  async function perform(action: 'check' | 'download' | 'install', submit = () => api.installUpdate()) {
     if (disposed || requesting || working()) return
     requesting = true; revision++; hooks.cancel(); hooks.busy(true)
     if (action === 'install') adopt({ ...(status ?? { current_version: '' }), phase: 'installing', error: '' })
     try {
       if (action === 'install') {
-        await api.installUpdate()
+        await submit()
         await refresh()
       } else adopt(await (action === 'check' ? api.checkForUpdates() : api.downloadUpdate()))
     } catch (error) {
@@ -73,5 +73,5 @@ export function createUpdateClient(api: UpdateAPI, hooks: Hooks) {
       poll()
     }
   }
-  return { refresh, check: () => perform('check'), download: () => perform('download'), install: () => perform('install'), close() { disposed = true; hooks.cancel() } }
+  return { refresh, check: () => perform('check'), download: () => perform('download'), install: (submit?: () => Promise<unknown>) => perform('install', submit), close() { disposed = true; hooks.cancel() } }
 }

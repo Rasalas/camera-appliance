@@ -32,7 +32,7 @@
   <div v-if="showRelayModal" class="modal-backdrop" @click.self="closeRelayModal">
     <form class="modal" @submit.prevent="onAddRelay">
       <div class="modal-head">
-        <div><div class="eyebrow">Relays</div><h2>Relay hinzufügen</h2></div>
+        <div><h2>Relay hinzufügen</h2></div>
         <button class="btn icon sm ghost" type="button" title="Schließen" @click="closeRelayModal">×</button>
       </div>
       <div class="split">

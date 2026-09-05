@@ -84,3 +84,12 @@ test('serializes status reads and ignores stale replies after a new action or un
   const late = f.client.refresh(); f.client.close(); resolve(complete); await late
   assert.equal(f.reloads(), 0); assert.equal(f.shown()?.phase, 'downloading')
 })
+
+test('the dedicated update page shares restart recovery for custom release submissions', async () => {
+  const f = fixture(); await f.client.refresh(); let customSubmissions = 0
+  f.api.installUpdate = async () => { throw new Error('wrong endpoint') }
+  f.api.getUpdateStatus = async () => { throw new TypeError('restarting') }
+  await f.client.install(async () => { customSubmissions++; throw new TypeError('lost custom acknowledgement') })
+  assert.equal(customSubmissions, 1); assert.equal(f.shown()?.phase, 'installing')
+  f.api.getUpdateStatus = async () => complete; await f.client.refresh(); assert.equal(f.reloads(), 1)
+})

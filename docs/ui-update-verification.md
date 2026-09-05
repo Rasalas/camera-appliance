@@ -29,6 +29,7 @@ The Docker/browser fixture checked the corrected client with these outcomes:
 | Copy failure after partial installation | Failed job; snapshot restored; v0.3.0 serves again |
 | Service restart failure | Failed job; rollback and old-version healthcheck succeed |
 | Lost install acknowledgement | Exactly one submission; polling recovers and new UI loads |
+| Leave the dedicated update page during submission | Exactly one submission; shared monitoring survives navigation, then loads v0.4.0 |
 
 Settings, slot configuration and synthetic credential files were compared
 before/after. Only watchdog runtime timestamps were excluded. No cameras,
@@ -64,7 +65,10 @@ playwright-cli --session update-check open 'http://127.0.0.1:18174/system/allgem
 playwright-cli --session update-check run-code "$(cat scripts/tests/fixtures/ui_update_browser.js)"
 ```
 
-Replace `case=success` with `download`, `copy`, `restart` or `lost-response`.
+Replace `case=success` with `download`, `copy`, `restart`, `lost-response` or
+`navigation`. The navigation case opens **Version und Updates**, submits there,
+then switches to **Allgemein** while the request is in flight. That destination
+also exists in the published v0.4.0 frontend loaded after installation.
 The script drives the real buttons, verifies the archive digest, checks the
 terminal job and running version, and compares configuration fingerprints.
 Omit the frontend overlay to reproduce the original released-client failures.
@@ -88,3 +92,30 @@ Existing system and updater tests cover their adapter arguments and failure
 paths. Power loss, disk exhaustion and unsupported CPU architectures were not
 simulated. The local UI fixes still require a separately authorized release
 before an installed v0.4.0 appliance can benefit from them.
+
+## Settings and navigation verification
+
+The same isolated v0.4.0 backend was also used to check the new navigation and
+form boundaries with the locally built frontend:
+
+- Ten sidebar destinations render their own titles; all five maintenance
+  sections have distinct URLs and content. Five legacy links, including a
+  maintenance link with query and fragment, redirect to the intended page.
+- Editing connections and display together, then saving connections, sends
+  only `capture_ssh_host`. The display draft remains unsaved and its Cancel
+  button restores the saved value. Saving display persists after a reload.
+- An injected settings HTTP 500 leaves the server value unchanged and shows
+  the form error and unsaved status. Retrying succeeds and persists.
+- Session duration and watchdog interval send string values and persist.
+  Browser testing reproduced the previous numeric JSON serialization failure;
+  the settings patch now normalizes number inputs before comparison and write.
+- The upload-server form cancels its own draft and persists a directory change
+  across reload while retaining the synthetic password. No upload was started.
+- At 1280 px and 390 px, the sidebar/menu and forms fit without horizontal
+  overflow. Mobile navigation closes after a link or Escape; screenshots were
+  checked after loading and animations completed. Decorative title eyebrows,
+  the old top tabs and the two conflicting application bind-address labels
+  are absent. The go2rtc URL remains available in its configuration field.
+
+All 23 frontend tests and the production build passed. Earlier full Go race
+tests and vet passed; this navigation/form change does not modify the backend.

@@ -1,8 +1,7 @@
 <template>
   <header class="topline">
     <div>
-      <div class="eyebrow">Geräte</div>
-      <h1 class="headline">Kameras <em>verwalten.</em></h1>
+      <h1 class="headline">Kameras</h1>
     </div>
     <div class="meta">
       <div>Gefunden · <b>{{ assignableDevices.length }}</b></div>
@@ -15,15 +14,15 @@
   <section class="service-strip">
     <div class="service">
       <div>
-        <div class="name">Viewer</div>
-        <div class="endpoint">localhost:8091 · Kameraansicht</div>
+        <div class="name">Live-Ansicht</div>
+        <div class="endpoint">Laufende Kamerabilder</div>
       </div>
       <span class="pill" :class="managerOnline ? 'live' : 'down'">{{ managerOnline ? 'aktiv' : 'offline' }}</span>
     </div>
     <div class="service">
       <div>
         <div class="name">go2rtc</div>
-        <div class="endpoint">localhost:1984 · Stream-Alias</div>
+        <div class="endpoint">Streamdienst</div>
       </div>
       <span class="pill" :class="go2rtcOnline ? 'live' : 'down'">{{ go2rtcOnline ? 'aktiv' : 'offline' }}</span>
     </div>
@@ -122,7 +121,6 @@
     <form class="modal" @submit.prevent="addManual">
       <div class="modal-head">
         <div>
-          <div class="eyebrow">Geräte</div>
           <h2>Kamera per RTSP hinzufügen</h2>
         </div>
         <button class="btn icon sm ghost" type="button" title="Schließen" @click="closeManualModal">×</button>
