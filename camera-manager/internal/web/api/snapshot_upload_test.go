@@ -112,7 +112,7 @@ func TestUploadNamingAPIValidatesAndPersists(t *testing.T) {
 	if err := json.Unmarshal(res.Body.Bytes(), &got); res.Code != http.StatusOK || err != nil || got.Mode != "unique" {
 		t.Fatalf("default naming: %d %s", res.Code, res.Body)
 	}
-	want := snapshotupload.Naming{Mode: "fixed", Filename: "hof.jpg"}
+	want := snapshotupload.Naming{Mode: "fixed", Filename: "hof.jpg", Directory: "/bilder/hof"}
 	res = performJSON(h, "PUT", endpoint, want, nil)
 	if res.Code != http.StatusOK {
 		t.Fatalf("save naming: %d %s", res.Code, res.Body)
@@ -121,7 +121,7 @@ func TestUploadNamingAPIValidatesAndPersists(t *testing.T) {
 	if err := json.Unmarshal(res.Body.Bytes(), &got); err != nil || got != want {
 		t.Fatalf("naming not persisted: %s", res.Body)
 	}
-	for _, invalid := range []any{snapshotupload.Naming{Mode: "fixed", Filename: "../hof.jpg"}, map[string]any{"mode": "fixed", "filename": "hof.jpg", "directory": "/other"}} {
+	for _, invalid := range []any{snapshotupload.Naming{Mode: "fixed", Filename: "../hof.jpg"}, snapshotupload.Naming{Mode: "unique", Directory: "../other"}, map[string]any{"mode": "fixed", "filename": "hof.jpg", "host": "other"}} {
 		res = performJSON(h, "PUT", endpoint, invalid, nil)
 		if res.Code != http.StatusBadRequest {
 			t.Fatalf("invalid naming accepted: %d %s", res.Code, res.Body)

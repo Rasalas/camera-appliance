@@ -137,9 +137,20 @@ wählen und z. B. `hof.jpg` eingeben. Die Auswahl wird automatisch gespeichert u
 gilt für manuelle und automatische Uploads sowie Vollbilder und Ausschnitte.
 Der feste Name darf höchstens 120 Zeichen enthalten, beginnt mit einem Buchstaben
 oder einer Zahl und verwendet nur `A–Z`, `a–z`, `0–9`, Punkt, Bindestrich und
-Unterstrich sowie die Endung `.jpg` oder `.jpeg`. Verzeichnisse gehören in die
-Server-Einstellungen. Jede Kamera sollte einen eigenen festen Namen erhalten,
-sonst ersetzen sich ihre Bilder gegenseitig.
+Unterstrich sowie die Endung `.jpg` oder `.jpeg`. Jede Kamera sollte einen eigenen
+festen Namen oder Ordner erhalten, sonst ersetzen sich ihre Bilder gegenseitig.
+
+Im Feld „Verzeichnis“ kann jede Kamera ein eigenes Ziel angeben, z. B.
+`/bilder/hof` oder `bilder/garage`. Ein leeres Feld verwendet weiterhin das
+Standardverzeichnis unter **System → Bild-Upload**. Ein Kamera-Verzeichnis
+ersetzt dieses Ziel vollständig und wird nicht daran angehängt. Relative Pfade
+beginnen für FTP und SFTP im Anmeldeverzeichnis des Servers; absolute Pfade
+beginnen mit `/`. Unterordner und Leerzeichen innerhalb von Ordnernamen sind
+erlaubt. `..`, Backslashes, URLs und Steuerzeichen sind nicht erlaubt; höchstens
+1024 Bytes. Die Einstellung wird pro Kamera automatisch gespeichert und gilt
+für beide Dateinamenmodi, manuelle Aufnahmen und die Zeitsteuerung. Fehlende oder
+nicht beschreibbare Ordner melden einen Fehler und weichen nicht auf das globale
+Ziel aus. Die Ordner müssen bereits auf dem Server angelegt sein.
 
 Das Zielverzeichnis muss existieren und Schreiben sowie Umbenennen erlauben.
 Eine Übertragung wird zunächst unter einem eindeutigen `.part`-Namen geschrieben

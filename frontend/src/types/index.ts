@@ -409,6 +409,7 @@ export interface SnapshotUploadResult {
 export interface UploadNaming {
   mode: 'unique' | 'fixed'
   filename: string
+  directory: string
 }
 
 export interface UploadScheduleInput {

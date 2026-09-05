@@ -11,6 +11,7 @@ import (
 	"io"
 	"net"
 	"os"
+	"path"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -25,6 +26,10 @@ import (
 // These protocol fixtures listen exclusively on loopback and use generated
 // host keys, temporary files and synthetic credentials. No appliance is used.
 func ftpServer(t *testing.T, reject string, initial ...map[string][]byte) (Config, <-chan map[string][]byte) {
+	return startFTPServer(t, reject, 1, nil, initial...)
+}
+
+func startFTPServer(t *testing.T, reject string, connections int, directories map[string]bool, initial ...map[string][]byte) (Config, <-chan map[string][]byte) {
 	t.Helper()
 	l, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -40,90 +45,106 @@ func ftpServer(t *testing.T, reject string, initial ...map[string][]byte) (Confi
 			}
 		}
 		defer func() { files <- stored }()
-		conn, err := l.Accept()
-		if err != nil {
-			return
-		}
-		defer conn.Close()
-		_ = conn.SetDeadline(time.Now().Add(5 * time.Second))
-		fmt.Fprint(conn, "220 local test FTP\r\n")
-		scanner := bufio.NewScanner(conn)
-		var data net.Listener
-		var rename string
-		defer func() {
-			if data != nil {
-				data.Close()
-			}
-		}()
-		for scanner.Scan() {
-			verb, arg, _ := strings.Cut(scanner.Text(), " ")
-			switch verb {
-			case "USER":
-				fmt.Fprint(conn, "331 password required\r\n")
-			case "PASS":
-				if arg != "local-test-password" || reject == "auth" {
-					fmt.Fprint(conn, "530 local-test-password rejected\r\n")
-				} else {
-					fmt.Fprint(conn, "230 logged in\r\n")
-				}
-			case "FEAT":
-				fmt.Fprint(conn, "211 End\r\n")
-			case "TYPE", "OPTS":
-				fmt.Fprint(conn, "200 OK\r\n")
-			case "CWD":
-				if reject == "directory" {
-					fmt.Fprint(conn, "550 no such directory\r\n")
-				} else {
-					fmt.Fprint(conn, "250 changed directory\r\n")
-				}
-			case "EPSV":
-				data, err = net.Listen("tcp", "127.0.0.1:0")
-				if err != nil {
-					return
-				}
-				_ = data.(*net.TCPListener).SetDeadline(time.Now().Add(5 * time.Second))
-				fmt.Fprintf(conn, "229 Entering Extended Passive Mode (|||%d|)\r\n", data.Addr().(*net.TCPAddr).Port)
-			case "STOR":
-				if reject == "write" {
-					fmt.Fprint(conn, "550 permission denied\r\n")
-					continue
-				}
-				fmt.Fprint(conn, "150 receiving\r\n")
-				dc, err := data.Accept()
-				if err != nil {
-					return
-				}
-				_ = dc.SetDeadline(time.Now().Add(5 * time.Second))
-				stored[arg], _ = io.ReadAll(dc)
-				dc.Close()
-				data.Close()
-				fmt.Fprint(conn, "226 complete\r\n")
-			case "RNFR":
-				rename = arg
-				fmt.Fprint(conn, "350 rename ready\r\n")
-			case "RNTO":
-				if reject == "rename" {
-					fmt.Fprint(conn, "550 rename denied\r\n")
-					continue
-				}
-				stored[arg] = stored[rename]
-				delete(stored, rename)
-				fmt.Fprint(conn, "250 renamed\r\n")
-			case "DELE":
-				delete(stored, arg)
-				fmt.Fprint(conn, "250 deleted\r\n")
-			case "QUIT":
-				fmt.Fprint(conn, "221 goodbye\r\n")
+		for range connections {
+			conn, err := l.Accept()
+			if err != nil {
 				return
-			default:
-				fmt.Fprint(conn, "502 unsupported\r\n")
 			}
+			serveFTPConnection(conn, reject, directories, stored)
 		}
 	}()
 	c := testConfig()
 	c.Host = "127.0.0.1"
 	c.Port = l.Addr().(*net.TCPAddr).Port
 	return c, files
+}
+
+func serveFTPConnection(conn net.Conn, reject string, directories map[string]bool, stored map[string][]byte) {
+	defer conn.Close()
+	cwd := "/"
+	resolve := func(name string) string {
+		if directories == nil {
+			return name
+		}
+		return path.Join(cwd, name)
+	}
+	_ = conn.SetDeadline(time.Now().Add(5 * time.Second))
+	fmt.Fprint(conn, "220 local test FTP\r\n")
+	scanner := bufio.NewScanner(conn)
+	var data net.Listener
+	var rename string
+	defer func() {
+		if data != nil {
+			data.Close()
+		}
+	}()
+	for scanner.Scan() {
+		verb, arg, _ := strings.Cut(scanner.Text(), " ")
+		switch verb {
+		case "USER":
+			fmt.Fprint(conn, "331 password required\r\n")
+		case "PASS":
+			if arg != "local-test-password" || reject == "auth" {
+				fmt.Fprint(conn, "530 local-test-password rejected\r\n")
+			} else {
+				fmt.Fprint(conn, "230 logged in\r\n")
+			}
+		case "FEAT":
+			fmt.Fprint(conn, "211 End\r\n")
+		case "TYPE", "OPTS":
+			fmt.Fprint(conn, "200 OK\r\n")
+		case "CWD":
+			target := path.Join("/", arg)
+			if reject == "directory" || (directories != nil && !directories[target]) {
+				fmt.Fprint(conn, "550 no such directory\r\n")
+			} else {
+				cwd = target
+				fmt.Fprint(conn, "250 changed directory\r\n")
+			}
+		case "EPSV":
+			var err error
+			data, err = net.Listen("tcp", "127.0.0.1:0")
+			if err != nil {
+				return
+			}
+			_ = data.(*net.TCPListener).SetDeadline(time.Now().Add(5 * time.Second))
+			fmt.Fprintf(conn, "229 Entering Extended Passive Mode (|||%d|)\r\n", data.Addr().(*net.TCPAddr).Port)
+		case "STOR":
+			if reject == "write" {
+				fmt.Fprint(conn, "550 permission denied\r\n")
+				continue
+			}
+			fmt.Fprint(conn, "150 receiving\r\n")
+			dc, err := data.Accept()
+			if err != nil {
+				return
+			}
+			_ = dc.SetDeadline(time.Now().Add(5 * time.Second))
+			stored[resolve(arg)], _ = io.ReadAll(dc)
+			dc.Close()
+			data.Close()
+			fmt.Fprint(conn, "226 complete\r\n")
+		case "RNFR":
+			rename = resolve(arg)
+			fmt.Fprint(conn, "350 rename ready\r\n")
+		case "RNTO":
+			if reject == "rename" {
+				fmt.Fprint(conn, "550 rename denied\r\n")
+				continue
+			}
+			stored[resolve(arg)] = stored[rename]
+			delete(stored, rename)
+			fmt.Fprint(conn, "250 renamed\r\n")
+		case "DELE":
+			delete(stored, resolve(arg))
+			fmt.Fprint(conn, "250 deleted\r\n")
+		case "QUIT":
+			fmt.Fprint(conn, "221 goodbye\r\n")
+			return
+		default:
+			fmt.Fprint(conn, "502 unsupported\r\n")
+		}
+	}
 }
 
 func TestFTPTransfersJPEGAndCleansFailedUploads(t *testing.T) {
@@ -154,6 +175,10 @@ func TestFTPTransfersJPEGAndCleansFailedUploads(t *testing.T) {
 }
 
 func sftpServer(t *testing.T, handlers ...sftp.Handlers) (Config, string, *atomic.Int32) {
+	return startSFTPServer(t, 1, "", handlers...)
+}
+
+func startSFTPServer(t *testing.T, connections int, dir string, handlers ...sftp.Handlers) (Config, string, *atomic.Int32) {
 	t.Helper()
 	_, key, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
@@ -176,7 +201,9 @@ func sftpServer(t *testing.T, handlers ...sftp.Handlers) (Config, string, *atomi
 	if err != nil {
 		t.Fatal(err)
 	}
-	dir := t.TempDir()
+	if dir == "" {
+		dir = t.TempDir()
+	}
 	done := make(chan struct{})
 	t.Cleanup(func() {
 		l.Close()
@@ -188,51 +215,55 @@ func sftpServer(t *testing.T, handlers ...sftp.Handlers) (Config, string, *atomi
 	})
 	go func() {
 		defer close(done)
-		conn, err := l.Accept()
-		if err != nil {
-			return
-		}
-		defer conn.Close()
-		_ = conn.SetDeadline(time.Now().Add(5 * time.Second))
-		sc, chans, requests, err := ssh.NewServerConn(conn, serverConfig)
-		if err != nil {
-			return
-		}
-		defer sc.Close()
-		go ssh.DiscardRequests(requests)
-		for ch := range chans {
-			if ch.ChannelType() != "session" {
-				ch.Reject(ssh.UnknownChannelType, "session only")
-				continue
-			}
-			channel, reqs, err := ch.Accept()
+		for range connections {
+			conn, err := l.Accept()
 			if err != nil {
 				return
 			}
-			for req := range reqs {
-				var subsystem struct{ Name string }
-				if req.Type != "subsystem" || ssh.Unmarshal(req.Payload, &subsystem) != nil || subsystem.Name != "sftp" {
-					req.Reply(false, nil)
-					continue
-				}
-				req.Reply(true, nil)
-				if len(handlers) > 0 {
-					server := sftp.NewRequestServer(channel, handlers[0])
-					_ = server.Serve()
-					server.Close()
-					channel.Close()
-					break
-				}
-				server, err := sftp.NewServer(channel, sftp.WithServerWorkingDirectory(dir))
+			func() {
+				defer conn.Close()
+				_ = conn.SetDeadline(time.Now().Add(5 * time.Second))
+				sc, chans, requests, err := ssh.NewServerConn(conn, serverConfig)
 				if err != nil {
-					channel.Close()
 					return
 				}
-				_ = server.Serve()
-				server.Close()
-				channel.Close()
-				break
-			}
+				defer sc.Close()
+				go ssh.DiscardRequests(requests)
+				for ch := range chans {
+					if ch.ChannelType() != "session" {
+						ch.Reject(ssh.UnknownChannelType, "session only")
+						continue
+					}
+					channel, reqs, err := ch.Accept()
+					if err != nil {
+						return
+					}
+					for req := range reqs {
+						var subsystem struct{ Name string }
+						if req.Type != "subsystem" || ssh.Unmarshal(req.Payload, &subsystem) != nil || subsystem.Name != "sftp" {
+							req.Reply(false, nil)
+							continue
+						}
+						req.Reply(true, nil)
+						if len(handlers) > 0 {
+							server := sftp.NewRequestServer(channel, handlers[0])
+							_ = server.Serve()
+							server.Close()
+							channel.Close()
+							break
+						}
+						server, err := sftp.NewServer(channel, sftp.WithServerWorkingDirectory(dir))
+						if err != nil {
+							channel.Close()
+							return
+						}
+						_ = server.Serve()
+						server.Close()
+						channel.Close()
+						break
+					}
+				}
+			}()
 		}
 	}()
 	c := Config{Protocol: "sftp", Host: "127.0.0.1", Port: l.Addr().(*net.TCPAddr).Port, Username: "test-user", Directory: ".", HostKey: ssh.FingerprintSHA256(signer.PublicKey())}

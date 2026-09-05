@@ -12,7 +12,14 @@
       </label>
       <span class="mono-mute naming-status" role="status">{{ loading ? 'Lädt…' : saving ? 'Wird gespeichert…' : dirty ? 'Noch nicht gespeichert' : 'Gespeichert' }}</span>
     </fieldset>
-    <p class="mono-mute naming-hint">{{ mode === 'fixed' ? 'Immer das aktuelle Bild unter diesem Namen. Für jede Kamera einen eigenen Namen wählen.' : 'Jeder Upload erhält einen eindeutigen Namen mit Datum und Uhrzeit.' }}</p>
+    <p class="mono-mute naming-hint">{{ mode === 'fixed' ? 'Immer das aktuelle Bild unter diesem Namen. Pro Kamera einen eigenen Namen oder Ordner wählen.' : 'Jeder Upload erhält einen eindeutigen Namen mit Datum und Uhrzeit.' }}</p>
+    <fieldset :disabled="loading || saving || busy" class="directory-fields">
+      <label class="directory-label">Verzeichnis
+        <input v-model="directory" class="input" type="text" :placeholder="defaultDirectory" maxlength="1024" spellcheck="false" autocomplete="off" @input="queueSave" />
+      </label>
+      <span class="mono-mute naming-hint">Leer: {{ defaultDirectory }} · Serverstandard</span>
+    </fieldset>
+    <p class="mono-mute naming-hint">Relative Pfade beginnen im Anmeldeverzeichnis des Servers, absolute mit /.</p>
     <p v-if="error" class="notice err" role="alert">{{ error }}</p>
   </div>
 </template>
@@ -22,14 +29,15 @@ import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { api } from '../api/client'
 import type { UploadNaming } from '../types'
 
-const props = defineProps<{ deviceId: string; busy: boolean }>()
+const props = defineProps<{ deviceId: string; busy: boolean; defaultDirectory: string }>()
 const mode = ref<UploadNaming['mode']>('unique')
 const filename = ref('')
+const directory = ref('')
 const loading = ref(true)
 const saving = ref(false)
 const error = ref('')
 const saved = ref('')
-const draft = computed<UploadNaming>(() => ({ mode: mode.value, filename: mode.value === 'fixed' ? filename.value : '' }))
+const draft = computed<UploadNaming>(() => ({ mode: mode.value, filename: mode.value === 'fixed' ? filename.value : '', directory: directory.value }))
 const dirty = computed(() => JSON.stringify(draft.value) !== saved.value)
 let pending: Promise<boolean> | undefined
 let timer: ReturnType<typeof setTimeout> | undefined
@@ -38,6 +46,10 @@ function flush(): Promise<boolean> {
   clearTimeout(timer)
   if (pending) return pending
   if (loading.value) return Promise.resolve(false)
+  if (/[\p{Cc}\\:]/u.test(directory.value) || directory.value.trim().split('/').includes('..')) {
+    error.value = 'Bitte einen Server-Pfad mit / als Trennzeichen eingeben, ohne .., URL oder Steuerzeichen.'
+    return Promise.resolve(false)
+  }
   if (mode.value === 'fixed' && !/^[a-z0-9][a-z0-9_.-]*\.(jpg|jpeg)$/i.test(filename.value)) {
     error.value = 'Bitte einen JPEG-Dateinamen eingeben, z. B. hof.jpg. Erlaubt sind A–Z, a–z, 0–9, Punkt, Bindestrich und Unterstrich; keine Verzeichnisse.'
     return Promise.resolve(false)
@@ -46,10 +58,11 @@ function flush(): Promise<boolean> {
   if (!dirty.value) return Promise.resolve(true)
   saving.value = true
   pending = api.saveUploadNaming(props.deviceId, draft.value).then((result) => {
+    directory.value = result.directory || ''
     saved.value = JSON.stringify(result)
     return true
   }).catch((err) => {
-    error.value = err instanceof Error ? err.message : 'Dateiname konnte nicht gespeichert werden.'
+    error.value = err instanceof Error ? err.message : 'Dateieinstellungen konnten nicht gespeichert werden.'
     return false
   }).finally(() => { saving.value = false; pending = undefined })
   return pending
@@ -65,9 +78,9 @@ function changeMode() {
 }
 onMounted(() => {
   void api.uploadNaming(props.deviceId).then((result) => {
-    mode.value = result.mode; filename.value = result.filename
+    mode.value = result.mode; filename.value = result.filename; directory.value = result.directory || ''
     saved.value = JSON.stringify(draft.value); loading.value = false
-  }).catch((err) => { error.value = err instanceof Error ? err.message : 'Dateiname konnte nicht geladen werden.' })
+  }).catch((err) => { error.value = err instanceof Error ? err.message : 'Dateieinstellungen konnten nicht geladen werden.' })
 })
 onBeforeUnmount(() => { void flush() })
 defineExpose({ flush })
@@ -77,6 +90,10 @@ defineExpose({ flush })
 .upload-naming { display: grid; gap: 8px; border-top: 1px solid var(--line); padding-top: 14px; }
 .naming-fields, .mode-label { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
 .naming-fields { border: 0; padding: 0; margin: 0; }
+.directory-fields { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; border: 0; padding: 4px 0 0; margin: 0; }
+.directory-label { display: flex; align-items: center; gap: 12px; flex: 1; font-size: 12px; min-width: 240px; }
+.directory-label input { flex: 1; min-width: 0; }
+.notice, .naming-hint { overflow-wrap: anywhere; }
 .mode-label { font-size: 12px; }
 .mode-label select { width: auto; }
 .filename-label { flex: 1; min-width: 140px; }

@@ -13,7 +13,7 @@
           <label class="field"><span class="lbl">Port</span><input v-model.number="form.port" type="number" min="1" max="65535" required /></label>
           <label class="field"><span class="lbl">Benutzername</span><input v-model="form.username" required autocomplete="off" /></label>
           <label class="field"><span class="lbl">Serverpasswort</span><input v-model="password" type="password" autocomplete="new-password" :disabled="clearPassword" :placeholder="passwordSet ? 'Leer lassen, um gespeichertes Passwort zu behalten' : 'Passwort eingeben'" /></label>
-          <label class="field"><span class="lbl">Zielverzeichnis</span><input v-model="form.directory" placeholder=". oder /bilder" /><span class="mono-mute">Das Verzeichnis muss vorhanden und beschreibbar sein. „.“ verwendet das Anmeldeverzeichnis.</span></label>
+          <label class="field"><span class="lbl">Standardverzeichnis</span><input v-model="form.directory" placeholder=". oder /bilder" /><span class="mono-mute">Gilt für Kameras ohne eigenes Verzeichnis. Der Ordner muss vorhanden und beschreibbar sein. „.“ verwendet das Anmeldeverzeichnis.</span></label>
         </div>
         <label v-if="form.protocol === 'sftp'" class="field"><span class="lbl">SSH-Hostschlüssel · SHA256-Fingerabdruck</span><input v-model="form.host_key" required placeholder="SHA256:…" autocomplete="off" /><span class="mono-mute">Den Fingerabdruck erhältst du vom Serverbetreiber. Er bestätigt, dass die Verbindung zum richtigen Server aufgebaut wird.</span></label>
         <div v-else class="notice">FTP überträgt Bilder und Zugangsdaten unverschlüsselt. Verwende SFTP, wenn dein Server es unterstützt.</div>
