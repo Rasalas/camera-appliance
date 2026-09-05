@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"camera-appliance/camera-manager/internal/redaction"
+	"camera-appliance/camera-manager/internal/streamrouting"
 	"camera-appliance/camera-manager/internal/system"
 )
 
@@ -124,7 +125,7 @@ func (a *App) RunWatchdogOnce(ctx context.Context, cameraCheck bool) (WatchdogRu
 		return result, nil
 	}
 
-	relayStatuses, relayErr := a.EnsureManagedRelays(ctx)
+	relayStatuses, relayErr := a.Relays().Ensure(ctx)
 	if relayErr != nil {
 		result.Error = redaction.Text(relayErr.Error())
 	}
@@ -171,7 +172,7 @@ func (a *App) RunWatchdogOnce(ctx context.Context, cameraCheck bool) (WatchdogRu
 func (a *App) WatchdogStatus(ctx context.Context) WatchdogStatus {
 	settings, _ := a.Store.Settings(ctx)
 	cfg := watchdogConfigFromSettings(settings)
-	pathCfg := pathStabilityConfigFromSettings(settings)
+	pathCfg := streamrouting.StabilityConfig(settings)
 	cooldownUntil := ""
 	if lastAt, ok := parseSettingTime(settings[watchdogPathRestartLastAtKey]); ok && cfg.PathRestartCooldown > 0 {
 		cooldownUntil = lastAt.Add(cfg.PathRestartCooldown).Format(time.RFC3339)
@@ -218,7 +219,7 @@ func (a *App) watchdogCheckCameraPaths(ctx context.Context, cfg watchdogConfig) 
 		if !ok || assessment.Selected == nil {
 			continue
 		}
-		oldID := strings.TrimSpace(settings[activePathKeyPrefix+binding.DeviceID+".id"])
+		oldID := strings.TrimSpace(settings[streamrouting.ActivePathKeyPrefix+binding.DeviceID+".id"])
 		if oldID == "" {
 			continue
 		}

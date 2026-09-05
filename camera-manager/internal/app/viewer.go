@@ -13,8 +13,10 @@ import (
 	"time"
 
 	"camera-appliance/camera-manager/internal/config"
+	"camera-appliance/camera-manager/internal/display"
 	"camera-appliance/camera-manager/internal/secrets"
 	"camera-appliance/camera-manager/internal/state"
+	"camera-appliance/camera-manager/internal/streamrouting"
 	"camera-appliance/camera-manager/internal/system"
 
 	"gopkg.in/yaml.v3"
@@ -41,25 +43,25 @@ type Viewer struct {
 	Go2RTC          system.ServiceStatus `json:"go2rtc"`
 	GeneratedConfig string               `json:"generated_config,omitempty"`
 	StreamCount     int                  `json:"stream_count"`
-	Layout          ViewerLayout         `json:"layout"`
+	Layout          display.ViewerLayout `json:"layout"`
 	Performance     ViewerPerformance    `json:"performance"`
 	Slots           []ViewerSlot         `json:"slots"`
 }
 
 type ViewerSlot struct {
-	Slot        config.Slot         `json:"slot"`
-	Alias       string              `json:"alias"`
-	Label       string              `json:"label"`
-	State       string              `json:"state"`
-	Message     string              `json:"message"`
-	Binding     *state.Binding      `json:"binding,omitempty"`
-	Device      *state.Device       `json:"device,omitempty"`
-	Playback    *ViewerPlayback     `json:"playback,omitempty"`
-	Stream      *ViewerStreamStatus `json:"stream,omitempty"`
-	Path        *StreamPath         `json:"path,omitempty"`
-	Paths       []StreamPath        `json:"paths,omitempty"`
-	Display     CameraDisplay       `json:"display"`
-	Diagnostics []ViewerDiagnostic  `json:"diagnostics,omitempty"`
+	Slot        config.Slot                `json:"slot"`
+	Alias       string                     `json:"alias"`
+	Label       string                     `json:"label"`
+	State       string                     `json:"state"`
+	Message     string                     `json:"message"`
+	Binding     *state.Binding             `json:"binding,omitempty"`
+	Device      *state.Device              `json:"device,omitempty"`
+	Playback    *ViewerPlayback            `json:"playback,omitempty"`
+	Stream      *ViewerStreamStatus        `json:"stream,omitempty"`
+	Path        *streamrouting.StreamPath  `json:"path,omitempty"`
+	Paths       []streamrouting.StreamPath `json:"paths,omitempty"`
+	Display     display.CameraDisplay      `json:"display"`
+	Diagnostics []ViewerDiagnostic         `json:"diagnostics,omitempty"`
 }
 
 type ViewerPlayback struct {
@@ -115,7 +117,7 @@ func (a *App) Viewer(ctx context.Context) (Viewer, error) {
 		Go2RTC:          go2rtcStatus,
 		GeneratedConfig: generatedPath,
 		StreamCount:     len(aliases),
-		Layout:          viewerLayoutFromSettings(settings, a.Slots),
+		Layout:          display.Resolve(settings, a.Slots),
 		Performance:     viewerPerformanceFromSettings(settings),
 		Slots:           make([]ViewerSlot, 0, len(a.Slots)),
 	}
@@ -140,7 +142,7 @@ func (a *App) viewerSlot(ctx context.Context, slot config.Slot, binding state.Bi
 		Label:   slot.Label,
 		State:   ViewerStateUnassigned,
 		Message: "Kein Gerät zugeordnet.",
-		Display: displayFromSettings(settings, binding),
+		Display: display.Transform(settings, binding.DeviceID),
 		Stream:  &streamStatus,
 		Diagnostics: []ViewerDiagnostic{
 			{Key: "assignment", Status: "missing", Message: "Platz ist leer."},
@@ -365,7 +367,7 @@ func jsonArrayLength(value any, key string) int {
 	return len(array)
 }
 
-func pathFailureSummary(paths []StreamPath) string {
+func pathFailureSummary(paths []streamrouting.StreamPath) string {
 	if len(paths) == 0 {
 		return "Kein direkter oder Relay-Pfad ist konfiguriert."
 	}
@@ -377,7 +379,7 @@ func pathFailureSummary(paths []StreamPath) string {
 	return "Alle RTSP-Pfade sind nicht erreichbar."
 }
 
-func streamPathDiagnostic(path StreamPath) string {
+func streamPathDiagnostic(path streamrouting.StreamPath) string {
 	if path.State != "ok" {
 		if path.StabilityMessage != "" {
 			return "Pfad " + path.Label + ": " + path.Message + " " + path.StabilityMessage
@@ -385,7 +387,7 @@ func streamPathDiagnostic(path StreamPath) string {
 		return "Pfad " + path.Label + ": " + path.Message
 	}
 	prefix := "Pfad " + path.Label + " ist erreichbar"
-	if path.Kind == PathKindDirect {
+	if path.Kind == streamrouting.PathKindDirect {
 		prefix += " (direkt " + path.Host + ":" + path.Port + ")."
 	} else {
 		prefix += " (Relay " + path.Host + ":" + path.Port + ")."
@@ -412,30 +414,6 @@ func (a *App) probeRTSP(ctx context.Context, host, port string) error {
 	}
 	_ = conn.Close()
 	return nil
-}
-
-func ProbeHostForEndpoint(host string) string {
-	if strings.EqualFold(strings.TrimSpace(host), "host.docker.internal") {
-		return "127.0.0.1"
-	}
-	return host
-}
-
-func rtspProbeDiagnostic(port string, err error) string {
-	if strings.TrimSpace(port) == "" {
-		port = "554"
-	}
-	if err == nil {
-		return "RTSP-Port " + port + " ist erreichbar."
-	}
-	lower := strings.ToLower(err.Error())
-	if strings.Contains(lower, "refused") {
-		return "RTSP-Port " + port + " lehnt Verbindungen ab."
-	}
-	if strings.Contains(lower, "timeout") || strings.Contains(lower, "deadline") {
-		return "RTSP-Port " + port + " antwortet nicht."
-	}
-	return "RTSP-Port " + port + " ist nicht erreichbar."
 }
 
 func (a *App) generatedGo2RTCAliases() (map[string]bool, string) {

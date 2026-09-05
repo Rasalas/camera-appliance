@@ -64,3 +64,5 @@ launching workers outside the manager's container/service and waiting for stack
 recreation. Tests exercise a real child process with temporary SQLite state,
 process-independent exclusion, version-aware health checks, recovery after a
 canceled update, and Docker/systemd command contracts without restarting services.
+
+For backend changes, see [module ownership and dependency rules](architecture.md). The architecture tests run with the normal Go test suite.

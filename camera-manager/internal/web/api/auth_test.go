@@ -293,14 +293,13 @@ func TestDeviceFrameUsesConfiguredRTSPEndpoint(t *testing.T) {
 		t.Fatal(err)
 	}
 	var capturedURL string
-	originalCapture := captureFrameFunc
-	captureFrameFunc = func(_ context.Context, rawURL, _ string) ([]byte, error) {
+	server := New(a)
+	server.cameras.Capture = func(_ context.Context, rawURL, _ string) ([]byte, error) {
 		capturedURL = rawURL
 		return []byte("jpeg"), nil
 	}
-	t.Cleanup(func() { captureFrameFunc = originalCapture })
 
-	res := performJSON(New(a).Handler(), http.MethodPost, "/api/devices/dev1/frame", map[string]any{
+	res := performJSON(server.Handler(), http.MethodPost, "/api/devices/dev1/frame", map[string]any{
 		"username": "user",
 		"password": "secret",
 		"stream":   "stream2",

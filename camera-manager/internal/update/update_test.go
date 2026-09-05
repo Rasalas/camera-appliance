@@ -4,8 +4,6 @@ import (
 	"archive/tar"
 	"compress/gzip"
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"errors"
 	"os"
 	"path/filepath"
@@ -282,53 +280,6 @@ func writeFile(t *testing.T, path, data string) {
 	}
 	if err := os.WriteFile(path, []byte(data), 0o644); err != nil {
 		t.Fatal(err)
-	}
-}
-
-func TestValidateSourceRequiresHTTPS(t *testing.T) {
-	if err := validateSource("", "https://example.com/release.tar.gz", false); err != nil {
-		t.Fatalf("https URL should be accepted: %v", err)
-	}
-	if err := validateSource("", "http://example.com/release.tar.gz", false); err == nil {
-		t.Fatal("http URL should be rejected without explicit opt-in")
-	}
-	if err := validateSource("", "http://127.0.0.1:8080/release.tar.gz", true); err != nil {
-		t.Fatalf("http URL should pass with opt-in: %v", err)
-	}
-	if err := validateSource("archive.tar.gz", "", false); err != nil {
-		t.Fatalf("local archive should be accepted: %v", err)
-	}
-}
-
-func TestVerifyDigest(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "release.tar.gz")
-	payload := []byte("release-payload")
-	if err := os.WriteFile(path, payload, 0o600); err != nil {
-		t.Fatal(err)
-	}
-	sum := sha256.Sum256(payload)
-	hexSum := hex.EncodeToString(sum[:])
-
-	if err := verifyDigest(path, "sha256:"+hexSum); err != nil {
-		t.Fatalf("prefixed digest should match: %v", err)
-	}
-	if err := verifyDigest(path, hexSum); err != nil {
-		t.Fatalf("bare digest should match: %v", err)
-	}
-	if err := verifyDigest(path, strings.ToUpper(hexSum)); err != nil {
-		t.Fatalf("digest comparison should be case-insensitive: %v", err)
-	}
-	if err := verifyDigest(path, strings.Repeat("0", 64)); err == nil {
-		t.Fatal("wrong digest should fail")
-	}
-	if err := verifyDigest(path, "abc"); err == nil {
-		t.Fatal("malformed digest should fail")
-	}
-	if err := verifyDigest(path, ""); err != nil {
-		t.Fatalf("empty digest must not check anything: %v", err)
-	}
-	if err := verifyDigest(path, "md5:"+hexSum); err == nil {
-		t.Fatal("unsupported algorithm should fail")
 	}
 }
 

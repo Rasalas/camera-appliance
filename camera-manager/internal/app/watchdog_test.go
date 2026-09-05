@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"camera-appliance/camera-manager/internal/state"
+	"camera-appliance/camera-manager/internal/streamrouting"
 )
 
 func TestWatchdogSwitchesFromDirectToRelay(t *testing.T) {
@@ -59,7 +60,7 @@ func TestWatchdogSwitchesFromDirectToRelay(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if settings[activePathKeyPrefix+"dev1.id"] != "relay:nas" {
+	if settings[streamrouting.ActivePathKeyPrefix+"dev1.id"] != "relay:nas" {
 		t.Fatalf("expected active relay path, got %+v", settings)
 	}
 	assertWatchdogEvent(t, a, "watchdog.path_switched")
@@ -122,7 +123,7 @@ func TestWatchdogPreferDirectReturnsToDirect(t *testing.T) {
 	}
 	seedWatchdogCamera(t, a, "dev1", "192.168.1.20", "relay:nas")
 	if err := a.Store.PutSettings(ctx, map[string]string{
-		"camera.path_policy.dev1":             PathPolicyPreferDirect,
+		"camera.path_policy.dev1":             streamrouting.PathPolicyPreferDirect,
 		"camera.relay.ids":                    "nas",
 		"camera.relay.nas.name":               "NAS Relay",
 		"camera.relay.nas.host":               "host.docker.internal",
@@ -170,7 +171,7 @@ func TestWatchdogPathRestartCooldownDefersRepeatedRestarts(t *testing.T) {
 	}
 	seedWatchdogCamera(t, a, "dev1", "192.168.1.20", "direct")
 	if err := a.Store.PutSettings(ctx, map[string]string{
-		pathFailThresholdKey:                  "1",
+		streamrouting.PathFailThresholdKey:    "1",
 		pathRestartCooldownSecondsKey:         "120",
 		watchdogPathRestartLastAtKey:          time.Now().UTC().Format(time.RFC3339),
 		"camera.relay.ids":                    "nas",
@@ -267,7 +268,7 @@ func seedWatchdogCamera(t *testing.T, a *App, deviceID, ip, activePath string) {
 		t.Fatal(err)
 	}
 	if err := a.Store.PutSettings(ctx, map[string]string{
-		activePathKeyPrefix + deviceID + ".id": activePath,
+		streamrouting.ActivePathKeyPrefix + deviceID + ".id": activePath,
 	}); err != nil {
 		t.Fatal(err)
 	}

@@ -13,6 +13,7 @@ import (
 
 	"camera-appliance/camera-manager/internal/config"
 	"camera-appliance/camera-manager/internal/redaction"
+	"camera-appliance/camera-manager/internal/releasearchive"
 	"camera-appliance/camera-manager/internal/state"
 	"camera-appliance/camera-manager/internal/system"
 )
@@ -58,7 +59,7 @@ func StartJob(ctx context.Context, cfg config.Config, req Request) (Job, error) 
 
 func startJob(ctx context.Context, cfg config.Config, req Request, executable string, launch workerLauncher) (Job, error) {
 	if !req.Rollback {
-		if err := validateSource(req.Archive, req.URL, req.AllowInsecureURL); err != nil {
+		if err := (releasearchive.Source{Archive: req.Archive, URL: req.URL, AllowInsecureURL: req.AllowInsecureURL}).Validate(); err != nil {
 			return Job{}, err
 		}
 	}
@@ -240,6 +241,7 @@ func WaitJob(ctx context.Context, cfg config.Config, id string) (Result, error) 
 }
 
 func jobPath(cfg config.Config) string { return filepath.Join(cfg.StateDir, "updates", "job.json") }
+
 func readJobFile(path string) (jobFile, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
