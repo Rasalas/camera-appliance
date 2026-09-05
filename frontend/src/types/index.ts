@@ -405,3 +405,20 @@ export interface SnapshotUploadResult {
   height: number
   bytes: number
 }
+
+export interface UploadScheduleInput {
+  enabled: boolean
+  interval_seconds: number
+  quiet_hours: { enabled: boolean; start: string; end: string }
+}
+
+export interface UploadScheduleStatus extends UploadScheduleInput {
+  next_run?: string
+  running: boolean
+  last_attempt?: string
+  last_success?: string
+  last_error?: string
+  quiet_now: boolean
+  device_time: string
+  time_zone: string
+}

@@ -43,6 +43,8 @@ func (s *Server) Handler() http.Handler {
 	return withSecurityHeaders(withOriginCheck(s.authMiddleware(s.mux)))
 }
 
+func (s *Server) RunUploadScheduler(ctx context.Context) { s.uploads.Run(ctx) }
+
 func (s *Server) routes() {
 	s.mux.HandleFunc("GET /api/auth/status", s.getAuthStatus)
 	s.mux.HandleFunc("GET /api/health", s.getHealth)
@@ -85,6 +87,8 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /api/devices/{id}/upload-crop", s.getUploadCrop)
 	s.mux.HandleFunc("PUT /api/devices/{id}/upload-crop", s.putUploadCrop)
 	s.mux.HandleFunc("POST /api/devices/{id}/upload-snapshot", s.uploadSnapshot)
+	s.mux.HandleFunc("GET /api/devices/{id}/upload-schedule", s.getUploadSchedule)
+	s.mux.HandleFunc("PUT /api/devices/{id}/upload-schedule", s.putUploadSchedule)
 	s.mux.HandleFunc("POST /api/secrets/camera-password", s.setCameraPassword)
 	s.mux.HandleFunc("GET /api/events", s.getEvents)
 	s.mux.HandleFunc("POST /api/backup", s.createBackup)

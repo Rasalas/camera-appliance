@@ -1,6 +1,6 @@
 import type { AuthStatus, Binding, CredentialIdentity, Device, DeviceCredentials, EventItem, FrameResult, LoginResult, ManualDeviceResult, ProbeResult, RelayStatus, ScanRun, Slot, StatusResponse, SupportBundleResult, UpdateStartResult, UpdateFlowStatus, ViewerResponse } from '../types'
 
-import type { UploadSettings, UploadCrop, SnapshotUploadResult } from '../types'
+import type { UploadSettings, UploadCrop, SnapshotUploadResult, UploadScheduleInput, UploadScheduleStatus } from '../types'
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(path, {
@@ -19,6 +19,8 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export const api = {
+  uploadSchedule: (id: string) => request<UploadScheduleStatus>(`/api/devices/${encodeURIComponent(id)}/upload-schedule`),
+  saveUploadSchedule: (id: string, body: UploadScheduleInput) => request<UploadScheduleStatus>(`/api/devices/${encodeURIComponent(id)}/upload-schedule`, { method: 'PUT', body: JSON.stringify(body) }),
   uploadSettings: () => request<UploadSettings>('/api/snapshot-upload'),
   saveUploadSettings: (body: Omit<UploadSettings, 'password_set'> & { password: string; clear_password?: boolean }) =>
     request<UploadSettings>('/api/snapshot-upload', { method: 'PUT', body: JSON.stringify(body) }),

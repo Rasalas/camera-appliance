@@ -44,6 +44,9 @@ func (s *Service) frameCredentialCandidates(ctx context.Context, device state.De
 		stream = "stream2"
 	}
 	username = strings.TrimSpace(username)
+	if username == "" {
+		username = settings["camera.credentials."+device.ID+".username"]
+	}
 	// Passwords are used verbatim; only whitespace-only input is treated as
 	// empty so saved passwords with surrounding spaces keep working.
 	if strings.TrimSpace(password) == "" {
@@ -66,7 +69,7 @@ func (s *Service) frameCredentialCandidates(ctx context.Context, device state.De
 		}
 	}
 	if len(candidates) == 0 {
-		return nil, errors.New("username and password are required for frame capture")
+		return nil, errors.New("Bitte zuerst einen Kamerazugang mit Benutzername und Passwort speichern.")
 	}
 	if len(candidates) > 8 {
 		candidates = candidates[:8]

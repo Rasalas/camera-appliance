@@ -24,16 +24,20 @@ var ErrRemote = errors.New("Bild-Upload fehlgeschlagen")
 type Capture func(context.Context, string, cameraaccess.CredentialsInput) (cameraaccess.Frame, error)
 
 type Service struct {
-	store     *state.Store
-	configDir string
-	capture   Capture
-	mu        sync.Mutex
-	busy      sync.Mutex
-	Send      func(context.Context, Config, string, string, []byte) error
+	store      *state.Store
+	configDir  string
+	capture    Capture
+	mu         sync.Mutex
+	busy       sync.Mutex
+	scheduleMu sync.Mutex
+	runMu      sync.Mutex
+	runner     sync.Mutex
+	now        func() time.Time
+	Send       func(context.Context, Config, string, string, []byte) error
 }
 
 func New(store *state.Store, configDir string, capture Capture) *Service {
-	return &Service{store: store, configDir: configDir, capture: capture, Send: transfer}
+	return &Service{store: store, configDir: configDir, capture: capture, Send: transfer, now: time.Now}
 }
 
 func (s *Service) configuration(ctx context.Context) (Config, string, error) {
@@ -142,6 +146,10 @@ func (s *Service) Upload(ctx context.Context, deviceID string, input UploadInput
 		return Result{}, ErrBusy
 	}
 	defer s.busy.Unlock()
+	return s.upload(ctx, deviceID, input)
+}
+
+func (s *Service) upload(ctx context.Context, deviceID string, input UploadInput) (Result, error) {
 	if input.Crop == nil {
 		return Result{}, fmt.Errorf("%w: Bitte Gesamtbild oder Bildausschnitt wählen.", ErrInvalid)
 	}

@@ -19,6 +19,7 @@
     </div>
     <div v-else class="empty">{{ previewLoading ? 'Vorschau lädt…' : previewError || 'Keine Kameravorschau verfügbar.' }}</div>
     <div v-if="previewError" class="preview-error mono-mute" role="alert">{{ previewSrc && !imageMissing ? previewError : '' }} <button v-if="canCapture" class="retry-link" type="button" :disabled="previewLoading" @click="loadPreview">Erneut laden</button></div>
+    <UploadSchedule :device-id="deviceId" :before-enable="prepareSchedule" />
     <div class="upload-footer">
       <span class="mono-mute">{{ destination?.password_set ? `${destination.protocol.toUpperCase()} · ${destination.host}` : 'Upload-Server einrichten' }}</span>
       <button class="btn primary" type="button" :disabled="cropLoading || previewLoading || uploading || cameraBusy || !validCrop || !canCapture || !destination?.password_set" @click="upload">{{ uploading ? 'Wird hochgeladen…' : 'Jetzt hochladen' }}</button>
@@ -41,6 +42,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { api } from '../api/client'
+import UploadSchedule from './UploadSchedule.vue'
 import { createCropAutosave, validUploadCrop } from '../composables/uploadCropDraft'
 import type { UploadCrop, UploadSettings } from '../types'
 
@@ -76,6 +78,11 @@ function scheduleSave() {
   if (cropLoading.value || drag) return
   if (!validCrop.value) { autosave.cancelPending(); saveStatus.value = 'Nicht gespeichert'; return }
   autosave.change(crop.value)
+}
+async function prepareSchedule() {
+  if (cropLoading.value || !validCrop.value || drag) return false
+  await autosave.flush()
+  return !saveError.value
 }
 function point(event: PointerEvent) {
   const rect = (event.currentTarget as HTMLElement).getBoundingClientRect()

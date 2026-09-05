@@ -113,7 +113,24 @@ Fehlermeldung. Der Upload verwendet immer die aktuell angezeigte Auswahl.
 Mit „Vollbild“ wird alternativ das gesamte Originalbild
 hochgeladen. Die Anzeige-Transforms des Viewers ändern das Upload-Bild nicht.
 
-Es gibt keinen Intervallbetrieb und kein Videoarchiv. Jede Datei erhält einen
+Unter „Automatisch“ sind pro Kamera Uploads jede Minute, alle 5 oder 15 Minuten
+und jede Stunde wählbar. „Aus“ deaktiviert sie. Der Hintergrunddienst verwendet
+den gespeicherten Kamerazugang, Stream und Bildbereich und läuft auch bei
+geschlossenem Browser. Der erste Lauf erfolgt nach dem gewählten Intervall;
+Einstellungen und nächster Termin bleiben bei Neustarts erhalten. Verpasste
+Intervalle werden zu höchstens einem Lauf zusammengefasst. Uploads laufen
+nacheinander; ein laufender Upload wird beim Deaktivieren noch beendet.
+
+Optional pausiert eine tägliche Ruhezeit die automatischen Uploads. Auch
+„22:00 bis 07:00“ über Mitternacht ist möglich. Der Beginn ist eingeschlossen,
+das Ende nicht. Maßgeblich ist die angezeigte lokale Gerätezeit, einschließlich
+Sommerzeitwechsel; die Docker-Konfiguration übernimmt dafür `/etc/localtime`
+vom Host. Bei Beginn der Ruhezeit wird ein laufender automatischer Upload
+abgebrochen. Nach der Pause wird ein fälliger Lauf ausgeführt, ohne die ausgelassenen
+Bilder nachzuholen. Der manuelle Upload bleibt auch während der Ruhezeit möglich.
+Status, letzter Erfolg und Fehler erscheinen in der Kameradetailseite.
+
+Es gibt kein Videoarchiv. Jede Datei erhält einen
 eindeutigen Namen mit Kamera-Kennung und UTC-Zeit. Das Zielverzeichnis muss existieren
 und Schreiben sowie Umbenennen erlauben: Eine Übertragung wird zunächst als `.part`
 geschrieben und erst danach als `.jpg` veröffentlicht. Bei Netzwerkabbruch können

@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"camera-appliance/camera-manager/internal/cameraaccess"
 	"camera-appliance/camera-manager/internal/snapshotupload"
 	"camera-appliance/camera-manager/internal/state"
 )
@@ -89,12 +90,63 @@ func TestSnapshotEndpointsRequireAdmin(t *testing.T) {
 	}
 	h := New(a).Handler()
 	cookie := loginCookie(t, h, "viewer", "viewer-pass")
-	for _, route := range []struct{ method, path string }{{"GET", "/api/snapshot-upload"}, {"PUT", "/api/snapshot-upload"}, {"GET", "/api/devices/device/upload-crop"}, {"PUT", "/api/devices/device/upload-crop"}, {"POST", "/api/devices/device/upload-snapshot"}} {
+	for _, route := range []struct{ method, path string }{{"GET", "/api/snapshot-upload"}, {"PUT", "/api/snapshot-upload"}, {"GET", "/api/devices/device/upload-crop"}, {"PUT", "/api/devices/device/upload-crop"}, {"POST", "/api/devices/device/upload-snapshot"}, {"GET", "/api/devices/device/upload-schedule"}, {"PUT", "/api/devices/device/upload-schedule"}} {
 		if res := performJSON(h, route.method, route.path, nil, cookie); res.Code != http.StatusForbidden {
 			t.Fatalf("viewer allowed %s %s: %d", route.method, route.path, res.Code)
 		}
 		if res := performJSON(h, route.method, route.path, nil, nil); res.Code != http.StatusUnauthorized {
 			t.Fatalf("anonymous allowed %s %s: %d", route.method, route.path, res.Code)
 		}
+	}
+}
+
+func TestUploadScheduleAPIAndSavedCameraCredentials(t *testing.T) {
+	t.Setenv("TAPO_CAMERA_PASSWORD", "saved-camera-test-password")
+	a := newAuthTestApp(t)
+	ctx := context.Background()
+	if err := a.Store.UpsertDevice(ctx, state.Device{ID: "device", LastIP: "192.0.2.1"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := a.Store.PutSettings(ctx, map[string]string{"camera.credentials.device.username": "saved-camera-user", "camera.credentials.device.stream": "stream1"}); err != nil {
+		t.Fatal(err)
+	}
+	s := New(a)
+	var jpegData bytes.Buffer
+	_ = jpeg.Encode(&jpegData, image.NewRGBA(image.Rect(0, 0, 100, 80)), nil)
+	s.cameras.Capture = func(_ context.Context, rawURL, _ string) ([]byte, error) {
+		if !strings.Contains(rawURL, "saved-camera-user:saved-camera-test-password@") || !strings.HasSuffix(rawURL, "/stream1") {
+			t.Fatal("background capture did not resolve saved credentials and stream")
+		}
+		return jpegData.Bytes(), nil
+	}
+	if _, err := s.cameras.Frame(ctx, "device", cameraaccess.FrameInput{}); err != nil {
+		t.Fatal(err)
+	}
+	h := s.Handler()
+	input := snapshotupload.ScheduleInput{Enabled: true, IntervalSeconds: 3600, QuietHours: snapshotupload.QuietHours{Enabled: true, Start: "22:00", End: "07:00"}}
+	res := performJSON(h, "PUT", "/api/devices/device/upload-schedule", input, nil)
+	if res.Code != http.StatusBadRequest {
+		t.Fatal("enabled schedule without upload server")
+	}
+	if _, err := s.uploads.SaveSettings(ctx, snapshotupload.SettingsInput{Config: snapshotupload.Config{Protocol: "ftp", Host: "localhost", Port: 21, Username: "test", Directory: "."}, Password: "upload-test-password"}); err != nil {
+		t.Fatal(err)
+	}
+	res = performJSON(h, "PUT", "/api/devices/device/upload-schedule", input, nil)
+	if res.Code != http.StatusOK {
+		t.Fatalf("save schedule: %d %s", res.Code, res.Body)
+	}
+	res = performJSON(h, "GET", "/api/devices/device/upload-schedule", nil, nil)
+	var got snapshotupload.ScheduleStatus
+	if err := json.Unmarshal(res.Body.Bytes(), &got); err != nil || got.ScheduleInput != input || got.NextRun == nil || got.TimeZone == "" || got.DeviceTime.IsZero() {
+		t.Fatalf("schedule round trip: %s", res.Body)
+	}
+	input.QuietHours.End = input.QuietHours.Start
+	res = performJSON(h, "PUT", "/api/devices/device/upload-schedule", input, nil)
+	if res.Code != http.StatusBadRequest {
+		t.Fatal("invalid quiet interval accepted")
+	}
+	res = performJSON(h, "PUT", "/api/devices/device/upload-schedule", map[string]any{"enabled": true, "running": true, "interval_seconds": 60}, nil)
+	if res.Code != http.StatusBadRequest {
+		t.Fatal("client rewrote scheduler runtime status")
 	}
 }
