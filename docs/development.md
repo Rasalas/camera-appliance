@@ -56,3 +56,11 @@ make render-go2rtc
 make compose-config
 make clean
 ```
+
+
+Update supervision is implemented in `internal/update/jobs.go`; transport handlers
+submit serializable requests and read durable status. `internal/system` owns
+launching workers outside the manager's container/service and waiting for stack
+recreation. Tests exercise a real child process with temporary SQLite state,
+process-independent exclusion, version-aware health checks, recovery after a
+canceled update, and Docker/systemd command contracts without restarting services.

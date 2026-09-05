@@ -52,10 +52,11 @@ type updateFlowStatus struct {
 	// Download progress in bytes while the phase is downloading. Total is 0
 	// when the server sends no Content-Length, so the UI falls back to an
 	// indeterminate display.
-	Downloaded int64     `json:"downloaded,omitempty"`
-	Total      int64     `json:"total,omitempty"`
-	Error      string    `json:"error,omitempty"`
-	CheckedAt  time.Time `json:"checked_at,omitempty"`
+	Downloaded int64        `json:"downloaded,omitempty"`
+	Total      int64        `json:"total,omitempty"`
+	Error      string       `json:"error,omitempty"`
+	CheckedAt  time.Time    `json:"checked_at,omitempty"`
+	Job        *updater.Job `json:"job,omitempty"`
 }
 
 type updateFlow struct {
@@ -361,8 +362,7 @@ func (s *Server) startUpdateDownload(ctx context.Context) error {
 	return nil
 }
 
-// installFromCache applies a previously downloaded archive. It reuses the same
-// single-flight mutex as URL-based updates.
+// startUpdateInstall hands the archive to an independent, durable update job.
 func (s *Server) startUpdateInstall(w http.ResponseWriter, r *http.Request) {
 	f := s.updates
 	f.mu.Lock()
@@ -377,29 +377,47 @@ func (s *Server) startUpdateInstall(w http.ResponseWriter, r *http.Request) {
 	f.st.Phase = updateInstalling
 	f.st.Error = ""
 	f.mu.Unlock()
+	s.submitUpdate(w, r, updater.Request{Archive: archivePath, Digest: digest, AutoRollback: true})
+}
 
-	if !s.updateMu.TryLock() {
-		f.setPhase(updateFailed, "es läuft bereits ein Update")
-		writeError(w, errors.New("es läuft bereits ein Update"), http.StatusConflict)
+func (s *Server) submitUpdate(w http.ResponseWriter, r *http.Request, req updater.Request) {
+	job, err := s.startUpdateJob(r.Context(), s.app.Config, req)
+	if err != nil {
+		s.updates.setPhase(updateFailed, err.Error())
+		status := http.StatusInternalServerError
+		if errors.Is(err, updater.ErrUpdateBusy) {
+			status = http.StatusConflict
+		}
+		writeError(w, err, status)
 		return
 	}
-	_ = s.app.Store.AddEvent(r.Context(), "info", "update.install_started", "Installieren des heruntergeladenen Updates gestartet", nil)
-	go func() {
-		defer s.updateMu.Unlock()
-		s.runApply(func(ctx context.Context) (updater.Result, error) {
-			return updater.Apply(ctx, updater.Options{
-				Config:           s.app.Config,
-				Archive:          archivePath,
-				Digest:           digest,
-				InstallDir:       s.app.Config.InstallDir,
-				AutoRollback:     true,
-				Restart:          updater.StackRestart(s.app.Config),
-				Healthcheck:      updater.HTTPHealthcheck(s.app.Config),
-				AllowInsecureURL: insecureUpdateAllowed(),
-			})
-		}, "archiv:"+filepath.Base(archivePath))
-	}()
-	writeJSON(w, map[string]string{"status": "installing"}, http.StatusAccepted)
+	s.updates.setPhase(updateInstalling, "")
+	// StartJob has its own copy; the downloaded cache is no longer needed.
+	s.updates.cleanupCachedArchive()
+	writeJSON(w, map[string]string{"status": "installing", "job_id": job.ID}, http.StatusAccepted)
+}
+
+func (s *Server) updateStatus() updateFlowStatus {
+	st := s.updates.status()
+	job, err := updater.ReadJob(s.app.Config)
+	if errors.Is(err, os.ErrNotExist) {
+		return st
+	}
+	if err != nil {
+		st.Phase, st.Error = updateFailed, err.Error()
+		return st
+	}
+	st.Job = &job
+	if job.Phase == "queued" || job.Phase == "installing" {
+		st.Phase, st.Error = updateInstalling, ""
+	} else if st.CheckedAt.IsZero() || !job.UpdatedAt.Before(st.CheckedAt) || st.Phase == updateInstalling {
+		if job.Phase == "failed" {
+			st.Phase, st.Error = updateFailed, job.Error
+		} else {
+			st.Phase, st.Error = updateIdle, ""
+		}
+	}
+	return st
 }
 
 // cleanupCachedArchive removes a stale downloaded archive after install/failure.
@@ -423,10 +441,14 @@ func removeArchiveFile(path string) error {
 }
 
 func (s *Server) getUpdateStatus(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, s.updates.status(), http.StatusOK)
+	writeJSON(w, s.updateStatus(), http.StatusOK)
 }
 
 func (s *Server) checkForUpdate(w http.ResponseWriter, r *http.Request) {
+	if st := s.updateStatus(); st.Phase == updateInstalling {
+		writeJSON(w, st, http.StatusConflict)
+		return
+	}
 	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
 	defer cancel()
 	if err := s.updates.check(ctx); err != nil {
@@ -439,6 +461,10 @@ func (s *Server) checkForUpdate(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) downloadUpdate(w http.ResponseWriter, r *http.Request) {
+	if st := s.updateStatus(); st.Phase == updateInstalling {
+		writeJSON(w, st, http.StatusConflict)
+		return
+	}
 	if err := s.startUpdateDownload(r.Context()); err != nil {
 		writeError(w, err, http.StatusConflict)
 		return

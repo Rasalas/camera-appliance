@@ -14,6 +14,7 @@ import (
 	"camera-appliance/camera-manager/internal/app"
 	authn "camera-appliance/camera-manager/internal/auth"
 	"camera-appliance/camera-manager/internal/backup"
+	"camera-appliance/camera-manager/internal/config"
 	"camera-appliance/camera-manager/internal/redaction"
 	"camera-appliance/camera-manager/internal/state"
 	"camera-appliance/camera-manager/internal/system"
@@ -30,7 +31,7 @@ func Execute() error {
 		SilenceUsage:  true,
 		SilenceErrors: true,
 	}
-	root.AddCommand(serveCmd(), statusCmd(), discoverCmd(), assignCmd(), renderCmd(), restartGo2RTCCmd(), restartStackCmd(), relaysCmd(), adminCmd(), resetBindingsCmd(), backupCmd(), restoreCmd(), supportBundleCmd(), installCmd(), updateCmd())
+	root.AddCommand(serveCmd(), statusCmd(), discoverCmd(), assignCmd(), renderCmd(), restartGo2RTCCmd(), restartStackCmd(), relaysCmd(), adminCmd(), resetBindingsCmd(), backupCmd(), restoreCmd(), supportBundleCmd(), installCmd(), updateCmd(), updateWorkerCmd())
 	if err := root.Execute(); err != nil {
 		fmt.Fprintln(os.Stderr, redaction.Text(err.Error()))
 		return err
@@ -497,18 +498,20 @@ func updateCmd() *cobra.Command {
 			if installDir == "" {
 				installDir = a.Config.InstallDir
 			}
-			result, err := updater.Apply(cmd.Context(), updater.Options{
-				Config:           a.Config,
-				Archive:          archivePath,
-				URL:              releaseURL,
-				Digest:           digest,
-				InstallDir:       installDir,
-				NoRestart:        noRestart,
-				AutoRollback:     !noAutoRollback,
-				Restart:          updater.StackRestart(a.Config),
-				Healthcheck:      updater.HTTPHealthcheck(a.Config),
-				AllowInsecureURL: insecureUpdateAllowed(),
-			})
+			cfg := a.Config
+			cfg.InstallDir = installDir
+			request := updater.Request{Archive: archivePath, URL: releaseURL, Digest: digest, NoRestart: noRestart, AutoRollback: !noAutoRollback, AllowInsecureURL: insecureUpdateAllowed()}
+			var result updater.Result
+			if noRestart {
+				result, err = updater.Apply(cmd.Context(), updater.Options{Config: cfg, Archive: archivePath, URL: releaseURL, Digest: digest, InstallDir: installDir, NoRestart: true, AutoRollback: !noAutoRollback, AllowInsecureURL: insecureUpdateAllowed()})
+			} else {
+				var job updater.Job
+				job, err = updater.StartJob(cmd.Context(), cfg, request)
+				if err == nil {
+					printJSON(job)
+					result, err = updater.WaitJob(cmd.Context(), cfg, job.ID)
+				}
+			}
 			if result.BackupPath != "" || result.RollbackApplied || len(result.AppliedFiles) > 0 {
 				printJSON(result)
 			}
@@ -526,7 +529,7 @@ func updateCmd() *cobra.Command {
 	cmd.Flags().StringVar(&installDir, "install-dir", "", "installed appliance directory (default: CAMERA_APPLIANCE_INSTALL_DIR or "+updater.DefaultInstallDir+")")
 	cmd.Flags().BoolVar(&noRestart, "no-restart", false, "copy update without restarting services")
 	cmd.Flags().BoolVar(&noAutoRollback, "no-auto-rollback", false, "do not restore previous files when healthcheck fails")
-	cmd.AddCommand(updateRollbackCmd())
+	cmd.AddCommand(updateRollbackCmd(), updateStatusCmd())
 	return cmd
 }
 
@@ -542,13 +545,19 @@ func updateRollbackCmd() *cobra.Command {
 				return err
 			}
 			defer a.Close()
-			result, err := updater.Rollback(cmd.Context(), updater.RollbackOptions{
-				Config:      a.Config,
-				InstallDir:  installDir,
-				NoRestart:   noRestart,
-				Restart:     updater.StackRestart(a.Config),
-				Healthcheck: updater.HTTPHealthcheck(a.Config),
-			})
+			cfg := a.Config
+			cfg.InstallDir = installDir
+			var result updater.Result
+			if noRestart {
+				result, err = updater.Rollback(cmd.Context(), updater.RollbackOptions{Config: cfg, InstallDir: installDir, NoRestart: true})
+			} else {
+				var job updater.Job
+				job, err = updater.StartJob(cmd.Context(), cfg, updater.Request{Rollback: true})
+				if err == nil {
+					printJSON(job)
+					result, err = updater.WaitJob(cmd.Context(), cfg, job.ID)
+				}
+			}
 			if result.RollbackDir != "" {
 				printJSON(result)
 			}
@@ -562,6 +571,38 @@ func updateRollbackCmd() *cobra.Command {
 	}
 	cmd.Flags().StringVar(&installDir, "install-dir", "", "installed appliance directory; defaults to last update")
 	cmd.Flags().BoolVar(&noRestart, "no-restart", false, "restore files without restarting services")
+	return cmd
+}
+
+func updateStatusCmd() *cobra.Command {
+	return &cobra.Command{Use: "status", Short: "Show the last persistent update result", RunE: func(cmd *cobra.Command, args []string) error {
+		cfg, err := config.Load()
+		if err != nil {
+			return err
+		}
+		job, err := updater.ReadJob(cfg)
+		if err != nil {
+			return err
+		}
+		printJSON(job)
+		return nil
+	}}
+}
+
+func updateWorkerCmd() *cobra.Command {
+	var path, id string
+	cmd := &cobra.Command{
+		Use: "update-worker", Hidden: true,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			ctx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
+			defer cancel()
+			return updater.RunJob(ctx, path, id)
+		},
+	}
+	cmd.Flags().StringVar(&path, "job", "", "persistent update job")
+	cmd.Flags().StringVar(&id, "job-id", "", "expected update job ID")
+	_ = cmd.MarkFlagRequired("job")
+	_ = cmd.MarkFlagRequired("job-id")
 	return cmd
 }
 
