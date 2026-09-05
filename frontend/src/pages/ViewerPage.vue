@@ -2,142 +2,151 @@
   <div
     class="viewer-root"
     :class="rootClass"
+    tabindex="0"
+    aria-label="Kameraansicht"
+    @pointerdown.capture="revealControls"
+    @focusin="revealControls"
+    @keydown="revealControls"
     @pointermove="onRootPointerMove"
     @mouseleave="onRootMouseLeave"
     @selectstart.prevent
   >
-    <section ref="gridEl" class="mosaic">
-      <div
-        v-for="pane in panes"
-        :key="pane.alias"
-        class="mosaic-pane"
-        :style="paneStyle(pane)"
-      >
-        <article
-          class="viewer-tile"
-          :class="[tileClass(pane.slot), { dragging: dragSourceAlias === pane.alias, audible: isAudible(pane.alias) }]"
-          :data-slot-alias="pane.alias"
+    <div class="viewer-stage">
+      <section ref="gridEl" class="mosaic">
+        <div
+          v-for="pane in panes"
+          :key="pane.alias"
+          class="mosaic-pane"
+          :style="paneStyle(pane)"
         >
-          <div class="viewer-frame-wrap">
-            <div
-              v-if="shouldRenderPlayer(pane.slot)"
-              class="viewer-frame-transform"
-              :class="displayClass(pane.slot)"
-              :style="displayStyle(pane.slot)"
-            >
-              <iframe
-                class="viewer-frame"
-                :ref="(el) => setFrameRef(pane.alias, el)"
-                :src="frameSrc(pane.slot)"
-                :title="pane.slot.label"
-                :loading="iframeLoading(pane.slot)"
-                allow="autoplay; fullscreen; picture-in-picture"
-                @load="markFrameReady(pane.alias)"
-              />
+          <article
+            class="viewer-tile"
+            :class="[tileClass(pane.slot), { dragging: dragSourceAlias === pane.alias, audible: isAudible(pane.alias) }]"
+            :data-slot-alias="pane.alias"
+          >
+            <div class="viewer-frame-wrap">
+              <div
+                v-if="shouldRenderPlayer(pane.slot)"
+                class="viewer-frame-transform"
+                :class="displayClass(pane.slot)"
+                :style="displayStyle(pane.slot)"
+              >
+                <iframe
+                  class="viewer-frame"
+                  :ref="(el) => setFrameRef(pane.alias, el)"
+                  :src="frameSrc(pane.slot)"
+                  :title="pane.slot.label"
+                  :loading="iframeLoading(pane.slot)"
+                  allow="autoplay; fullscreen; picture-in-picture"
+                  @load="markFrameReady(pane.alias)"
+                />
+              </div>
+              <div
+                v-if="shouldRenderHDPlayer(pane.slot)"
+                class="viewer-frame-transform viewer-frame-transform-hd"
+                :class="[displayClass(pane.slot), { ready: isHDFrameReady(pane.alias) }]"
+                :style="displayStyle(pane.slot)"
+              >
+                <iframe
+                  class="viewer-frame"
+                  :src="hdFrameSrc(pane.slot)"
+                  :title="`${pane.slot.label} HD`"
+                  loading="eager"
+                  allow="autoplay; fullscreen; picture-in-picture"
+                  @load="markHDFrameReady(pane.alias)"
+                />
+              </div>
+              <div v-if="!shouldRenderPlayer(pane.slot)" class="viewer-placeholder" :class="{ paused: isPausedByPerformance(pane.slot) }">
+                <div class="placeholder-mark">{{ pane.alias }}</div>
+                <div>{{ placeholderMessage(pane.slot) }}</div>
+              </div>
+              <div v-if="isPausedByPerformance(pane.slot)" class="viewer-cover performance-cover">
+                <span>Standby</span>
+              </div>
+              <div v-if="effectiveState(pane.slot) === 'connecting'" class="viewer-cover">
+                <span class="loader-dot" />
+                <span>Verbindet</span>
+              </div>
             </div>
-            <div
-              v-if="shouldRenderHDPlayer(pane.slot)"
-              class="viewer-frame-transform viewer-frame-transform-hd"
-              :class="[displayClass(pane.slot), { ready: isHDFrameReady(pane.alias) }]"
-              :style="displayStyle(pane.slot)"
-            >
-              <iframe
-                class="viewer-frame"
-                :src="hdFrameSrc(pane.slot)"
-                :title="`${pane.slot.label} HD`"
-                loading="eager"
-                allow="autoplay; fullscreen; picture-in-picture"
-                @load="markHDFrameReady(pane.alias)"
-              />
-            </div>
-            <div v-if="!shouldRenderPlayer(pane.slot)" class="viewer-placeholder" :class="{ paused: isPausedByPerformance(pane.slot) }">
-              <div class="placeholder-mark">{{ pane.alias }}</div>
-              <div>{{ placeholderMessage(pane.slot) }}</div>
-            </div>
-            <div v-if="isPausedByPerformance(pane.slot)" class="viewer-cover performance-cover">
-              <span>Standby</span>
-            </div>
-            <div v-if="effectiveState(pane.slot) === 'connecting'" class="viewer-cover">
-              <span class="loader-dot" />
-              <span>Verbindet</span>
-            </div>
-          </div>
 
-          <div
-            class="tile-surface"
-            @click="onTileClick(pane.alias)"
-            @dblclick="onTileDoubleClick(pane.alias)"
-            @pointerdown="onTilePointerDown($event, pane.slot)"
-            @wheel="onTileWheel($event, pane.slot)"
+            <div
+              class="tile-surface"
+              @click="onTileClick(pane.alias)"
+              @dblclick="onTileDoubleClick(pane.alias)"
+              @pointerdown="onTilePointerDown($event, pane.slot)"
+              @wheel="onTileWheel($event, pane.slot)"
+            />
+
+            <div v-if="editing" class="tile-edit">
+              <span class="tile-tag">{{ pane.alias }} · {{ pane.slot.label }}</span>
+              <div v-if="pane.slot.binding?.device_id" class="tile-edit-actions">
+                <button class="btn icon sm" type="button" title="90° drehen" @click.stop="rotateTile(pane.slot)">⟳</button>
+                <button
+                  class="btn sm"
+                  type="button"
+                  :title="effectiveDisplay(pane.slot).fit_mode === 'cover' ? 'Ganzes Bild zeigen' : 'Format füllen'"
+                  @click.stop="toggleFitTile(pane.slot)"
+                >{{ effectiveDisplay(pane.slot).fit_mode === 'cover' ? 'Füllen' : 'Ganz' }}</button>
+                <button class="btn icon sm" type="button" title="Hineinzoomen" @click.stop="zoomTile(pane.slot, -1)">＋</button>
+                <button class="btn icon sm" type="button" title="Herauszoomen" @click.stop="zoomTile(pane.slot, 1)">－</button>
+                <button class="btn icon sm" type="button" title="Zuschnitt zurücksetzen" @click.stop="resetTile(pane.slot)">⟲</button>
+              </div>
+            </div>
+          </article>
+        </div>
+
+        <template v-if="editing && !spotlightAlias">
+          <button
+            v-for="gutter in gutters"
+            :key="gutter.id"
+            class="mosaic-gutter"
+            :class="gutter.dir"
+            type="button"
+            :style="gutterStyle(gutter)"
+            :title="gutter.dir === 'row' ? 'Breite ziehen' : 'Höhe ziehen'"
+            @pointerdown="startGutterDrag($event, gutter)"
           />
-
-          <div v-if="editing" class="tile-edit">
-            <span class="tile-tag">{{ pane.alias }} · {{ pane.slot.label }}</span>
-            <div v-if="pane.slot.binding?.device_id" class="tile-edit-actions">
-              <button class="btn icon sm" type="button" title="90° drehen" @click.stop="rotateTile(pane.slot)">⟳</button>
-              <button
-                class="btn sm"
-                type="button"
-                :title="effectiveDisplay(pane.slot).fit_mode === 'cover' ? 'Ganzes Bild zeigen' : 'Format füllen'"
-                @click.stop="toggleFitTile(pane.slot)"
-              >{{ effectiveDisplay(pane.slot).fit_mode === 'cover' ? 'Füllen' : 'Ganz' }}</button>
-              <button class="btn icon sm" type="button" title="Hineinzoomen" @click.stop="zoomTile(pane.slot, -1)">＋</button>
-              <button class="btn icon sm" type="button" title="Herauszoomen" @click.stop="zoomTile(pane.slot, 1)">－</button>
-              <button class="btn icon sm" type="button" title="Zuschnitt zurücksetzen" @click.stop="resetTile(pane.slot)">⟲</button>
-            </div>
-          </div>
-        </article>
-      </div>
-
-      <template v-if="editing && !spotlightAlias">
-        <button
-          v-for="gutter in gutters"
-          :key="gutter.id"
-          class="mosaic-gutter"
-          :class="gutter.dir"
-          type="button"
-          :style="gutterStyle(gutter)"
-          :title="gutter.dir === 'row' ? 'Breite ziehen' : 'Höhe ziehen'"
-          @pointerdown="startGutterDrag($event, gutter)"
-        />
-      </template>
-
-      <div v-if="dockTarget" class="mosaic-dock" :style="dockOverlayStyle" aria-hidden="true" />
-
-      <div v-if="!panes.length" class="viewer-empty">
-        <div>Noch keine Kamera ausgewählt.</div>
-        <RouterLink v-if="canAdmin" class="btn sm" to="/einrichtung">Kameras aktivieren</RouterLink>
-      </div>
-    </section>
-
-    <transition name="hud">
-      <div v-if="showHud" class="viewer-hud" @pointermove.stop="revealControls" @click.stop>
-        <template v-if="canAdmin">
-          <button class="btn sm" :class="{ live: editing }" type="button" @click="toggleEdit">{{ editing ? 'Fertig' : 'Bearbeiten' }}</button>
         </template>
-        <button class="btn sm" type="button" @click="toggleFullscreen">{{ isFullscreen ? 'Vollbild aus' : 'Vollbild' }}</button>
-        <button
-          class="btn icon sm audio-toggle"
-          :class="{ live: audioEnabled, ghost: !audioEnabled }"
-          type="button"
-          :aria-label="audioToggleTitle"
-          :aria-pressed="audioEnabled"
-          @click="toggleAudioEnabled"
-        >
-          <svg v-if="audioEnabled" viewBox="0 0 24 24" aria-hidden="true">
-            <path d="M4 9v6h4l5 4V5L8 9H4Z" />
-            <path d="M16 8.5a5 5 0 0 1 0 7" />
-            <path d="M18.5 6a8 8 0 0 1 0 12" />
-          </svg>
-          <svg v-else viewBox="0 0 24 24" aria-hidden="true">
-            <path d="M4 9v6h4l5 4V5L8 9H4Z" />
-            <path d="m17 9 5 5" />
-            <path d="m22 9-5 5" />
-          </svg>
-        </button>
-        <RouterLink v-if="canAdmin" class="btn sm ghost" to="/einrichtung">Verwaltung</RouterLink>
-        <RouterLink v-else-if="auth?.enabled && !auth.authenticated" class="btn sm ghost" to="/login">Login</RouterLink>
-      </div>
+
+        <div v-if="dockTarget" class="mosaic-dock" :style="dockOverlayStyle" aria-hidden="true" />
+
+        <div v-if="!panes.length" class="viewer-empty">
+          <div>Noch keine Kamera ausgewählt.</div>
+          <RouterLink v-if="canAdmin" class="btn sm" to="/einrichtung">Kameras aktivieren</RouterLink>
+        </div>
+      </section>
+    </div>
+
+    <transition name="controls">
+      <footer v-if="showHud" class="viewer-controls" aria-label="Kamerasteuerung" @pointermove.stop="revealControls" @click.stop>
+        <div class="viewer-hud">
+          <template v-if="canAdmin">
+            <button class="btn sm" :class="{ live: editing }" type="button" @click="toggleEdit">{{ editing ? 'Fertig' : 'Bearbeiten' }}</button>
+          </template>
+          <button class="btn sm" type="button" @click="toggleFullscreen">{{ isFullscreen ? 'Vollbild aus' : 'Vollbild' }}</button>
+          <button
+            class="btn icon sm audio-toggle"
+            :class="{ live: audioEnabled, ghost: !audioEnabled }"
+            type="button"
+            :aria-label="audioToggleTitle"
+            :aria-pressed="audioEnabled"
+            @click="toggleAudioEnabled"
+          >
+            <svg v-if="audioEnabled" viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M4 9v6h4l5 4V5L8 9H4Z" />
+              <path d="M16 8.5a5 5 0 0 1 0 7" />
+              <path d="M18.5 6a8 8 0 0 1 0 12" />
+            </svg>
+            <svg v-else viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M4 9v6h4l5 4V5L8 9H4Z" />
+              <path d="m17 9 5 5" />
+              <path d="m22 9-5 5" />
+            </svg>
+          </button>
+          <RouterLink v-if="canAdmin" class="btn sm ghost" to="/einrichtung">Verwaltung</RouterLink>
+          <RouterLink v-else-if="auth?.enabled && !auth.authenticated" class="btn sm ghost" to="/login">Login</RouterLink>
+        </div>
+      </footer>
     </transition>
 
     <transition name="hud">
@@ -147,7 +156,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import type { CSSProperties } from 'vue'
 import { api } from '../api/client'
 import type { AuthStatus, CameraDisplay, ViewerResponse, ViewerSlot, ViewerSlotState } from '../types'
@@ -171,8 +180,8 @@ const performanceMode = ref<'quality' | 'balanced' | 'low' | 'diagnostic'>('qual
 const audioEnabled = ref(true)
 const activeAudioAlias = ref('')
 
-// Chrome state: clean by default; edit reveals split tools; spotlight enlarges a
-// single camera; fullscreen suppresses all chrome.
+// Normal viewing reserves space for controls. Fullscreen and kiosk modes reveal
+// them temporarily without resizing the camera surface.
 const editing = ref(false)
 const spotlightAlias = ref('')
 const controlsVisible = ref(false)
@@ -209,13 +218,18 @@ const slots = computed(() => viewer.value?.slots ?? [])
 const slotByAlias = computed(() => new Map(slots.value.map((slot) => [slot.alias, slot])))
 const canAdmin = computed(() => (auth.value ? !auth.value.enabled || auth.value.role === 'admin' : false))
 
+const immersive = computed(() => isFullscreen.value || kioskMode)
+
 const rootClass = computed(() => ({
   editing: editing.value,
   spotlight: !!spotlightAlias.value,
   fullscreen: isFullscreen.value,
+  immersive: immersive.value,
   docking: !!dragSourceAlias.value
 }))
-const showHud = computed(() => !isFullscreen.value && (controlsVisible.value || editing.value))
+const showHud = computed(() => !immersive.value || controlsVisible.value || editing.value)
+
+watch(immersive, () => revealControls())
 
 // --- Tree geometry -----------------------------------------------------------
 
@@ -456,7 +470,7 @@ async function saveMosaic() {
 function revealControls() {
   controlsVisible.value = true
   window.clearTimeout(controlsTimer)
-  if (editing.value) return
+  if (!immersive.value || editing.value) return
   controlsTimer = window.setTimeout(() => {
     controlsVisible.value = false
   }, 2600)
@@ -468,7 +482,7 @@ function onRootPointerMove(event: PointerEvent) {
 }
 
 function scheduleHideControls() {
-  if (editing.value) return
+  if (!immersive.value || editing.value) return
   window.clearTimeout(controlsTimer)
   controlsTimer = window.setTimeout(() => {
     controlsVisible.value = false
@@ -482,8 +496,7 @@ function onRootMouseLeave() {
 function toggleEdit() {
   editing.value = !editing.value
   spotlightAlias.value = ''
-  controlsVisible.value = true
-  if (!editing.value) window.clearTimeout(controlsTimer)
+  revealControls()
 }
 
 function toggleSpotlight(alias: string) {
@@ -894,15 +907,23 @@ onBeforeUnmount(() => {
 </script>
 
 <style scoped>
-/* Full-bleed kiosk surface: nothing but cameras by default. */
+/* The camera stage scrolls independently above the intrinsic-height footer. */
 .viewer-root {
   position: relative;
-  min-height: 100vh;
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) auto;
   height: 100vh;
+  height: 100dvh;
   background: var(--bg);
   overflow: hidden;
   user-select: none;
   -webkit-user-select: none;
+}
+
+.viewer-stage {
+  position: relative;
+  min-height: 0;
+  overflow: hidden;
 }
 
 .mosaic {
@@ -1020,26 +1041,38 @@ onBeforeUnmount(() => {
   padding: 3px;
 }
 
-/* auto-hiding control cluster */
-.viewer-hud {
-  position: fixed;
+/* The footer owns its space; only immersive controls overlay the cameras. */
+.viewer-controls {
   z-index: 9;
-  left: 50%;
-  bottom: max(18px, env(safe-area-inset-bottom));
-  transform: translateX(-50%);
+  display: flex;
+  justify-content: center;
+  padding: 6px max(12px, env(safe-area-inset-right)) max(10px, env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left));
+  background: var(--bg);
+}
+.viewer-root.immersive .viewer-controls {
+  position: absolute;
+  inset: auto 0 0;
+  padding-bottom: max(18px, env(safe-area-inset-bottom));
+  background: transparent;
+}
+.viewer-hud {
   width: max-content;
-  max-width: calc(100% - 32px);
+  max-width: 100%;
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   justify-content: center;
   gap: 6px;
   padding: 8px;
-  border-radius: 999px;
+  border-radius: 24px;
   background: rgba(12, 12, 14, .82);
-  box-shadow: 0 12px 40px rgba(0, 0, 0, .5);
   backdrop-filter: blur(8px);
 }
+.viewer-root.immersive .viewer-hud {
+  box-shadow: 0 12px 40px rgba(0, 0, 0, .5);
+}
+.controls-enter-active, .controls-leave-active { transition: opacity .18s ease, transform .18s ease; }
+.controls-enter-from, .controls-leave-to { opacity: 0; transform: translateY(8px); }
 /* pill bar → pill-shaped buttons inside it */
 .viewer-hud :deep(.btn) { border-radius: 999px; }
 .audio-toggle svg {
@@ -1071,7 +1104,7 @@ onBeforeUnmount(() => {
 .hud-enter-from, .hud-leave-to { opacity: 0; transform: translate(-50%, 8px); }
 
 @media (orientation: portrait) {
-  .viewer-root:not(.editing):not(.spotlight) {
+  .viewer-root:not(.editing):not(.spotlight) .viewer-stage {
     overflow-x: hidden;
     overflow-y: auto;
   }

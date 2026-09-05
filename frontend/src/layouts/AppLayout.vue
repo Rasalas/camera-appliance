@@ -121,12 +121,17 @@ onBeforeUnmount(() => {
   animation: route-in .18s ease-out both;
 }
 /* Viewer route: edge-to-edge, no rail, no canvas chrome. */
-.shell-bleed { grid-template-columns: 1fr; }
+.shell-bleed {
+  grid-template-columns: 1fr;
+  min-height: 100vh;
+  min-height: 100dvh;
+}
 .shell-bleed :deep(.canvas) {
   padding: 0;
   max-width: none;
   gap: 0;
   min-height: 100vh;
+  min-height: 100dvh;
 }
 .shell-bleed .route-fade { gap: 0; }
 @keyframes route-in {
