@@ -2,9 +2,7 @@ package snapshotupload
 
 import (
 	"context"
-	"crypto/sha256"
 	"encoding/base64"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -14,7 +12,6 @@ import (
 	"camera-appliance/camera-manager/internal/cameraaccess"
 	"camera-appliance/camera-manager/internal/secrets"
 	"camera-appliance/camera-manager/internal/state"
-	"github.com/google/uuid"
 )
 
 var ErrInvalid = errors.New("Upload-Einstellungen ungültig")
@@ -156,6 +153,10 @@ func (s *Service) upload(ctx context.Context, deviceID string, input UploadInput
 	if err := input.Crop.Validate(); err != nil {
 		return Result{}, fmt.Errorf("%w: %s", ErrInvalid, err)
 	}
+	naming, err := s.GetNaming(ctx, deviceID)
+	if err != nil {
+		return Result{}, err
+	}
 	s.mu.Lock()
 	c, p, err := s.configuration(ctx)
 	s.mu.Unlock()
@@ -180,8 +181,7 @@ func (s *Service) upload(ctx context.Context, deviceID string, input UploadInput
 	if err != nil {
 		return Result{}, err
 	}
-	hash := sha256.Sum256([]byte(deviceID))
-	filename := "camera-" + hex.EncodeToString(hash[:4]) + "-" + time.Now().UTC().Format("20060102T150405.000Z") + "-" + uuid.NewString() + ".jpg"
+	filename := naming.filename(deviceID, s.now())
 	if err := s.Send(ctx, c, p, filename, data); err != nil {
 		return Result{}, fmt.Errorf("%w: %s", ErrRemote, err)
 	}

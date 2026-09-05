@@ -24,7 +24,7 @@ import (
 
 // These protocol fixtures listen exclusively on loopback and use generated
 // host keys, temporary files and synthetic credentials. No appliance is used.
-func ftpServer(t *testing.T, reject string) (Config, <-chan map[string][]byte) {
+func ftpServer(t *testing.T, reject string, initial ...map[string][]byte) (Config, <-chan map[string][]byte) {
 	t.Helper()
 	l, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -34,6 +34,11 @@ func ftpServer(t *testing.T, reject string) (Config, <-chan map[string][]byte) {
 	files := make(chan map[string][]byte, 1)
 	go func() {
 		stored := map[string][]byte{}
+		for _, files := range initial {
+			for name, data := range files {
+				stored[name] = bytes.Clone(data)
+			}
+		}
 		defer func() { files <- stored }()
 		conn, err := l.Accept()
 		if err != nil {
@@ -148,7 +153,7 @@ func TestFTPTransfersJPEGAndCleansFailedUploads(t *testing.T) {
 	}
 }
 
-func sftpServer(t *testing.T) (Config, string, *atomic.Int32) {
+func sftpServer(t *testing.T, handlers ...sftp.Handlers) (Config, string, *atomic.Int32) {
 	t.Helper()
 	_, key, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
@@ -211,6 +216,13 @@ func sftpServer(t *testing.T) (Config, string, *atomic.Int32) {
 					continue
 				}
 				req.Reply(true, nil)
+				if len(handlers) > 0 {
+					server := sftp.NewRequestServer(channel, handlers[0])
+					_ = server.Serve()
+					server.Close()
+					channel.Close()
+					break
+				}
 				server, err := sftp.NewServer(channel, sftp.WithServerWorkingDirectory(dir))
 				if err != nil {
 					channel.Close()

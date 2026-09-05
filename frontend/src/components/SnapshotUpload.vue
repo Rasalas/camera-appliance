@@ -19,6 +19,7 @@
     </div>
     <div v-else class="empty">{{ previewLoading ? 'Vorschau lädt…' : previewError || 'Keine Kameravorschau verfügbar.' }}</div>
     <div v-if="previewError" class="preview-error mono-mute" role="alert">{{ previewSrc && !imageMissing ? previewError : '' }} <button v-if="canCapture" class="retry-link" type="button" :disabled="previewLoading" @click="loadPreview">Erneut laden</button></div>
+    <UploadNaming ref="naming" :device-id="deviceId" :busy="uploading" />
     <UploadSchedule :device-id="deviceId" :before-enable="prepareSchedule" />
     <div class="upload-footer">
       <span class="mono-mute">{{ destination?.password_set ? `${destination.protocol.toUpperCase()} · ${destination.host}` : 'Upload-Server einrichten' }}</span>
@@ -43,6 +44,7 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { api } from '../api/client'
 import UploadSchedule from './UploadSchedule.vue'
+import UploadNaming from './UploadNaming.vue'
 import { createCropAutosave, validUploadCrop } from '../composables/uploadCropDraft'
 import type { UploadCrop, UploadSettings } from '../types'
 
@@ -51,6 +53,7 @@ const crop = ref<UploadCrop>({ enabled: false, x: 0, y: 0, width: 100, height: 1
 const destination = ref<UploadSettings>()
 const cropLoading = ref(true)
 const uploading = ref(false)
+const naming = ref<InstanceType<typeof UploadNaming>>()
 const settingsError = ref('')
 const saveError = ref('')
 const saveStatus = ref('')
@@ -82,7 +85,7 @@ function scheduleSave() {
 async function prepareSchedule() {
   if (cropLoading.value || !validCrop.value || drag) return false
   await autosave.flush()
-  return !saveError.value
+  return !saveError.value && !!await naming.value?.flush()
 }
 function point(event: PointerEvent) {
   const rect = (event.currentTarget as HTMLElement).getBoundingClientRect()
@@ -128,8 +131,9 @@ async function loadPreview() {
 async function upload() {
   uploading.value = true; uploadError.value = ''; uploadMessage.value = ''
   try {
+    if (!await naming.value?.flush()) throw new Error('Bitte zuerst einen gültigen Dateinamen speichern lassen.')
     const result = await api.uploadSnapshot(props.deviceId, { username: props.username, password: props.password, stream: props.stream, crop: { ...crop.value } })
-    uploadMessage.value = `Hochgeladen · ${result.width} × ${result.height} Pixel`
+    uploadMessage.value = `Hochgeladen · ${result.filename} · ${result.width} × ${result.height} Pixel`
   } catch (err) { uploadError.value = err instanceof Error ? err.message : 'Bild konnte nicht hochgeladen werden.' }
   finally { uploading.value = false }
 }
@@ -143,6 +147,7 @@ onBeforeUnmount(() => { void autosave.close() })
 
 <style scoped>
 .snapshot-editor { gap: 16px; }
+.notice { overflow-wrap: anywhere; }
 .panel-head .eyebrow { margin-bottom: 6px; }
 .server-link { font-size: 11px; }
 .crop-toolbar, .upload-footer { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }

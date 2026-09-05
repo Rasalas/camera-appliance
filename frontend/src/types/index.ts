@@ -406,6 +406,11 @@ export interface SnapshotUploadResult {
   bytes: number
 }
 
+export interface UploadNaming {
+  mode: 'unique' | 'fixed'
+  filename: string
+}
+
 export interface UploadScheduleInput {
   enabled: boolean
   interval_seconds: number

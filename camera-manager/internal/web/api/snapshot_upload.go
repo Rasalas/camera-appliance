@@ -92,3 +92,18 @@ func (s *Server) putUploadSchedule(w http.ResponseWriter, r *http.Request) {
 	result, err := s.uploads.SaveSchedule(r.Context(), r.PathValue("id"), input)
 	writeUploadResult(w, result, err)
 }
+
+func (s *Server) getUploadNaming(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Cache-Control", "no-store")
+	result, err := s.uploads.GetNaming(r.Context(), r.PathValue("id"))
+	writeUploadResult(w, result, err)
+}
+
+func (s *Server) putUploadNaming(w http.ResponseWriter, r *http.Request) {
+	var input snapshotupload.Naming
+	if !decodeUpload(w, r, &input) {
+		return
+	}
+	result, err := s.uploads.SaveNaming(r.Context(), r.PathValue("id"), input)
+	writeUploadResult(w, result, err)
+}

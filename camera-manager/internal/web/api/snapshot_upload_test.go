@@ -90,12 +90,47 @@ func TestSnapshotEndpointsRequireAdmin(t *testing.T) {
 	}
 	h := New(a).Handler()
 	cookie := loginCookie(t, h, "viewer", "viewer-pass")
-	for _, route := range []struct{ method, path string }{{"GET", "/api/snapshot-upload"}, {"PUT", "/api/snapshot-upload"}, {"GET", "/api/devices/device/upload-crop"}, {"PUT", "/api/devices/device/upload-crop"}, {"POST", "/api/devices/device/upload-snapshot"}, {"GET", "/api/devices/device/upload-schedule"}, {"PUT", "/api/devices/device/upload-schedule"}} {
+	for _, route := range []struct{ method, path string }{{"GET", "/api/snapshot-upload"}, {"PUT", "/api/snapshot-upload"}, {"GET", "/api/devices/device/upload-crop"}, {"PUT", "/api/devices/device/upload-crop"}, {"POST", "/api/devices/device/upload-snapshot"}, {"GET", "/api/devices/device/upload-schedule"}, {"PUT", "/api/devices/device/upload-schedule"}, {"GET", "/api/devices/device/upload-naming"}, {"PUT", "/api/devices/device/upload-naming"}} {
 		if res := performJSON(h, route.method, route.path, nil, cookie); res.Code != http.StatusForbidden {
 			t.Fatalf("viewer allowed %s %s: %d", route.method, route.path, res.Code)
 		}
 		if res := performJSON(h, route.method, route.path, nil, nil); res.Code != http.StatusUnauthorized {
 			t.Fatalf("anonymous allowed %s %s: %d", route.method, route.path, res.Code)
+		}
+	}
+}
+
+func TestUploadNamingAPIValidatesAndPersists(t *testing.T) {
+	a := newAuthTestApp(t)
+	if err := a.Store.UpsertDevice(context.Background(), state.Device{ID: "device"}); err != nil {
+		t.Fatal(err)
+	}
+	h := New(a).Handler()
+	endpoint := "/api/devices/device/upload-naming"
+	res := performJSON(h, "GET", endpoint, nil, nil)
+	var got snapshotupload.Naming
+	if err := json.Unmarshal(res.Body.Bytes(), &got); res.Code != http.StatusOK || err != nil || got.Mode != "unique" {
+		t.Fatalf("default naming: %d %s", res.Code, res.Body)
+	}
+	want := snapshotupload.Naming{Mode: "fixed", Filename: "hof.jpg"}
+	res = performJSON(h, "PUT", endpoint, want, nil)
+	if res.Code != http.StatusOK {
+		t.Fatalf("save naming: %d %s", res.Code, res.Body)
+	}
+	res = performJSON(New(a).Handler(), "GET", endpoint, nil, nil)
+	if err := json.Unmarshal(res.Body.Bytes(), &got); err != nil || got != want {
+		t.Fatalf("naming not persisted: %s", res.Body)
+	}
+	for _, invalid := range []any{snapshotupload.Naming{Mode: "fixed", Filename: "../hof.jpg"}, map[string]any{"mode": "fixed", "filename": "hof.jpg", "directory": "/other"}} {
+		res = performJSON(h, "PUT", endpoint, invalid, nil)
+		if res.Code != http.StatusBadRequest {
+			t.Fatalf("invalid naming accepted: %d %s", res.Code, res.Body)
+		}
+	}
+	for _, method := range []string{"GET", "PUT"} {
+		res = performJSON(h, method, "/api/devices/missing/upload-naming", want, nil)
+		if res.Code != http.StatusNotFound {
+			t.Fatalf("missing camera: %d %s", res.Code, res.Body)
 		}
 	}
 }

@@ -130,10 +130,24 @@ abgebrochen. Nach der Pause wird ein fälliger Lauf ausgeführt, ohne die ausgel
 Bilder nachzuholen. Der manuelle Upload bleibt auch während der Ruhezeit möglich.
 Status, letzter Erfolg und Fehler erscheinen in der Kameradetailseite.
 
-Es gibt kein Videoarchiv. Jede Datei erhält einen
-eindeutigen Namen mit Kamera-Kennung und UTC-Zeit. Das Zielverzeichnis muss existieren
-und Schreiben sowie Umbenennen erlauben: Eine Übertragung wird zunächst als `.part`
-geschrieben und erst danach als `.jpg` veröffentlicht. Bei Netzwerkabbruch können
+Unter „Dateien“ legt jede Kamera fest, ob jeder Upload eine neue Datei erhält
+oder dieselbe Datei ersetzt. Standard bleibt ein eindeutiger Name mit
+Kamera-Kennung und UTC-Zeit. Für ein stets aktuelles Bild „Dieselbe Datei ersetzen“
+wählen und z. B. `hof.jpg` eingeben. Die Auswahl wird automatisch gespeichert und
+gilt für manuelle und automatische Uploads sowie Vollbilder und Ausschnitte.
+Der feste Name darf höchstens 120 Zeichen enthalten, beginnt mit einem Buchstaben
+oder einer Zahl und verwendet nur `A–Z`, `a–z`, `0–9`, Punkt, Bindestrich und
+Unterstrich sowie die Endung `.jpg` oder `.jpeg`. Verzeichnisse gehören in die
+Server-Einstellungen. Jede Kamera sollte einen eigenen festen Namen erhalten,
+sonst ersetzen sich ihre Bilder gegenseitig.
+
+Das Zielverzeichnis muss existieren und Schreiben sowie Umbenennen erlauben.
+Eine Übertragung wird zunächst unter einem eindeutigen `.part`-Namen geschrieben
+und erst nach vollständiger Übertragung unter dem endgültigen JPEG-Namen
+veröffentlicht. FTP muss das Ersetzen per Rename erlauben; für SFTP wird die
+Server-Erweiterung `posix-rename@openssh.com` verwendet. Verweigert der Server
+die Ersetzung, wird ein Fehler gemeldet. Die bisherige Zieldatei wird nicht vorab
+gelöscht. Bei Netzwerkabbruch können
 `.part`-Dateien auf dem Server zurückbleiben. Ein Upload hat maximal 30 Sekunden
 Übertragungszeit zuzüglich der bestehenden Aufnahmezeit von bis zu 8 Sekunden.
 

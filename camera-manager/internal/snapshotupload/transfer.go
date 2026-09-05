@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jlaffaye/ftp"
 	"github.com/pkg/sftp"
 	"golang.org/x/crypto/ssh"
@@ -65,14 +66,14 @@ func transferFTP(ctx context.Context, cfg Config, password, filename string, dat
 	if err := c.ChangeDir(cfg.Directory); err != nil {
 		return errors.New("FTP-Zielverzeichnis nicht zugänglich. Verzeichnis und Berechtigungen prüfen.")
 	}
-	temp := filename + ".part"
+	temp := filename + "." + uuid.NewString() + ".part"
 	if err := c.Stor(temp, bytes.NewReader(data)); err != nil {
 		_ = c.Delete(temp)
 		return errors.New("FTP-Upload fehlgeschlagen. Schreibrechte und freien Speicher prüfen.")
 	}
 	if err := c.Rename(temp, filename); err != nil {
 		_ = c.Delete(temp)
-		return errors.New("FTP-Bild konnte nicht fertiggestellt werden. Der Server muss das Umbenennen von Dateien erlauben.")
+		return errors.New("FTP-Bild konnte nicht fertiggestellt werden. Der Server muss das Umbenennen und bei festem Dateinamen das Ersetzen vorhandener Dateien erlauben.")
 	}
 	return nil
 }
@@ -107,7 +108,7 @@ func transferSFTP(ctx context.Context, cfg Config, password, filename string, da
 	}
 	defer c.Close()
 	target := path.Join(cfg.Directory, filename)
-	temp := target + ".part"
+	temp := target + "." + uuid.NewString() + ".part"
 	f, err := c.OpenFile(temp, os.O_WRONLY|os.O_CREATE|os.O_EXCL)
 	if err != nil {
 		return errors.New("SFTP-Zieldatei kann nicht angelegt werden. Verzeichnis, Schreibrechte und freien Speicher prüfen.")
@@ -118,9 +119,17 @@ func transferSFTP(ctx context.Context, cfg Config, password, filename string, da
 		_ = c.Remove(temp)
 		return errors.New("SFTP-Upload fehlgeschlagen. Schreibrechte und freien Speicher prüfen.")
 	}
-	if err := c.Rename(temp, target); err != nil {
+	// Standard SFTP v3 rename rejects an existing destination. OpenSSH's
+	// extension publishes the completed file with POSIX replacement semantics.
+	// Never remove the old image first: a failed rename must not lose it.
+	if _, ok := c.HasExtension("posix-rename@openssh.com"); ok {
+		err = c.PosixRename(temp, target)
+	} else {
+		err = c.Rename(temp, target)
+	}
+	if err != nil {
 		_ = c.Remove(temp)
-		return errors.New("SFTP-Bild konnte nicht fertiggestellt werden. Der Server muss das Umbenennen von Dateien erlauben.")
+		return errors.New("SFTP-Bild konnte nicht fertiggestellt werden. Der Server muss das Umbenennen erlauben; zum sicheren Ersetzen vorhandener Bilder wird posix-rename@openssh.com benötigt.")
 	}
 	return nil
 }
