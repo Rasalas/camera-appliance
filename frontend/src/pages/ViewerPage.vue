@@ -1022,11 +1022,13 @@ onBeforeUnmount(() => {
 
 /* auto-hiding control cluster */
 .viewer-hud {
-  position: absolute;
+  position: fixed;
   z-index: 9;
   left: 50%;
-  bottom: 18px;
+  bottom: max(18px, env(safe-area-inset-bottom));
   transform: translateX(-50%);
+  width: max-content;
+  max-width: calc(100% - 32px);
   display: flex;
   flex-wrap: wrap;
   align-items: center;
