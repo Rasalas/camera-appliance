@@ -163,6 +163,9 @@ func (s *Service) upload(ctx context.Context, deviceID string, input UploadInput
 	if err != nil {
 		return Result{}, err
 	}
+	if naming.Directory != "" {
+		c.Directory = naming.Directory
+	}
 	if err := c.Validate(); err != nil {
 		return Result{}, fmt.Errorf("%w: %s", ErrInvalid, err)
 	}

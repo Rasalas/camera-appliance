@@ -19,7 +19,7 @@
     </div>
     <div v-else class="empty">{{ previewLoading ? 'Vorschau lädt…' : previewError || 'Keine Kameravorschau verfügbar.' }}</div>
     <div v-if="previewError" class="preview-error mono-mute" role="alert">{{ previewSrc && !imageMissing ? previewError : '' }} <button v-if="canCapture" class="retry-link" type="button" :disabled="previewLoading" @click="loadPreview">Erneut laden</button></div>
-    <UploadNaming ref="naming" :device-id="deviceId" :busy="uploading" />
+    <UploadNaming ref="naming" :device-id="deviceId" :busy="uploading" :default-directory="destination?.directory || '.'" />
     <UploadSchedule :device-id="deviceId" :before-enable="prepareSchedule" />
     <div class="upload-footer">
       <span class="mono-mute">{{ destination?.password_set ? `${destination.protocol.toUpperCase()} · ${destination.host}` : 'Upload-Server einrichten' }}</span>
@@ -131,7 +131,7 @@ async function loadPreview() {
 async function upload() {
   uploading.value = true; uploadError.value = ''; uploadMessage.value = ''
   try {
-    if (!await naming.value?.flush()) throw new Error('Bitte zuerst einen gültigen Dateinamen speichern lassen.')
+    if (!await naming.value?.flush()) throw new Error('Bitte zuerst Dateiname und Verzeichnis prüfen und speichern lassen.')
     const result = await api.uploadSnapshot(props.deviceId, { username: props.username, password: props.password, stream: props.stream, crop: { ...crop.value } })
     uploadMessage.value = `Hochgeladen · ${result.filename} · ${result.width} × ${result.height} Pixel`
   } catch (err) { uploadError.value = err instanceof Error ? err.message : 'Bild konnte nicht hochgeladen werden.' }

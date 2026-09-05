@@ -7,23 +7,34 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"path"
 	"regexp"
+	"strings"
 	"time"
 
 	"camera-appliance/camera-manager/internal/cameraaccess"
 	"github.com/google/uuid"
 )
 
-// Naming is stored independently of the schedule so manual and automatic
-// captures always use the same per-camera publishing policy.
+// Naming stores filenames and remote directory overrides independently of the
+// schedule so manual and automatic captures share per-camera file settings.
 type Naming struct {
-	Mode     string `json:"mode"`
-	Filename string `json:"filename"`
+	Mode      string `json:"mode"`
+	Filename  string `json:"filename"`
+	Directory string `json:"directory"`
 }
 
 var jpegFilename = regexp.MustCompile(`(?i)^[a-z0-9][a-z0-9_.-]*\.(jpg|jpeg)$`)
 
 func (n Naming) Validate() error {
+	if len(n.Directory) > 1024 || hasControl(n.Directory) || strings.ContainsAny(n.Directory, `\:`) {
+		return errors.New("Bitte ein Server-Verzeichnis mit / als Trennzeichen eingeben, ohne Steuerzeichen oder URL; höchstens 1024 Zeichen.")
+	}
+	for _, part := range strings.Split(strings.TrimSpace(n.Directory), "/") {
+		if part == ".." {
+			return errors.New("Das Kamera-Verzeichnis darf keine übergeordneten Pfade mit .. enthalten.")
+		}
+	}
 	if n.Mode != "unique" && n.Mode != "fixed" {
 		return errors.New("Bitte neue Dateien oder einen festen Dateinamen wählen.")
 	}
@@ -44,7 +55,7 @@ func (s *Service) GetNaming(ctx context.Context, deviceID string) (Naming, error
 	n := Naming{Mode: "unique"}
 	if raw := settings["snapshot.naming."+deviceID]; raw != "" {
 		if err := json.Unmarshal([]byte(raw), &n); err != nil {
-			return Naming{}, errors.New("Gespeicherte Dateinamen-Einstellung ist beschädigt.")
+			return Naming{}, errors.New("Gespeicherte Dateieinstellungen sind beschädigt.")
 		}
 	}
 	if err := n.Validate(); err != nil {
@@ -59,6 +70,10 @@ func (s *Service) SaveNaming(ctx context.Context, deviceID string, n Naming) (Na
 	}
 	if err := n.Validate(); err != nil {
 		return Naming{}, fmt.Errorf("%w: %s", ErrInvalid, err)
+	}
+	n.Directory = strings.TrimSpace(n.Directory)
+	if n.Directory != "" {
+		n.Directory = path.Clean(n.Directory)
 	}
 	data, _ := json.Marshal(n)
 	if err := s.store.PutSettings(ctx, map[string]string{"snapshot.naming." + deviceID: string(data)}); err != nil {
