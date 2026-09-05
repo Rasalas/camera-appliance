@@ -6,6 +6,7 @@ import (
 	"image"
 	"image/jpeg"
 	"math"
+	"time"
 )
 
 // Crop uses percentages of the original camera frame, before viewer transforms.
@@ -33,6 +34,13 @@ func (c Crop) Validate() error {
 }
 
 func prepareImage(data []byte, crop Crop) ([]byte, int, int, error) {
+	return prepareUploadImage(data, crop, ImageSettings{Masks: []Mask{}}, time.Time{})
+}
+
+func prepareUploadImage(data []byte, crop Crop, settings ImageSettings, capturedAt time.Time) ([]byte, int, int, error) {
+	if err := settings.Validate(); err != nil {
+		return nil, 0, 0, err
+	}
 	if err := crop.Validate(); err != nil {
 		return nil, 0, 0, err
 	}
@@ -47,17 +55,24 @@ func prepareImage(data []byte, crop Crop) ([]byte, int, int, error) {
 	if err != nil {
 		return nil, 0, 0, errors.New("Das Kamerabild ist unvollständig oder beschädigt.")
 	}
-	if !crop.Enabled {
+	if !crop.Enabled && len(settings.Masks) == 0 && !settings.Timestamp {
 		return data, cfg.Width, cfg.Height, nil
 	}
-	x := int(math.Floor(crop.X * float64(cfg.Width) / 100))
-	y := int(math.Floor(crop.Y * float64(cfg.Height) / 100))
-	x2 := min(cfg.Width, int(math.Ceil((crop.X+crop.Width)*float64(cfg.Width)/100)))
-	y2 := min(cfg.Height, int(math.Ceil((crop.Y+crop.Height)*float64(cfg.Height)/100)))
-	region := image.Rect(x, y, x2, y2)
+	if len(settings.Masks) > 0 || settings.Timestamp {
+		img = applyMasks(img, settings.Masks)
+	}
+	region := img.Bounds()
+	if crop.Enabled {
+		region = frameRegion(crop.X, crop.Y, crop.Width, crop.Height, img.Bounds())
+	}
 	sub := img.(interface {
 		SubImage(image.Rectangle) image.Image
 	}).SubImage(region)
+	if settings.Timestamp {
+		if err := drawTimestamp(sub.(*image.RGBA), capturedAt); err != nil {
+			return nil, 0, 0, err
+		}
+	}
 	var out bytes.Buffer
 	if err := jpeg.Encode(&out, sub, &jpeg.Options{Quality: 92}); err != nil {
 		return nil, 0, 0, errors.New("Der Bildausschnitt konnte nicht erstellt werden.")

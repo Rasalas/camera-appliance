@@ -11,7 +11,8 @@
     "preview": "vite preview",
     "test:settings": "node --test --experimental-strip-types src/composables/settingsDraft.test.ts",
     "test:upload-crop": "node --test --experimental-strip-types src/composables/uploadCropDraft.test.ts",
-    "test": "npm run test:embed && npm run test:mosaic && npm run test:settings && npm run test:upload-crop"
+    "test:upload-image": "node --test --experimental-strip-types src/composables/uploadImagePreview.test.ts",
+    "test": "npm run test:embed && npm run test:mosaic && npm run test:settings && npm run test:upload-crop && npm run test:upload-image"
   },
   "dependencies": {
     "@fontsource-variable/jetbrains-mono": "^5.2.8",

@@ -130,6 +130,26 @@ abgebrochen. Nach der Pause wird ein fälliger Lauf ausgeführt, ohne die ausgel
 Bilder nachzuholen. Der manuelle Upload bleibt auch während der Ruhezeit möglich.
 Status, letzter Erfolg und Fehler erscheinen in der Kameradetailseite.
 
+Mit „+ Schwärzen“ oder „+ Verpixeln“ lassen sich bis zu 16 rechteckige
+Privatbereiche aufziehen. Jeder Bereich ist über seine Nummer auswählbar,
+verschiebbar und an der unteren rechten Ecke vergrößerbar. Darstellungsart,
+genaue Position und Entfernen stehen unter dem Bild. Die Änderungen werden
+automatisch pro Kamera gespeichert. Die Bereiche bleiben am Originalbild
+verankert, auch wenn der Upload-Ausschnitt geändert wird. Der Server schwärzt
+oder verpixelt jedes frische Bild vor dem Zuschnitt; Schwarz hat bei
+Überlappungen Vorrang. Verpixelung verwendet höchstens acht grobe Blöcke auf
+der längeren Seite eines Bereichs. Fehler beim Lesen oder Anwenden der
+Privatbereiche brechen den Upload ab. Die Maskierung gilt für die Bild-Uploads,
+nicht für die Liveansicht oder das ursprüngliche Referenzbild.
+
+„Datum und Uhrzeit einblenden“ ergänzt optional die Aufnahmezeit des Geräts
+im Format `05.09.2026 12:34:56`, unten rechts im fertigen Bild. Auch nach einem
+Zuschnitt bleibt die Einblendung vollständig im Bild. Sie verwendet weiße
+Ziffern auf einem schwarzen Hintergrund und gibt keine maskierten Bildteile
+frei. Dafür muss das fertige Bild mindestens 127 × 21 Pixel groß sein; andernfalls
+wird der Upload mit einer Fehlermeldung abgebrochen. Masken und Zeitangabe
+gelten gleichermaßen für manuelle und automatische FTP-/SFTP-Uploads.
+
 Unter „Dateien“ legt jede Kamera fest, ob jeder Upload eine neue Datei erhält
 oder dieselbe Datei ersetzt. Standard bleibt ein eindeutiger Name mit
 Kamera-Kennung und UTC-Zeit. Für ein stets aktuelles Bild „Dieselbe Datei ersetzen“

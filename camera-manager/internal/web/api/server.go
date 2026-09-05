@@ -91,6 +91,8 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("PUT /api/devices/{id}/upload-schedule", s.putUploadSchedule)
 	s.mux.HandleFunc("GET /api/devices/{id}/upload-naming", s.getUploadNaming)
 	s.mux.HandleFunc("PUT /api/devices/{id}/upload-naming", s.putUploadNaming)
+	s.mux.HandleFunc("GET /api/devices/{id}/upload-image-settings", s.getUploadImageSettings)
+	s.mux.HandleFunc("PUT /api/devices/{id}/upload-image-settings", s.putUploadImageSettings)
 	s.mux.HandleFunc("POST /api/secrets/camera-password", s.setCameraPassword)
 	s.mux.HandleFunc("GET /api/events", s.getEvents)
 	s.mux.HandleFunc("POST /api/backup", s.createBackup)

@@ -107,3 +107,17 @@ func (s *Server) putUploadNaming(w http.ResponseWriter, r *http.Request) {
 	result, err := s.uploads.SaveNaming(r.Context(), r.PathValue("id"), input)
 	writeUploadResult(w, result, err)
 }
+
+func (s *Server) getUploadImageSettings(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Cache-Control", "no-store")
+	value, err := s.uploads.GetImageSettings(r.Context(), r.PathValue("id"))
+	writeUploadResult(w, value, err)
+}
+func (s *Server) putUploadImageSettings(w http.ResponseWriter, r *http.Request) {
+	var input snapshotupload.ImageSettings
+	if !decodeUpload(w, r, &input) {
+		return
+	}
+	value, err := s.uploads.SaveImageSettings(r.Context(), r.PathValue("id"), input)
+	writeUploadResult(w, value, err)
+}

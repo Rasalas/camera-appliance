@@ -157,6 +157,10 @@ func (s *Service) upload(ctx context.Context, deviceID string, input UploadInput
 	if err != nil {
 		return Result{}, err
 	}
+	imageSettings, err := s.GetImageSettings(ctx, deviceID)
+	if err != nil {
+		return Result{}, err
+	}
 	s.mu.Lock()
 	c, p, err := s.configuration(ctx)
 	s.mu.Unlock()
@@ -176,11 +180,15 @@ func (s *Service) upload(ctx context.Context, deviceID string, input UploadInput
 	if err != nil {
 		return Result{}, err
 	}
+	capturedAt := frame.CapturedAt
+	if capturedAt.IsZero() {
+		capturedAt = s.now()
+	}
 	data, err := base64.StdEncoding.DecodeString(frame.ImageBase64)
 	if err != nil {
 		return Result{}, errors.New("Das Kamerabild konnte nicht gelesen werden.")
 	}
-	data, width, height, err := prepareImage(data, *input.Crop)
+	data, width, height, err := prepareUploadImage(data, *input.Crop, imageSettings, capturedAt)
 	if err != nil {
 		return Result{}, err
 	}

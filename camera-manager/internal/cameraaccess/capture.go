@@ -78,13 +78,14 @@ type FrameInput struct {
 }
 
 type Frame struct {
-	ContentType      string `json:"content_type"`
-	ImageBase64      string `json:"image_base64"`
-	SHA256           string `json:"sha256"`
-	URLRedacted      string `json:"url_redacted"`
-	SavedPath        string `json:"saved_path"`
-	CredentialSource string `json:"credential_source"`
-	IdentityID       string `json:"identity_id"`
+	CapturedAt       time.Time `json:"captured_at"`
+	ContentType      string    `json:"content_type"`
+	ImageBase64      string    `json:"image_base64"`
+	SHA256           string    `json:"sha256"`
+	URLRedacted      string    `json:"url_redacted"`
+	SavedPath        string    `json:"saved_path"`
+	CredentialSource string    `json:"credential_source"`
+	IdentityID       string    `json:"identity_id"`
 }
 
 func (s *Service) Frame(ctx context.Context, deviceID string, req FrameInput) (Frame, error) {
@@ -111,11 +112,13 @@ func (s *Service) Frame(ctx context.Context, deviceID string, req FrameInput) (F
 	var image []byte
 	var rawURL string
 	var used credentialCandidate
+	var capturedAt time.Time
 	var failures []string
 	for _, candidate := range candidates {
 		rawURL = cameraRTSPURL(candidate.Username, candidate.Password, endpoint.Host, endpoint.Port, candidate.Stream)
 		image, err = s.Capture(ctx, rawURL, captureHost)
 		if err == nil {
+			capturedAt = time.Now()
 			used = candidate
 			break
 		}
@@ -142,7 +145,7 @@ func (s *Service) Frame(ctx context.Context, deviceID string, req FrameInput) (F
 	if used.IdentityID != "" {
 		_ = s.rememberIdentityForDevice(requestCtx, device.ID, used)
 	}
-	return Frame{ContentType: "image/jpeg", ImageBase64: base64.StdEncoding.EncodeToString(image), SHA256: hex.EncodeToString(sum[:]), URLRedacted: redaction.URL(rawURL), SavedPath: imagePath, CredentialSource: used.Source, IdentityID: used.IdentityID}, nil
+	return Frame{CapturedAt: capturedAt, ContentType: "image/jpeg", ImageBase64: base64.StdEncoding.EncodeToString(image), SHA256: hex.EncodeToString(sum[:]), URLRedacted: redaction.URL(rawURL), SavedPath: imagePath, CredentialSource: used.Source, IdentityID: used.IdentityID}, nil
 }
 
 func (s *Service) ReferenceImage(ctx context.Context, deviceID string) (string, error) {
