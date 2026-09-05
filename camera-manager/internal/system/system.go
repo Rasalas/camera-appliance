@@ -78,9 +78,8 @@ func ApplyStack(ctx context.Context, cfg config.Config) error {
 }
 
 // applyStackSystemd restarts go2rtc via the configured command (or its unit)
-// and then the manager unit itself. The manager restart is best-effort and
-// non-blocking: when this runs inside the service it terminates this process,
-// which is fine because the update files are already applied at that point.
+// and then schedules a manager restart. Updates use ApplyStackAndWait from
+// their independent supervisor instead.
 func applyStackSystemd(ctx context.Context, cfg config.Config) error {
 	if cfg.Go2RTCRestart != "" {
 		cmd := exec.CommandContext(ctx, cfg.Go2RTCRestart)
@@ -91,8 +90,7 @@ func applyStackSystemd(ctx context.Context, cfg config.Config) error {
 	} else if err := systemctlTry(ctx, true, "restart", "camera-appliance-go2rtc"); err != nil {
 		return err
 	}
-	_ = systemctlTry(ctx, true, "--no-block", "restart", "camera-appliance")
-	return nil
+	return systemctlTry(ctx, true, "--no-block", "restart", "camera-appliance")
 }
 
 func systemctlTry(ctx context.Context, user bool, args ...string) error {

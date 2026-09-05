@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -126,6 +127,15 @@ func Apply(ctx context.Context, opts Options) (Result, error) {
 		return Result{}, err
 	}
 	defer release()
+	unlock, err := lockIdle(opts.Config)
+	if err != nil {
+		return Result{}, err
+	}
+	defer unlock()
+	return apply(ctx, opts)
+}
+
+func apply(ctx context.Context, opts Options) (Result, error) {
 	now := time.Now
 	if opts.Now != nil {
 		now = opts.Now
@@ -138,6 +148,9 @@ func Apply(ctx context.Context, opts Options) (Result, error) {
 		InstallDir: installDir,
 		OldVersion: version.Current(),
 		Warning:    "Backup und Rollback-Snapshot wurden erstellt. Release-Archive dürfen keine Secrets enthalten.",
+	}
+	if previous, err := readManifest(installDir); err == nil && previous.Version != "unknown" {
+		result.OldVersion = previous.asVersionInfo()
 	}
 	backupResult, err := backup.Create(ctx, opts.Config, opts.BackupOverride, false)
 	if err != nil {
@@ -170,32 +183,23 @@ func Apply(ctx context.Context, opts Options) (Result, error) {
 	if err != nil {
 		return result, err
 	}
+	if !opts.NoRestart && (manifest.Version == "unknown" || manifest.Commit == "unknown") {
+		return result, errors.New("release manifest must identify version and commit before restarting")
+	}
 	result.NewVersion = manifest
+	newHealthcheck := opts.Healthcheck
+	oldHealthcheck := opts.Healthcheck
+	if !opts.NoRestart && opts.Healthcheck == nil {
+		newHealthcheck = HTTPVersionHealthcheck(opts.Config, manifest)
+		oldHealthcheck = HTTPVersionHealthcheck(opts.Config, manifestFromVersion(result.OldVersion))
+	}
 
-	rollbackDir := filepath.Join(opts.Config.BackupDir(), "rollback-"+now().UTC().Format("20060102-150405"))
+	rollbackDir := filepath.Join(opts.Config.BackupDir(), "rollback-"+now().UTC().Format("20060102-150405.000000000"))
 	if err := snapshotInstall(ctx, installDir, rollbackDir); err != nil {
 		return result, fmt.Errorf("rollback snapshot failed: %w", err)
 	}
 	result.RollbackDir = rollbackDir
 
-	applied, err := applyRelease(ctx, releaseRoot, installDir)
-	if err != nil {
-		// The install dir may now hold a mix of old and new files. Restore the
-		// snapshot immediately instead of waiting for a human to run rollback.
-		restoreErr := restoreRollback(ctx, rollbackDir, installDir)
-		if restoreErr != nil {
-			return result, fmt.Errorf("update failed: %w; restoring rollback snapshot also failed: %v", err, restoreErr)
-		}
-		result.RollbackApplied = true
-		if restartErr := restartAndCheck(ctx, opts.NoRestart, opts.Restart, opts.Healthcheck); restartErr != nil {
-			result.Warning += " Wiederhergestellte Installation startete nicht sauber: " + restartErr.Error()
-		}
-		return result, fmt.Errorf("update failed, previous installation was restored: %w", err)
-	}
-	result.AppliedFiles = applied
-	if err := ensureCommandLink(installDir); err != nil {
-		result.Warning += " CLI-Link konnte nicht erstellt werden: " + err.Error()
-	}
 	if err := writeLastUpdate(opts.Config, lastUpdate{
 		InstallDir:  installDir,
 		BackupPath:  result.BackupPath,
@@ -207,12 +211,36 @@ func Apply(ctx context.Context, opts Options) (Result, error) {
 		return result, err
 	}
 
-	if err := restartAndCheck(ctx, opts.NoRestart, opts.Restart, opts.Healthcheck); err != nil {
+	applied, err := applyRelease(ctx, releaseRoot, installDir)
+	if err != nil {
+		// The install dir may now hold a mix of old and new files. Restore the
+		// snapshot immediately instead of waiting for a human to run rollback.
+		recoveryCtx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+		defer cancel()
+		restoreErr := restoreRollback(recoveryCtx, rollbackDir, installDir)
+		if restoreErr != nil {
+			return result, fmt.Errorf("update failed: %w; restoring rollback snapshot also failed: %v", err, restoreErr)
+		}
+		result.RollbackApplied = true
+		if restartErr := restartAndCheck(recoveryCtx, opts.NoRestart, opts.Restart, oldHealthcheck); restartErr != nil {
+			result.Warning += " Wiederhergestellte Installation startete nicht sauber: " + restartErr.Error()
+		}
+		return result, fmt.Errorf("update failed, previous installation was restored: %w", err)
+	}
+	result.AppliedFiles = applied
+	if err := ensureCommandLink(installDir); err != nil {
+		result.Warning += " CLI-Link konnte nicht erstellt werden: " + err.Error()
+	}
+
+	if err := restartAndCheck(ctx, opts.NoRestart, opts.Restart, newHealthcheck); err != nil {
 		if opts.AutoRollback {
-			rollbackErr := restoreRollback(ctx, rollbackDir, installDir)
+			// Recovery needs its own deadline when the update timed out.
+			recoveryCtx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+			defer cancel()
+			rollbackErr := restoreRollback(recoveryCtx, rollbackDir, installDir)
 			if rollbackErr == nil {
 				result.RollbackApplied = true
-				rollbackErr = restartAndCheck(ctx, opts.NoRestart, opts.Restart, opts.Healthcheck)
+				rollbackErr = restartAndCheck(recoveryCtx, opts.NoRestart, opts.Restart, oldHealthcheck)
 			}
 			if rollbackErr != nil {
 				return result, fmt.Errorf("update failed: %w; rollback also failed: %v", err, rollbackErr)
@@ -225,6 +253,15 @@ func Apply(ctx context.Context, opts Options) (Result, error) {
 }
 
 func Rollback(ctx context.Context, opts RollbackOptions) (Result, error) {
+	release, err := lockIdle(opts.Config)
+	if err != nil {
+		return Result{}, err
+	}
+	defer release()
+	return rollback(ctx, opts)
+}
+
+func rollback(ctx context.Context, opts RollbackOptions) (Result, error) {
 	last, err := readLastUpdate(opts.Config)
 	if err != nil {
 		return Result{}, err
@@ -249,6 +286,9 @@ func Rollback(ctx context.Context, opts RollbackOptions) (Result, error) {
 	if err := restoreRollback(ctx, last.RollbackDir, installDir); err != nil {
 		return result, err
 	}
+	if !opts.NoRestart && opts.Healthcheck == nil {
+		opts.Healthcheck = HTTPVersionHealthcheck(opts.Config, result.NewVersion)
+	}
 	if err := restartAndCheck(ctx, opts.NoRestart, opts.Restart, opts.Healthcheck); err != nil {
 		return result, err
 	}
@@ -264,6 +304,7 @@ func Install(ctx context.Context, opts InstallOptions) (InstallResult, error) {
 		return InstallResult{}, err
 	}
 	defer release()
+
 	cfg := opts.Config
 	if cfg.ConfigDir == "" {
 		cfg.ConfigDir = config.DefaultConfigDir
@@ -283,6 +324,12 @@ func Install(ctx context.Context, opts InstallOptions) (InstallResult, error) {
 	if cfg.ComposeFile == "" {
 		cfg.ComposeFile = config.DefaultComposeFile
 	}
+
+	unlock, err := lockIdle(cfg)
+	if err != nil {
+		return InstallResult{}, err
+	}
+	defer unlock()
 
 	installDir, err := cleanInstallDir(opts.InstallDir)
 	if err != nil {
@@ -415,7 +462,7 @@ func validateSource(archivePath, rawURL string, allowInsecure bool) error {
 		if err != nil || parsed.Scheme == "" || parsed.Host == "" {
 			return fmt.Errorf("invalid update URL %q", redactUpdateURL(rawURL))
 		}
-		if parsed.Scheme != "https" && !allowInsecure {
+		if parsed.Scheme != "https" && !(allowInsecure && parsed.Scheme == "http") {
 			return fmt.Errorf("update URL must use https, got %q; set CAMERA_APPLIANCE_ALLOW_INSECURE_UPDATE=1 only for local development", redactUpdateURL(rawURL))
 		}
 	}
@@ -1113,11 +1160,7 @@ func writeLastUpdate(cfg config.Config, last lastUpdate) error {
 	if err := os.MkdirAll(cfg.BackupDir(), 0o750); err != nil {
 		return err
 	}
-	data, err := json.MarshalIndent(last, "", "  ")
-	if err != nil {
-		return err
-	}
-	return os.WriteFile(filepath.Join(cfg.BackupDir(), lastUpdateFile), append(data, '\n'), 0o600)
+	return writeJSONAtomic(filepath.Join(cfg.BackupDir(), lastUpdateFile), last)
 }
 
 func readLastUpdate(cfg config.Config) (lastUpdate, error) {
@@ -1135,6 +1178,9 @@ func readLastUpdate(cfg config.Config) (lastUpdate, error) {
 func managerBaseURL(bindAddr string) string {
 	if strings.HasPrefix(bindAddr, "http://") || strings.HasPrefix(bindAddr, "https://") {
 		return bindAddr
+	}
+	if host, port, err := net.SplitHostPort(bindAddr); err == nil && (host == "" || host == "0.0.0.0" || host == "::") {
+		bindAddr = net.JoinHostPort("127.0.0.1", port)
 	}
 	return "http://" + bindAddr
 }
@@ -1205,6 +1251,6 @@ func (m Manifest) asVersionInfo() version.Info {
 
 func StackRestart(cfg config.Config) func(context.Context) error {
 	return func(ctx context.Context) error {
-		return system.ApplyStack(ctx, cfg)
+		return system.ApplyStackAndWait(ctx, cfg)
 	}
 }

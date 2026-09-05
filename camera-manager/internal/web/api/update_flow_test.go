@@ -1,10 +1,15 @@
 package api
 
 import (
+	"camera-appliance/camera-manager/internal/config"
+	"camera-appliance/camera-manager/internal/version"
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -258,5 +263,92 @@ func TestUpdateFlowInstallRejectsWrongPhase(t *testing.T) {
 	s.startUpdateInstall(rec, req)
 	if rec.Code != http.StatusConflict {
 		t.Fatalf("expected 409 outside ready phase, got %d", rec.Code)
+	}
+}
+
+func TestInstallDispatchesDurableJobAndReportsLaunchFailure(t *testing.T) {
+	for _, launchErr := range []error{nil, updater.ErrUpdateBusy, errors.New("worker unavailable")} {
+		a := newAuthTestApp(t)
+		s := New(a)
+		s.updates.st.Phase = updateReady
+		s.updates.st.ArchiveName = "release-test.tar.gz"
+		s.updates.st.Digest = "sha256:expected"
+		called := false
+		s.startUpdateJob = func(_ context.Context, cfg config.Config, req updater.Request) (updater.Job, error) {
+			called = true
+			if req.Archive != filepath.Join(s.updates.archiveDir, "release-test.tar.gz") || req.Digest != "sha256:expected" || !req.AutoRollback {
+				t.Fatalf("lost request: %+v", req)
+			}
+			return updater.Job{ID: "test", Phase: "queued"}, launchErr
+		}
+		rec := httptest.NewRecorder()
+		s.startUpdateInstall(rec, httptest.NewRequest(http.MethodPost, "/api/system/update/install", nil))
+		want := http.StatusAccepted
+		if errors.Is(launchErr, updater.ErrUpdateBusy) {
+			want = http.StatusConflict
+		} else if launchErr != nil {
+			want = http.StatusInternalServerError
+		}
+		if !called || rec.Code != want {
+			t.Fatalf("dispatch called=%t code=%d want=%d body=%s", called, rec.Code, want, rec.Body.String())
+		}
+	}
+}
+
+func TestURLUpdateForwardsExplicitInsecureOptIn(t *testing.T) {
+	t.Setenv("CAMERA_APPLIANCE_ALLOW_INSECURE_UPDATE", "1")
+	s := New(newAuthTestApp(t))
+	called := false
+	s.startUpdateJob = func(_ context.Context, _ config.Config, req updater.Request) (updater.Job, error) {
+		called = true
+		if !req.AllowInsecureURL || req.URL != "http://localhost/release.tar.gz" {
+			t.Fatalf("lost development opt-in: %+v", req)
+		}
+		return updater.Job{ID: "test", Phase: "queued"}, nil
+	}
+	rec := httptest.NewRecorder()
+	s.startUpdate(rec, httptest.NewRequest(http.MethodPost, "/api/system/update", strings.NewReader(`{"url":"http://localhost/release.tar.gz"}`)))
+	if !called || rec.Code != http.StatusAccepted {
+		t.Fatalf("code=%d body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestFreshServerReadsDurableJobWithoutExposingPrivateInputs(t *testing.T) {
+	a := newAuthTestApp(t)
+	dir := filepath.Join(a.Config.StateDir, "updates")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	persisted := map[string]any{"id": "old-process", "phase": "failed", "error": "healthcheck failed", "updated_at": time.Now().UTC(), "request": map[string]string{"url": "https://example.com/private-token"}, "config": map[string]string{"ConfigDir": "/private/config"}}
+	data, err := json.Marshal(persisted)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "job.json"), data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	s := New(a)
+	rec := httptest.NewRecorder()
+	s.getUpdateStatus(rec, httptest.NewRequest(http.MethodGet, "/api/system/update/status", nil))
+	body := rec.Body.String()
+	if !strings.Contains(body, "healthcheck failed") || !strings.Contains(body, "old-process") {
+		t.Fatalf("lost result: %s", body)
+	}
+	if strings.Contains(body, "private-token") || strings.Contains(body, "/private/config") {
+		t.Fatalf("private job inputs exposed: %s", body)
+	}
+}
+
+func TestPublicHealthIdentifiesRunningRelease(t *testing.T) {
+	s := New(newAuthTestApp(t))
+	rec := httptest.NewRecorder()
+	s.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/health", nil))
+	var body map[string]string
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	current := version.Current()
+	if rec.Code != http.StatusOK || body["status"] != "ok" || body["version"] != current.Version || body["commit"] != current.Commit {
+		t.Fatalf("health: %d %s", rec.Code, rec.Body.String())
 	}
 }

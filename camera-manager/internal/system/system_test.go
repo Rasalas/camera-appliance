@@ -108,3 +108,60 @@ func TestSystemctlArgsForUserUnits(t *testing.T) {
 		t.Fatalf("systemctlArgs() = %v, want %v", got, want)
 	}
 }
+
+func TestUpdateWorkerSharesStateOutsideComposeProject(t *testing.T) {
+	cfg := config.Config{InstallDir: "/opt/appliance", ConfigDir: "/etc/appliance", StateDir: "/var/lib/appliance", ComposeFile: "/opt/appliance/compose.yaml"}
+	args := strings.Join(updateWorkerArgs(cfg, "sha256:old", "/var/lib/appliance/updates/worker-1", "/var/lib/appliance/updates/job.json", "1"), " ")
+	for _, want := range []string{"run --rm -d", "--network host", "--entrypoint /var/lib/appliance/updates/worker-1", "/etc/appliance:/etc/appliance", "/var/lib/appliance:/var/lib/appliance", "sha256:old update-worker --job /var/lib/appliance/updates/job.json"} {
+		if !strings.Contains(args, want) {
+			t.Fatalf("missing %q: %s", want, args)
+		}
+	}
+	if strings.Contains(args, "--label") {
+		t.Fatalf("worker must not be a compose orphan: %s", args)
+	}
+}
+
+func TestSystemdWorkerAndBlockingRestart(t *testing.T) {
+	dir := t.TempDir()
+	log := filepath.Join(dir, "commands")
+	t.Setenv("CAMERA_TEST_COMMAND_LOG", log)
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	for _, name := range []string{"systemd-run", "systemctl"} {
+		script := "#!/bin/sh\nprintf '%s\\n' \"$*\" >> \"$CAMERA_TEST_COMMAND_LOG\"\nif [ \"$*\" = '--user restart camera-appliance' ]; then exit 7; fi\n"
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(script), 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	cfg := config.Config{RestartStrategy: "systemd"}
+	if err := StartUpdateWorker(context.Background(), cfg, "/state/worker", "/state/job.json", "123"); err != nil {
+		t.Fatal(err)
+	}
+	if err := ApplyStackAndWait(context.Background(), cfg); err == nil {
+		t.Fatal("manager restart failure ignored")
+	}
+	data, err := os.ReadFile(log)
+	if err != nil {
+		t.Fatal(err)
+	}
+	commands := string(data)
+	for _, want := range []string{"--user --collect --unit=camera-appliance-update-123 /state/worker update-worker --job /state/job.json", "--user restart camera-appliance-go2rtc", "--user restart camera-appliance"} {
+		if !strings.Contains(commands, want) {
+			t.Fatalf("missing %q: %s", want, commands)
+		}
+	}
+	if strings.Contains(commands, "--no-block") {
+		t.Fatalf("updater did not wait: %s", commands)
+	}
+}
+
+func TestComposeUsesReleaseBuildMetadata(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "release.env"), []byte("VERSION=2.0.0\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	args := strings.Join(composeArgs(config.Config{ComposeFile: filepath.Join(dir, "compose.yaml")}, "up", "-d"), " ")
+	if !strings.Contains(args, "--env-file "+filepath.Join(dir, "release.env")) {
+		t.Fatalf("release version would be lost: %s", args)
+	}
+}
