@@ -14,8 +14,8 @@
     <summary>Anderes Release installieren</summary>
     <form @submit.prevent="customInstall">
       <fieldset :disabled="busy || working" class="custom-update">
-        <label class="field"><span class="lbl">Release-URL</span><input v-model="url" type="url" placeholder="https://…/camera-appliance-latest.tar.gz" /><span class="mono-mute">Leer verwendet das neueste GitHub-Release.</span></label>
-        <label class="field"><span class="lbl">SHA-256-Prüfsumme · optional</span><input v-model="digest" placeholder="sha256:…" /></label>
+        <label class="field"><span class="lbl">Release-URL</span><input aria-label="Release-URL" v-model="url" type="url" placeholder="https://…/camera-appliance-latest.tar.gz" /><span class="mono-mute">Leer verwendet das neueste GitHub-Release.</span></label>
+        <label class="field"><span class="lbl">SHA-256-Prüfsumme · optional</span><input aria-label="SHA-256-Prüfsumme · optional" v-model="digest" placeholder="sha256:…" /></label>
         <button class="btn" type="submit">Release installieren</button>
       </fieldset>
     </form>

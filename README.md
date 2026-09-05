@@ -103,13 +103,21 @@ Unter System stehen Allgemein, Zugriff, Relays und Identitäten. Wartung enthäl
 fünf eigene Seiten: Watchdog, Sicherung, Version und Updates, Support-Bundle und
 Ereignisprotokoll. Bestehende Links wie `/system/bild-upload`, `/backup` und
 `/events` werden auf die passenden Seiten weitergeleitet. Auf schmalen
-Bildschirmen öffnet **Menü** dieselbe Navigation.
+Bildschirmen führt **Home** unter `/verwaltung` zu allen Zielen. Die untere
+Navigation hält Home, Kameras und Live-Ansicht erreichbar. Die Suche unter dem
+Logo durchsucht Kameras, Relays und Identitäten. Mit Cmd/Ctrl+K öffnest du sie;
+der Suchbereich lässt sich auf die aktuelle Ressourcenart begrenzen.
 
 Einstellungsformulare zeigen ungespeicherte Änderungen sowie Fehler direkt am
 Formular. Speichern und Abbrechen gelten jeweils für den benannten Bereich;
 beispielsweise hat **Anzeige** einen eigenen Speicherknopf. Bildausschnitt,
 Privatbereiche und Zeitangabe in den Kameradetails werden weiterhin automatisch
-gespeichert und zeigen ihren Speicherzustand an.
+gespeichert und zeigen ihren Speicherzustand an. „Änderungen seit Öffnen
+zurücknehmen“ stellt den ursprünglichen Bildstand wieder her. Dateieinstellungen
+und Zeitpläne verwenden explizites Speichern und Abbrechen. Kamerazugang,
+Verbindung und Anzeige werden unter `/kamera/:id/bearbeiten` bearbeitet; der
+Bild-Upload liegt unter `/kamera/:id/bild-upload`. Lange Editoren warnen vor
+dem Verlassen mit ungespeicherten Änderungen.
 
 Unter **Kameras → Bild-Upload** lassen sich Protokoll, Server, Port, Benutzername,
 Passwort und ein vorhandenes Zielverzeichnis konfigurieren. SFTP benötigt zusätzlich

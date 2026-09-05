@@ -6,10 +6,16 @@
         <span class="name">Watch<em>deck</em></span>
       </div>
 
-      <button ref="menuTrigger" class="nav-toggle btn" type="button" :aria-expanded="menuOpen" aria-controls="main-navigation" @click="menuOpen = !menuOpen">Menü</button>
-      <button v-if="menuOpen" class="nav-backdrop" aria-label="Menü schließen" @click="closeMenu" />
-      <nav id="main-navigation" ref="navigation" class="nav" :class="{ 'nav-open': menuOpen }" aria-label="Hauptnavigation" @keydown.esc="closeMenu">
-        <button class="nav-close btn" type="button" @click="closeMenu">Menü schließen</button>
+      <AdminSearch v-if="canAdmin" />
+      <div class="mobile-overflow" v-if="auth?.enabled">
+        <button ref="overflowTrigger" class="btn icon ghost" aria-label="Weitere Aktionen" :aria-expanded="overflowOpen" @click="overflowOpen = !overflowOpen">⋮</button>
+        <div v-if="overflowOpen" ref="overflowPopup" class="overflow-popover" @keydown.esc="closeOverflow">
+          <button v-if="auth.authenticated" class="btn ghost" @click="logout">Logout</button>
+          <RouterLink v-else class="btn" to="/login">Login</RouterLink>
+        </div>
+      </div>
+      <nav class="nav" aria-label="Hauptnavigation">
+        <RouterLink to="/verwaltung">Home</RouterLink>
         <RouterLink to="/">Live-Ansicht<span class="nav-key">1</span></RouterLink>
         <div v-if="canAdmin" class="nav-group">
           <RouterLink to="/einrichtung">Kameras<span class="nav-key">2</span></RouterLink>
@@ -29,7 +35,6 @@
             <RouterLink v-for="item in maintenancePages" :key="item.to" :to="item.to">{{ item.label }}</RouterLink>
           </div>
         </div>
-        <div v-if="canAdmin" class="nav-version">Version {{ versionLabel }}</div>
       </nav>
 
       <!-- Pinned bottom block: update control, metadata rows, then the auth
@@ -53,13 +58,15 @@
       </div>
     </aside>
 
-    <main class="canvas">
+    <DiscardChanges />
+    <main class="canvas" :class="{ 'admin-canvas': !isViewer }">
       <RouterView v-slot="{ Component, route }">
         <div :key="route.fullPath" class="route-fade">
           <component :is="Component" />
         </div>
       </RouterView>
     </main>
+    <nav v-if="!isViewer && canAdmin" class="bottom-navigation" aria-label="Mobile Hauptnavigation"><RouterLink to="/verwaltung">Home</RouterLink><RouterLink to="/einrichtung">Kameras</RouterLink><RouterLink to="/">Live-Ansicht</RouterLink></nav>
   </div>
 </template>
 
@@ -69,6 +76,8 @@ import { useRoute, useRouter } from 'vue-router'
 import { api } from '../api/client'
 import type { AuthStatus } from '../types'
 import UpdatePanel from '../components/UpdatePanel.vue'
+import AdminSearch from '../components/AdminSearch.vue'
+import DiscardChanges from '../components/DiscardChanges.vue'
 import { systemPages, maintenancePages } from '../navigation'
 import { provideUpdateFlow } from '../composables/useUpdateFlow'
 
@@ -76,19 +85,11 @@ const router = useRouter()
 const route = useRoute()
 provideUpdateFlow()
 const versionLabel = ref('…')
-const menuOpen = ref(false), menuTrigger = ref<HTMLButtonElement>()
-const navigation = ref<HTMLElement>()
-let previousOverflow = ''
-function closeMenu() { menuOpen.value = false; menuTrigger.value?.focus() }
-watch(() => route.fullPath, () => { if (menuOpen.value) closeMenu() })
-watch(menuOpen, async open => {
-  if (open) {
-    previousOverflow = document.body.style.overflow
-    document.body.style.overflow = 'hidden'
-    await nextTick()
-    navigation.value?.querySelector<HTMLButtonElement>('button')?.focus()
-  } else document.body.style.overflow = previousOverflow
-})
+const overflowOpen = ref(false), overflowTrigger = ref<HTMLElement>(), overflowPopup = ref<HTMLElement>()
+function closeOverflow() { overflowOpen.value = false; overflowTrigger.value?.focus() }
+watch(overflowOpen, async open => { if (open) { await nextTick(); overflowPopup.value?.querySelector<HTMLElement>('button,a')?.focus() } })
+watch(() => route.fullPath, () => { overflowOpen.value = false })
+function outsideOverflow(event: PointerEvent) { if (overflowOpen.value && !overflowPopup.value?.contains(event.target as Node) && !overflowTrigger.value?.contains(event.target as Node)) closeOverflow() }
 const clock = ref('')
 const auth = ref<AuthStatus>()
 const isViewer = computed(() => route.name === 'viewer')
@@ -137,25 +138,17 @@ onMounted(() => {
   tick()
   timer = window.setInterval(tick, 1000)
   onKey = (e: KeyboardEvent) => {
-    if (menuOpen.value) {
-      if (e.key === 'Escape') { closeMenu(); return }
-      if (e.key === 'Tab') {
-        const items = navigation.value?.querySelectorAll<HTMLElement>('a, button')
-        const first = items?.[0], last = items?.[items.length - 1]
-        if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last?.focus() }
-        else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first?.focus() }
-      }
-      return
-    }
+    if (document.querySelector('dialog[open]') || (e.target as HTMLElement)?.closest('.search-popover')) return
     if (e.target instanceof HTMLElement && ['INPUT', 'TEXTAREA', 'SELECT'].includes(e.target.tagName)) return
     if (e.key === '1') router.push('/')
     if (canAdmin.value && e.key === '2') router.push('/einrichtung')
     if (canAdmin.value && e.key === '3') router.push('/system')
   }
   window.addEventListener('keydown', onKey)
+  window.addEventListener('pointerdown', outsideOverflow)
 })
 onBeforeUnmount(() => {
-  if (menuOpen.value) document.body.style.overflow = previousOverflow
+  window.removeEventListener('pointerdown', outsideOverflow)
   window.clearInterval(timer)
   if (onKey) window.removeEventListener('keydown', onKey)
   if (onAuthChanged) window.removeEventListener('auth-changed', onAuthChanged)
@@ -197,18 +190,7 @@ onBeforeUnmount(() => {
 }
 .nav { min-height:0;overflow-y:auto; }
 .nav-group { display:grid;gap:2px; }
-.nav-children { border-left:1px solid var(--hairline-strong);margin:0 0 8px 16px;padding-left:4px; }
-.nav-children a { font-size:11px;text-transform:none;letter-spacing:0;padding:7px 6px;grid-template-columns:8px 1fr;gap:6px; }
-.rail-version { font-size:10px;color:var(--ink-mute); }
-.nav-toggle,.nav-close,.nav-backdrop,.nav-version { display:none; }
-@media(max-width:820px) {
-  .nav-toggle { display:block;margin-left:auto;margin-right:44px; }
-  .nav { display:none; }
-  .nav.nav-open { display:flex;flex-direction:column;position:fixed;inset:0 auto 0 0;width:min(320px,85vw);padding:20px;z-index:100;background:var(--surface);grid-template-columns:1fr;align-content:start;gap:8px;overflow-y:auto; }
-  .nav-close { display:block;justify-self:end;margin-bottom:12px; }
-  .nav-backdrop { display:block;position:fixed;inset:0;z-index:90;border:0;background:#0009; }
-  .rail-version { display:none; }
-  .nav-version { display:block;margin-top:auto;padding-top:20px;font-size:10px;color:var(--ink-mute); }
-  .nav-children a { padding:10px 8px; }
-}
+.nav-children { margin:0 0 10px 16px; }
+.nav-children a { padding:8px 6px; }
+.rail-version { font-size:12px;color:var(--ink-mute); }
 </style>

@@ -10,6 +10,7 @@
         <button class="btn" :class="{ armed: tool === 'pixelate' }" :disabled="disabled || config.masks.length >= 16" @click="arm('pixelate')">+ Verpixeln</button>
       </div>
     </div>
+    <div class="btn-row"><span class="mono-mute">Privatbereiche und Zeitangabe werden automatisch gespeichert.</span><button class="btn ghost" :disabled="disabled || !imageChanged" @click="restoreImage">Änderungen seit Öffnen zurücknehmen</button></div>
     <div class="image-help"><span>{{ tool === 'black' || tool === 'pixelate' ? 'Bereich im Bild aufziehen. Escape bricht ab.' : tool === 'crop' && crop.enabled ? 'Bildausschnitt aufziehen. Privatbereiche bleiben am Originalbild verankert.' : 'Privatbereiche auswählen, verschieben oder an der Ecke vergrößern.' }}</span><span role="status">{{ statusText }}</span></div>
     <div class="crop-stage" :class="{ selecting: tool !== 'edit' }" @pointerdown="start" @pointermove="move" @pointerup="finish" @pointercancel="cancel" @keydown.esc="cancel" tabindex="0" aria-label="Bildeditor">
       <canvas ref="canvas" :class="{ hidden: !sourceReady || !hasRendered || loading }" role="img" :aria-label="`Kameravorschau ${cameraLabel} mit Privatbereichen`" />
@@ -32,7 +33,7 @@
       <label>Bereich {{ config.masks.indexOf(selected) + 1 }} <select v-model="selected.mode" aria-label="Darstellung des Privatbereichs"><option value="black">Schwarz</option><option value="pixelate">Stark verpixelt</option></select></label>
       <button class="btn" type="button" @click="removeSelected">Entfernen</button>
       <details class="advanced"><summary>Genaue Position</summary><div class="mask-values">
-        <label v-for="field in fields" :key="field.key" class="field"><span class="lbl">{{ field.label }} %</span><input v-model.number="selected[field.key]" type="number" min="0" max="100" step="0.1" /></label>
+        <label v-for="field in fields" :key="field.key" class="field"><span class="lbl">{{ field.label }} %</span><input aria-label="{{ field.label }} %" v-model.number="selected[field.key]" type="number" min="0" max="100" step="0.1" /></label>
       </div></details>
     </fieldset>
     <label class="timestamp-option"><input v-model="config.timestamp" type="checkbox" :disabled="disabled" />Datum und Uhrzeit einblenden <span class="mono-mute">Aufnahmezeit des Geräts · unten rechts</span></label>
@@ -50,6 +51,9 @@ import type { UploadCrop, UploadImageSettings, UploadMask } from '../types'
 const props = defineProps<{ deviceId: string; cameraLabel: string; src: string; capturedAt: string; crop: UploadCrop; busy: boolean; cropLoading: boolean; cropStatus: string; previewLoading: boolean; previewError: string }>()
 const emit = defineEmits<{ 'update:crop': [crop: UploadCrop]; selecting: [active: boolean] }>()
 const config = ref<UploadImageSettings>({ masks: [], timestamp: false })
+const originalConfig = ref<UploadImageSettings>()
+const imageChanged = computed(() => !!originalConfig.value && JSON.stringify(config.value) !== JSON.stringify(originalConfig.value))
+function restoreImage() { if (originalConfig.value) { config.value = cloneImageSettings(originalConfig.value); selectedId.value = ''; void autosave.flush() } }
 const loading = ref(true), error = ref(''), renderError = ref(''), imageStatus = ref('')
 const canvas = ref<HTMLCanvasElement>(), sourceReady = ref(false), hasRendered = ref(false)
 const selectedId = ref(''), tool = ref<'crop'|'edit'|'black'|'pixelate'>('crop')
@@ -167,7 +171,7 @@ async function loadSettings() {
     const result=await api.uploadImageSettings(props.deviceId)
     if(!validImageSettings(result))throw new Error('Privatbereiche konnten nicht sicher geladen werden. Upload gesperrt.')
     if(disposed)return
-    config.value=result;loading.value=false;error.value='';requestPaint()
+    config.value=result;originalConfig.value=cloneImageSettings(result);loading.value=false;error.value='';requestPaint()
   } catch(err){error.value=err instanceof Error?err.message:'Privatbereiche konnten nicht geladen werden. Upload gesperrt.'}
 }
 onMounted(()=>void loadSettings())

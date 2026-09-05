@@ -1,5 +1,6 @@
 <template>
   <SettingsForm title="Watchdog" :setting-keys="maintenanceSettingKeys">
+    <template #summary><dl class="spec"><div><dt>Status</dt><dd>{{ watchdogEnabled ? 'Aktiv' : 'Aus' }}</dd></div><div><dt>Schneller Check</dt><dd>{{ settings['watchdog.fast_interval_seconds'] }} Sekunden</dd></div><div><dt>Kamera-Pfade</dt><dd>{{ settings['watchdog.camera_interval_seconds'] }} Sekunden</dd></div><div><dt>Letzte Aktion</dt><dd>{{ status?.watchdog?.last_action || 'Noch keine Aktion.' }}</dd></div></dl></template>
     <div style="display: grid; gap: 8px;">
       <label class="toggle-row">
         <input type="checkbox" :checked="watchdogEnabled" @change="setBool('watchdog.enabled', $event)" />
@@ -16,11 +17,11 @@
     </div>
 
     <div class="split">
-      <div class="field"><span class="lbl">Schneller Check · Sekunden</span><input v-model="settings['watchdog.fast_interval_seconds']" type="number" min="5" max="3600" /></div>
-      <div class="field"><span class="lbl">Kamera-Pfade · Sekunden</span><input v-model="settings['watchdog.camera_interval_seconds']" type="number" min="10" max="7200" /></div>
-      <div class="field"><span class="lbl">Fehler bis Wechsel</span><input v-model="settings['camera.path.fail_threshold']" type="number" min="1" max="20" /></div>
-      <div class="field"><span class="lbl">Erfolge bis Rückwechsel</span><input v-model="settings['camera.path.recovery_threshold']" type="number" min="1" max="20" /></div>
-      <div class="field"><span class="lbl">Restart-Cooldown · Sekunden</span><input v-model="settings['camera.path.restart_cooldown_seconds']" type="number" min="0" max="7200" /></div>
+      <div class="field"><span class="lbl">Schneller Check · Sekunden</span><input aria-label="Schneller Check · Sekunden" v-model="settings['watchdog.fast_interval_seconds']" type="number" min="5" max="3600" /></div>
+      <div class="field"><span class="lbl">Kamera-Pfade · Sekunden</span><input aria-label="Kamera-Pfade · Sekunden" v-model="settings['watchdog.camera_interval_seconds']" type="number" min="10" max="7200" /></div>
+      <div class="field"><span class="lbl">Fehler bis Wechsel</span><input aria-label="Fehler bis Wechsel" v-model="settings['camera.path.fail_threshold']" type="number" min="1" max="20" /></div>
+      <div class="field"><span class="lbl">Erfolge bis Rückwechsel</span><input aria-label="Erfolge bis Rückwechsel" v-model="settings['camera.path.recovery_threshold']" type="number" min="1" max="20" /></div>
+      <div class="field"><span class="lbl">Restart-Cooldown · Sekunden</span><input aria-label="Restart-Cooldown · Sekunden" v-model="settings['camera.path.restart_cooldown_seconds']" type="number" min="0" max="7200" /></div>
     </div>
 
     <dl class="spec">
