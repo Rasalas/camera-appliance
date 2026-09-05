@@ -1,12 +1,10 @@
-package app
+package display
 
 import (
-	"encoding/json"
 	"strconv"
 	"strings"
 
 	"camera-appliance/camera-manager/internal/config"
-	"camera-appliance/camera-manager/internal/state"
 )
 
 const (
@@ -31,21 +29,6 @@ const (
 	viewerLayoutSettingMosaic    = "viewer.layout.mosaic"
 )
 
-type CameraDisplay struct {
-	Rotation int         `json:"rotation"`
-	Mirror   bool        `json:"mirror"`
-	Flip     bool        `json:"flip"`
-	FitMode  string      `json:"fit_mode"`
-	Crop     DisplayCrop `json:"crop"`
-}
-
-type DisplayCrop struct {
-	X      int `json:"x"`
-	Y      int `json:"y"`
-	Width  int `json:"width"`
-	Height int `json:"height"`
-}
-
 type ViewerLayout struct {
 	ID           string               `json:"id"`
 	Name         string               `json:"name"`
@@ -58,20 +41,6 @@ type ViewerLayout struct {
 	Custom       ViewerCustomLayout   `json:"custom"`
 	Mosaic       string               `json:"mosaic"`
 	Options      []ViewerLayoutOption `json:"options"`
-}
-
-type ViewerCustomLayout struct {
-	Columns []int                    `json:"columns"`
-	Rows    []int                    `json:"rows"`
-	Cells   []ViewerCustomLayoutCell `json:"cells"`
-}
-
-type ViewerCustomLayoutCell struct {
-	SlotID     string `json:"slot_id"`
-	Column     int    `json:"column"`
-	Row        int    `json:"row"`
-	ColumnSpan int    `json:"column_span"`
-	RowSpan    int    `json:"row_span"`
 }
 
 type ViewerLayoutCell struct {
@@ -88,7 +57,7 @@ type ViewerLayoutOption struct {
 	Description string `json:"description"`
 }
 
-func viewerLayoutFromSettings(settings map[string]string, slots []config.Slot) ViewerLayout {
+func Resolve(settings map[string]string, slots []config.Slot) ViewerLayout {
 	id := normalizedViewerLayoutID(settings[viewerLayoutSettingID])
 	mode := strings.TrimSpace(settings[viewerLayoutSettingMode])
 	if id == "" {
@@ -117,11 +86,11 @@ func viewerLayoutFromSettings(settings map[string]string, slots []config.Slot) V
 		Cells:        viewerLayoutCells(id, focus, orderedSlots),
 		Custom:       custom,
 		Mosaic:       strings.TrimSpace(settings[viewerLayoutSettingMosaic]),
-		Options:      DefaultViewerLayoutOptions(),
+		Options:      defaultViewerLayoutOptions(),
 	}
 }
 
-func DefaultViewerLayoutOptions() []ViewerLayoutOption {
+func defaultViewerLayoutOptions() []ViewerLayoutOption {
 	return []ViewerLayoutOption{
 		{ID: ViewerLayoutGrid2x2, Name: "2x2", Description: "Vier gleich große Kameras im Raster."},
 		{ID: ViewerLayoutFourPlusLarge, Name: "4 plus groß", Description: "Vier Raster-Kameras mit einer prominenten Ansicht."},
@@ -132,7 +101,7 @@ func DefaultViewerLayoutOptions() []ViewerLayoutOption {
 }
 
 func viewerLayoutOption(id string) ViewerLayoutOption {
-	for _, option := range DefaultViewerLayoutOptions() {
+	for _, option := range defaultViewerLayoutOptions() {
 		if option.ID == id {
 			return option
 		}
@@ -216,96 +185,6 @@ func viewerLayoutCells(id, focusSlotID string, slots []config.Slot) []ViewerLayo
 	}
 }
 
-func viewerCustomLayoutFromSettings(raw, focusSlotID string, slots []config.Slot) ViewerCustomLayout {
-	var parsed ViewerCustomLayout
-	if strings.TrimSpace(raw) != "" {
-		_ = json.Unmarshal([]byte(raw), &parsed)
-	}
-	layout := sanitizeCustomLayout(parsed, focusSlotID, slots)
-	if len(layout.Cells) == 0 {
-		return defaultCustomLayout(focusSlotID, slots)
-	}
-	return layout
-}
-
-func sanitizeCustomLayout(layout ViewerCustomLayout, focusSlotID string, slots []config.Slot) ViewerCustomLayout {
-	if len(slots) == 0 {
-		return ViewerCustomLayout{Columns: []int{1}, Rows: []int{1}, Cells: []ViewerCustomLayoutCell{}}
-	}
-	layout.Columns = normalizedWeights(layout.Columns, []int{29, 29, 6, 36}, 1, 6)
-	layout.Rows = normalizedWeights(layout.Rows, []int{50, 50}, 1, 4)
-	maxColumn := len(layout.Columns)
-	maxRow := len(layout.Rows)
-	slotIDs := map[string]bool{}
-	for _, slot := range slots {
-		slotIDs[slot.ID] = true
-	}
-	seen := map[string]bool{}
-	cells := []ViewerCustomLayoutCell{}
-	for _, cell := range layout.Cells {
-		if !slotIDs[cell.SlotID] || seen[cell.SlotID] {
-			continue
-		}
-		cell.Column = boundedInt(cell.Column, 1, maxColumn)
-		cell.Row = boundedInt(cell.Row, 1, maxRow)
-		cell.ColumnSpan = boundedInt(cell.ColumnSpan, 1, maxColumn-cell.Column+1)
-		cell.RowSpan = boundedInt(cell.RowSpan, 1, maxRow-cell.Row+1)
-		seen[cell.SlotID] = true
-		cells = append(cells, cell)
-	}
-	if len(cells) == 0 {
-		return ViewerCustomLayout{}
-	}
-	for _, cell := range defaultCustomLayout(focusSlotID, slots).Cells {
-		if seen[cell.SlotID] {
-			continue
-		}
-		cells = append(cells, cell)
-	}
-	layout.Cells = cells
-	return layout
-}
-
-func normalizedWeights(values, fallback []int, minLen, maxLen int) []int {
-	if len(values) < minLen || len(values) > maxLen {
-		values = fallback
-	}
-	out := make([]int, 0, len(values))
-	for _, value := range values {
-		out = append(out, boundedInt(value, 1, 100))
-	}
-	return out
-}
-
-func defaultCustomLayout(focusSlotID string, slots []config.Slot) ViewerCustomLayout {
-	columns := []int{29, 29, 6, 36}
-	rows := []int{50, 50}
-	focus := focusSlotID
-	if focus == "" || !slotExists(slots, focus) {
-		focus = defaultFocusSlotID(slots)
-	}
-	cells := []ViewerCustomLayoutCell{{SlotID: focus, Column: 4, Row: 1, ColumnSpan: 1, RowSpan: 2}}
-	positions := []ViewerCustomLayoutCell{
-		{Column: 1, Row: 1, ColumnSpan: 1, RowSpan: 1},
-		{Column: 2, Row: 1, ColumnSpan: 1, RowSpan: 1},
-		{Column: 1, Row: 2, ColumnSpan: 1, RowSpan: 1},
-		{Column: 2, Row: 2, ColumnSpan: 1, RowSpan: 1},
-		{Column: 3, Row: 1, ColumnSpan: 1, RowSpan: 1},
-		{Column: 3, Row: 2, ColumnSpan: 1, RowSpan: 1},
-	}
-	index := 0
-	for _, slot := range slots {
-		if slot.ID == focus {
-			continue
-		}
-		position := positions[index%len(positions)]
-		position.SlotID = slot.ID
-		cells = append(cells, position)
-		index++
-	}
-	return ViewerCustomLayout{Columns: columns, Rows: rows, Cells: cells}
-}
-
 func viewerSlotOrder(raw string, slots []config.Slot) []string {
 	seen := map[string]bool{}
 	order := []string{}
@@ -386,37 +265,6 @@ func focusCells(slots []config.Slot, focusSlotID, focusArea, focusSize string, g
 	return cells
 }
 
-func displayFromSettings(settings map[string]string, binding state.Binding) CameraDisplay {
-	display := CameraDisplay{
-		Rotation: 0,
-		Mirror:   false,
-		Flip:     false,
-		FitMode:  "contain",
-		Crop: DisplayCrop{
-			X:      0,
-			Y:      0,
-			Width:  100,
-			Height: 100,
-		},
-	}
-	deviceID := strings.TrimSpace(binding.DeviceID)
-	if deviceID == "" {
-		return display
-	}
-	prefix := "camera.display." + deviceID + "."
-	display.Rotation = normalizedRotation(settings[prefix+"rotation"])
-	display.Mirror = boolSetting(settings, prefix+"mirror", false)
-	display.Flip = boolSetting(settings, prefix+"flip", false)
-	display.FitMode = normalizedFitMode(settings[prefix+"fit_mode"])
-	display.Crop = normalizedCrop(DisplayCrop{
-		X:      boundedIntSetting(settings, prefix+"crop_x", 0, 0, 99),
-		Y:      boundedIntSetting(settings, prefix+"crop_y", 0, 0, 99),
-		Width:  boundedIntSetting(settings, prefix+"crop_width", 100, 1, 100),
-		Height: boundedIntSetting(settings, prefix+"crop_height", 100, 1, 100),
-	})
-	return display
-}
-
 func defaultFocusSlotID(slots []config.Slot) string {
 	for _, slot := range slots {
 		if slot.Role == "large" {
@@ -436,58 +284,6 @@ func slotExists(slots []config.Slot, id string) bool {
 		}
 	}
 	return false
-}
-
-func normalizedRotation(raw string) int {
-	value, err := strconv.Atoi(strings.TrimSpace(raw))
-	if err != nil {
-		return 0
-	}
-	switch value {
-	case 90, 180, 270:
-		return value
-	default:
-		return 0
-	}
-}
-
-func normalizedFitMode(raw string) string {
-	// Default to "contain" so the whole camera image is visible; "cover" is an
-	// explicit per-camera opt-in (e.g. when cropping/zooming in the viewer).
-	switch strings.TrimSpace(raw) {
-	case "cover":
-		return "cover"
-	default:
-		return "contain"
-	}
-}
-
-func normalizedCrop(crop DisplayCrop) DisplayCrop {
-	if crop.Width < 1 {
-		crop.Width = 1
-	}
-	if crop.Height < 1 {
-		crop.Height = 1
-	}
-	if crop.Width > 100 {
-		crop.Width = 100
-	}
-	if crop.Height > 100 {
-		crop.Height = 100
-	}
-	if crop.X < 0 {
-		crop.X = 0
-	}
-	if crop.Y < 0 {
-		crop.Y = 0
-	}
-	if crop.X+crop.Width > 100 {
-		crop.X = 100 - crop.Width
-	}
-	if crop.Y+crop.Height > 100 {
-		crop.Y = 100 - crop.Height
-	}
-	return crop
 }
 
 func boundedIntSetting(settings map[string]string, key string, fallback, min, max int) int {

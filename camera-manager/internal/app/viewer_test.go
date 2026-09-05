@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"camera-appliance/camera-manager/internal/config"
+	"camera-appliance/camera-manager/internal/display"
 	"camera-appliance/camera-manager/internal/state"
 )
 
@@ -235,7 +236,7 @@ func TestViewerIncludesDisplayTransformAndLayout(t *testing.T) {
 		"camera.display.dev1.crop_y":       "10",
 		"camera.display.dev1.crop_width":   "60",
 		"camera.display.dev1.crop_height":  "80",
-		"viewer.layout.mode":               ViewerLayoutFocusRight,
+		"viewer.layout.mode":               display.ViewerLayoutFocusRight,
 		"viewer.layout.focus_slot_id":      "cam5",
 		"viewer.layout.slot_order":         "cam3,cam1,missing,cam3",
 		"viewer.layout.split_percent":      "63",
@@ -249,10 +250,10 @@ func TestViewerIncludesDisplayTransformAndLayout(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if viewer.Layout.Mode != ViewerLayoutFocusRight || viewer.Layout.FocusSlotID != "cam5" || viewer.Layout.SplitPercent != 63 || viewer.Layout.GapPX != 6 {
+	if viewer.Layout.Mode != display.ViewerLayoutFocusRight || viewer.Layout.FocusSlotID != "cam5" || viewer.Layout.SplitPercent != 63 || viewer.Layout.GapPX != 6 {
 		t.Fatalf("unexpected viewer layout: %+v", viewer.Layout)
 	}
-	if viewer.Layout.ID != ViewerLayoutFourPlusLarge || viewer.Layout.Name == "" || len(viewer.Layout.Options) < 2 {
+	if viewer.Layout.ID != display.ViewerLayoutFourPlusLarge || viewer.Layout.Name == "" || len(viewer.Layout.Options) < 2 {
 		t.Fatalf("expected named layout options, got %+v", viewer.Layout)
 	}
 	expectedOrder := []string{"cam3", "cam1", "cam2", "cam4", "cam5"}
@@ -266,7 +267,7 @@ func TestViewerIncludesDisplayTransformAndLayout(t *testing.T) {
 	if slot.Display.Rotation != 90 || !slot.Display.Mirror || !slot.Display.Flip || slot.Display.FitMode != "contain" {
 		t.Fatalf("unexpected display transform: %+v", slot.Display)
 	}
-	if slot.Display.Crop != (DisplayCrop{X: 20, Y: 10, Width: 60, Height: 80}) {
+	if slot.Display.Crop != (display.DisplayCrop{X: 20, Y: 10, Width: 60, Height: 80}) {
 		t.Fatalf("unexpected crop: %+v", slot.Display.Crop)
 	}
 }
@@ -275,8 +276,8 @@ func TestViewerLayoutPresetIDControlsLayoutCells(t *testing.T) {
 	ctx := context.Background()
 	a := newViewerTestApp(t, "http://127.0.0.1:1", "secret")
 	if err := a.Store.PutSettings(ctx, map[string]string{
-		"viewer.layout.id":            ViewerLayoutVerticalPlusGrid,
-		"viewer.layout.mode":          ViewerLayoutFocusMiddle,
+		"viewer.layout.id":            display.ViewerLayoutVerticalPlusGrid,
+		"viewer.layout.mode":          display.ViewerLayoutFocusMiddle,
 		"viewer.layout.focus_slot_id": "cam2",
 	}); err != nil {
 		t.Fatal(err)
@@ -286,7 +287,7 @@ func TestViewerLayoutPresetIDControlsLayoutCells(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if viewer.Layout.ID != ViewerLayoutVerticalPlusGrid || viewer.Layout.Mode != ViewerLayoutFocusMiddle {
+	if viewer.Layout.ID != display.ViewerLayoutVerticalPlusGrid || viewer.Layout.Mode != display.ViewerLayoutFocusMiddle {
 		t.Fatalf("unexpected vertical layout: %+v", viewer.Layout)
 	}
 	if len(viewer.Layout.Cells) != 5 {
@@ -300,10 +301,10 @@ func TestViewerLayoutPresetIDControlsLayoutCells(t *testing.T) {
 func TestViewerReturnsSanitizedCustomLayout(t *testing.T) {
 	ctx := context.Background()
 	a := newViewerTestApp(t, "http://127.0.0.1:1", "secret")
-	custom, err := json.Marshal(ViewerCustomLayout{
+	custom, err := json.Marshal(display.ViewerCustomLayout{
 		Columns: []int{40, 20, 20, 20},
 		Rows:    []int{70, 30},
-		Cells: []ViewerCustomLayoutCell{
+		Cells: []display.ViewerCustomLayoutCell{
 			{SlotID: "cam3", Column: 2, Row: 1, ColumnSpan: 2, RowSpan: 2},
 			{SlotID: "missing", Column: 1, Row: 1, ColumnSpan: 1, RowSpan: 1},
 			{SlotID: "cam3", Column: 1, Row: 1, ColumnSpan: 1, RowSpan: 1},
@@ -313,8 +314,8 @@ func TestViewerReturnsSanitizedCustomLayout(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := a.Store.PutSettings(ctx, map[string]string{
-		"viewer.layout.id":         ViewerLayoutCustom,
-		"viewer.layout.mode":       ViewerLayoutCustom,
+		"viewer.layout.id":         display.ViewerLayoutCustom,
+		"viewer.layout.mode":       display.ViewerLayoutCustom,
 		"viewer.layout.custom":     string(custom),
 		"viewer.layout.slot_order": "cam3,cam1",
 	}); err != nil {
@@ -325,7 +326,7 @@ func TestViewerReturnsSanitizedCustomLayout(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if viewer.Layout.ID != ViewerLayoutCustom || viewer.Layout.Mode != ViewerLayoutCustom {
+	if viewer.Layout.ID != display.ViewerLayoutCustom || viewer.Layout.Mode != display.ViewerLayoutCustom {
 		t.Fatalf("unexpected custom layout: %+v", viewer.Layout)
 	}
 	if !slices.Equal(viewer.Layout.Custom.Columns, []int{40, 20, 20, 20}) || !slices.Equal(viewer.Layout.Custom.Rows, []int{70, 30}) {

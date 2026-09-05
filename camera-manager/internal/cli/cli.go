@@ -16,6 +16,7 @@ import (
 	"camera-appliance/camera-manager/internal/backup"
 	"camera-appliance/camera-manager/internal/config"
 	"camera-appliance/camera-manager/internal/redaction"
+	"camera-appliance/camera-manager/internal/relay"
 	"camera-appliance/camera-manager/internal/state"
 	"camera-appliance/camera-manager/internal/system"
 	updater "camera-appliance/camera-manager/internal/update"
@@ -245,7 +246,7 @@ func relayStatusCmd() *cobra.Command {
 				return err
 			}
 			defer a.Close()
-			statuses, err := a.RelayStatuses(cmd.Context())
+			statuses, err := a.Relays().Statuses(cmd.Context())
 			if err != nil {
 				return err
 			}
@@ -266,19 +267,19 @@ func relayActionCmd(action string) *cobra.Command {
 				return err
 			}
 			defer a.Close()
-			var status app.RelayStatus
+			var status relay.Status
 			switch action {
 			case "start":
-				status, err = a.StartRelay(cmd.Context(), args[0])
+				status, err = a.Relays().Start(cmd.Context(), args[0])
 			case "stop":
-				status, err = a.StopRelay(cmd.Context(), args[0])
+				status, err = a.Relays().Stop(cmd.Context(), args[0])
 			case "restart":
-				status, err = a.RestartRelay(cmd.Context(), args[0])
+				status, err = a.Relays().Restart(cmd.Context(), args[0])
 			}
 			if err != nil {
 				return err
 			}
-			printRelayStatuses([]app.RelayStatus{status})
+			printRelayStatuses([]relay.Status{status})
 			return nil
 		},
 	}
@@ -294,7 +295,7 @@ func relayEnsureCmd() *cobra.Command {
 				return err
 			}
 			defer a.Close()
-			statuses, err := a.EnsureManagedRelays(cmd.Context())
+			statuses, err := a.Relays().Ensure(cmd.Context())
 			printRelayStatuses(statuses)
 			return err
 		},
@@ -727,7 +728,7 @@ func printViewer(viewer app.Viewer) {
 	}
 }
 
-func printRelayStatuses(statuses []app.RelayStatus) {
+func printRelayStatuses(statuses []relay.Status) {
 	fmt.Println("Relays")
 	if len(statuses) == 0 {
 		fmt.Println("  Keine Relays konfiguriert")

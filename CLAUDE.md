@@ -16,7 +16,7 @@ All commands run from the repo root via the Makefile, which exports `CAMERA_APPL
 make dev            # build frontend + backend, serve http://127.0.0.1:8091
 make dev-hot        # Go backend on :8091 + Vite hot reload (Vite proxies /api → :8091)
 make build          # frontend-build + backend-build
-make test           # Go tests (cd camera-manager && go test ./...)
+make test           # Go and frontend regression tests
 make render-go2rtc  # render local generated go2rtc config
 make status         # run local status command
 make discover       # run discovery with short timeouts
@@ -36,8 +36,9 @@ Frontend type-check happens in the build (`vue-tsc --noEmit && vite build`). The
 Single binary built from `cmd/camera-appliance`. Module path is `camera-appliance/camera-manager`. Layered `internal/` packages:
 
 - **`cli`** — Cobra root command wiring every subcommand (`serve`, `status`, `discover`, `assign`, `render-go2rtc`, `restart-go2rtc`, `restart-stack`, `relays`, `admin`, `reset-bindings`, `backup`, `restore`, `support-bundle`, `update`). The `serve` command starts the HTTP server and the watchdog goroutine.
-- **`app`** — Core orchestration. `app.Open(ctx)` is the single entry point used by every CLI command and the API: it loads config, opens the SQLite store, loads/upserts slots, and returns an `*App` whose methods (`Status`, `Discover`, `Assign`, `RenderGo2RTC`, viewer/relay/watchdog logic) hold the business logic. The HTTP layer is a thin wrapper over these methods. This package is large and split across files by concern: `app.go`, `viewer.go`, `relays.go`, `watchdog.go`, `display.go`, `auth.go`, `support.go`, `paths.go`.
-- **`web/api`** — `net/http` `ServeMux` (Go 1.22 method+pattern routing) under `/api/*`, plus a `/` static handler serving the built frontend. Auth middleware wraps all routes; handlers call `app` methods and serialize results.
+- **`app`** — Composition and cross-feature workflows: discovery, binding, viewer assembly, watchdog and support. `app.Open(ctx)` opens configuration/state and `App.Relays()` owns one relay manager. Layout, path selection, relay process management and camera capture have separate owners.
+- **`web/api`** — Route registration, auth middleware and HTTP transport. Feature handlers decode requests and encode results. Camera operations call `cameraaccess`; release interpretation belongs to `update.Catalog`.
+- **Feature modules** — `display` owns layout/transform calculation; `streamrouting` owns path policies and proposed state changes; `relay` owns SSH lifecycle and locks; `cameraaccess` owns credential selection, probes and reference capture. Before moving behavior between these modules or adding an application dependency, read [docs/architecture.md](docs/architecture.md) for the ownership rules and test surfaces.
 - **`state`** — SQLite store (`modernc.org/sqlite`, pure Go) at `state.db`. Schema lives in `migrations/`. Holds devices, slot bindings, settings (a generic key/value table — many features like watchdog tuning and viewer performance mode persist here as dotted keys), events, scan runs, stream checks.
 - **`discovery`** — Network scan across local subnets to find cameras; produces device fingerprints and probes RTSP streams.
 - **`fingerprint`** — Computes the **stable device ID** from identity attributes, NOT IP. Priority: serial (`manufacturer|model|serial`) → ONVIF endpoint ref → MAC → random fallback. This is the core of "identity is never bound to IP."
@@ -46,7 +47,7 @@ Single binary built from `cmd/camera-appliance`. Module path is `camera-applianc
 - **`redaction`** — Strips credentials from URLs/text. **All** CLI/API/UI output and error messages must pass through redaction (e.g. `redaction.Text(...)`) before display or persistence.
 - **`auth`** — Local login with `admin` and `viewer` roles, PBKDF2-SHA256 password hashing, token sessions.
 - **`system`** — Service status checks and Docker Compose restart helpers (`RestartGo2RTC`, `RestartStack`).
-- **`backup`/`update`** — tar.gz backup/restore of state + generated config; update applies a release archive with backup, healthcheck, and auto-rollback.
+- **`backup`/`update`** — SQLite-aware backup/restore and supervised updates. `releasearchive.Prepare` owns download, verification, extraction and cleanup for both install and update. Keep restart, version checks and rollback in the independent update worker.
 
 ### Frontend (`frontend/`)
 

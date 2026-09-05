@@ -1,8 +1,6 @@
 package api
 
 import (
-	"camera-appliance/camera-manager/internal/config"
-	"camera-appliance/camera-manager/internal/version"
 	"context"
 	"encoding/json"
 	"errors"
@@ -14,13 +12,18 @@ import (
 	"testing"
 	"time"
 
+	"camera-appliance/camera-manager/internal/config"
 	updater "camera-appliance/camera-manager/internal/update"
+	"camera-appliance/camera-manager/internal/version"
 )
 
-func timeNow() time.Time                   { return time.Now() }
+func timeNow() time.Time { return time.Now() }
+
 func timeNowAdd(d time.Duration) time.Time { return time.Now().Add(d) }
-func timeSecond() time.Duration            { return time.Second }
-func sleepShort()                          { time.Sleep(25 * time.Millisecond) }
+
+func timeSecond() time.Duration { return time.Second }
+
+func sleepShort() { time.Sleep(25 * time.Millisecond) }
 
 func TestCompareVersions(t *testing.T) {
 	cases := []struct {
@@ -67,8 +70,8 @@ func newFlowTestServer(t *testing.T) (*httptest.Server, *updateFlow) {
 	baseURL = server.URL
 
 	flow := newUpdateFlow(t.TempDir())
-	flow.apiBase = server.URL
-	flow.client = server.Client()
+	flow.catalog.BaseURL = server.URL
+	flow.catalog.Client = server.Client()
 	return server, flow
 }
 
@@ -127,8 +130,8 @@ func TestUpdateFlowCheckUsesCompareCommitsWhenReleaseHasNoDetails(t *testing.T) 
 	defer server.Close()
 
 	flow := newUpdateFlow(t.TempDir())
-	flow.apiBase = server.URL
-	flow.client = server.Client()
+	flow.catalog.BaseURL = server.URL
+	flow.catalog.Client = server.Client()
 	flow.currentVersion = "0.1.7"
 
 	if err := flow.check(context.Background()); err != nil {
@@ -143,37 +146,6 @@ func TestUpdateFlowCheckUsesCompareCommitsWhenReleaseHasNoDetails(t *testing.T) 
 	}
 	if !strings.Contains(st.Changes[0].Notes, "feat: add update progress") || !strings.Contains(st.Changes[0].Notes, "abcdef1") {
 		t.Fatalf("expected commit messages in fallback notes, got %q", st.Changes[0].Notes)
-	}
-}
-
-func TestCollectNewerReleasesStopsAtCurrent(t *testing.T) {
-	var releases []updater.Release
-	payload := `[{"tag_name":"v0.2.0"},{"tag_name":"v0.1.5"},{"tag_name":"v0.1.2"}]`
-	if err := json.Unmarshal([]byte(payload), &releases); err != nil {
-		t.Fatal(err)
-	}
-	latest, changes := collectNewerReleases(releases, "0.1.2")
-	if latest == nil || latest.Tag != "v0.2.0" {
-		t.Fatalf("unexpected latest %+v", latest)
-	}
-	if len(changes) != 2 {
-		t.Fatalf("expected 2 changes since 0.1.2, got %d", len(changes))
-	}
-	newest, none := collectNewerReleases(releases, "0.2.0")
-	if none != nil {
-		t.Fatalf("expected no changes when current is latest, got %+v", none)
-	}
-	if newest != nil {
-		t.Fatalf("expected no latest release when current is newest, got %+v", newest)
-	}
-	// The installed version carries no "v" prefix, GitHub tags do. They must
-	// still compare equal so the UI never advertises the installed release.
-	sameTag, sameChanges := collectNewerReleases(releases, "0.1.5")
-	if sameTag == nil || sameTag.Tag != "v0.2.0" {
-		t.Fatalf("unexpected latest for 0.1.5: %+v", sameTag)
-	}
-	if len(sameChanges) != 1 {
-		t.Fatalf("expected only v0.2.0 to be newer than 0.1.5, got %+v", sameChanges)
 	}
 }
 

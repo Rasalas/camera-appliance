@@ -1,7 +1,6 @@
 package update
 
 import (
-	"camera-appliance/camera-manager/internal/version"
 	"context"
 	"encoding/json"
 	"errors"
@@ -16,6 +15,7 @@ import (
 	"time"
 
 	"camera-appliance/camera-manager/internal/config"
+	"camera-appliance/camera-manager/internal/version"
 )
 
 func jobFixture(t *testing.T) (config.Config, Request, string) {

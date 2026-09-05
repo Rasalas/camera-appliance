@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"regexp"
 	"strconv"
+
+	"camera-appliance/camera-manager/internal/streamrouting"
 )
 
 var editableSettingPatterns = []*regexp.Regexp{
@@ -23,9 +25,10 @@ var booleanSettings = map[string]bool{
 	NetworkSettingLANAccess: true, AuthSettingViewerPublic: true, AuthSettingLocalAdminBypass: true,
 	watchdogEnabledKey: true, watchdogRestartOnChangeKey: true, watchdogRestartGo2RTCOnFailureKey: true,
 }
+
 var numericSettings = map[string][2]int{
 	AuthSettingSessionHours: {1, 168}, watchdogFastIntervalKey: {5, 3600}, watchdogCameraIntervalKey: {10, 7200},
-	pathFailThresholdKey: {1, 20}, pathRecoveryThresholdKey: {1, 20}, pathRestartCooldownSecondsKey: {0, 7200},
+	streamrouting.PathFailThresholdKey: {1, 20}, streamrouting.PathRecoveryThresholdKey: {1, 20}, pathRestartCooldownSecondsKey: {0, 7200},
 }
 
 // UpdateSettings is the configuration write boundary. Runtime state, hashes
@@ -48,7 +51,7 @@ func (a *App) UpdateSettings(ctx context.Context, input map[string]string) error
 				return fmt.Errorf("%s muss zwischen %d und %d liegen", key, limits[0], limits[1])
 			}
 			writable = true
-		case key == "capture_ssh_host" || key == relayIDsKey || key == "viewer.layout.mosaic" || key == "viewer.layout.mode" || key == "viewer.layout.order":
+		case key == "capture_ssh_host" || key == streamrouting.RelayIDsKey || key == "viewer.layout.mosaic" || key == "viewer.layout.mode" || key == "viewer.layout.order":
 			writable = true
 		case key == viewerPerformanceSettingMode:
 			if value != "quality" && value != "balanced" && value != "low" && value != "diagnostic" {
