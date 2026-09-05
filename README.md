@@ -103,13 +103,14 @@ Passwort und ein vorhandenes Zielverzeichnis konfigurieren. SFTP benötigt zusä
 den SHA256-Fingerabdruck des SSH-Hostschlüssels vom Serverbetreiber. FTP ist
 unverschlüsselt; SFTP verschlüsselt sowohl Bilder als auch Zugangsdaten.
 
-In **Einrichtung → Kamera → Einzelbild hochladen** nimmt „Jetzt aufnehmen &
-hochladen“ ein neues JPEG aus dem ausgewählten Kamerastream auf. Der vorhandene
+In **Einrichtung → Kamera → Bild-Upload** nimmt „Jetzt hochladen“ ein neues JPEG
+aus dem ausgewählten Kamerastream auf. Der vorhandene
 Kamerazugang und die direkte oder Relay-Verbindung werden weiterverwendet.
-Eine Vorschau kann über „Vorschau aufnehmen“ geladen werden. „Nur Bildausschnitt“
-erlaubt die Auswahl eines Rahmens im Originalbild oder die Eingabe von Prozentwerten.
-„Bildbereich speichern“ merkt sich diese Auswahl pro Kamera; der Upload verwendet
-immer die aktuell angezeigte Auswahl. Alternativ wird das gesamte Originalbild
+Die Kameravorschau lädt beim Öffnen automatisch. „Ausschnitt“ erlaubt die Auswahl
+eines Rahmens im Originalbild; Prozentwerte stehen unter „Genaue Werte“ zur Verfügung.
+Änderungen werden automatisch pro Kamera gespeichert, mit kurzer Status- oder
+Fehlermeldung. Der Upload verwendet immer die aktuell angezeigte Auswahl.
+Mit „Vollbild“ wird alternativ das gesamte Originalbild
 hochgeladen. Die Anzeige-Transforms des Viewers ändern das Upload-Bild nicht.
 
 Es gibt keinen Intervallbetrieb und kein Videoarchiv. Jede Datei erhält einen

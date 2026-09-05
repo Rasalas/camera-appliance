@@ -188,7 +188,7 @@
       </div>
     </section>
 
-    <SnapshotUpload :key="device.id" :device-id="device.id" :image-src="previewImageSrc" :username="username" :password="password" :stream="stream" :can-capture="canCapture" :camera-busy="busy" @preview="capture(false)" />
+    <SnapshotUpload :key="device.id" :device-id="device.id" :camera-label="title" :image-src="previewImageSrc" :username="username" :password="password" :stream="stream" :can-capture="canCapture" :camera-busy="busy" />
 
     <section class="panel">
       <details class="advanced">
