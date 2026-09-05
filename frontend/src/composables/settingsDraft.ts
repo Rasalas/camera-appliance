@@ -8,6 +8,8 @@ export function relaySettingKeys(id: string): string[] {
 
 // A form can only save its own changed fields. Other forms and server-owned
 // runtime values in the shared read response never become part of the write.
-export function settingsPatch(current: Record<string, string>, baseline: Record<string, string>, keys: readonly string[]): Record<string, string> {
-  return Object.fromEntries(keys.filter((key) => key in current && current[key] !== baseline[key]).map((key) => [key, current[key]]))
+export function settingsPatch(current: Record<string, string | number>, baseline: Record<string, string>, keys: readonly string[]): Record<string, string> {
+  // Vue coerces number inputs even without v-model.number. The settings API
+  // stores strings; normalize before comparison as well as serialization.
+  return Object.fromEntries(keys.filter((key) => key in current && String(current[key]) !== baseline[key]).map((key) => [key, String(current[key])]))
 }

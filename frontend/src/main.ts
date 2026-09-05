@@ -5,5 +5,6 @@ import '@fontsource-variable/jetbrains-mono'
 import App from './App.vue'
 import router from './router'
 import './styles/base.css'
+import './styles/admin.css'
 
 createApp(App).use(router).mount('#app')

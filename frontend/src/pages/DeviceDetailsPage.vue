@@ -1,13 +1,10 @@
 <template>
   <header class="topline">
     <div>
-      <div class="eyebrow">
-        <RouterLink to="/einrichtung" class="mono-mute">← Einrichtung</RouterLink>
-        &nbsp;·&nbsp; Kamera-Diagnose
-      </div>
-      <h1 class="headline">{{ title }}</h1>
+      <nav aria-label="Zurück"><RouterLink to="/einrichtung" class="mono-mute">← Kameras</RouterLink></nav>
+      <h1 class="headline">{{ title }}{{ editing ? ' bearbeiten' : uploadEditing ? ' · Bild-Upload' : '' }}</h1>
     </div>
-    <div v-if="device" class="meta sig-row">
+    <div v-if="device && !editing && !uploadEditing" class="meta sig-row">
       <span class="sig" :class="{ on: raw.rtsp_port_open }">RTSP</span>
       <span class="sig" :class="{ on: raw.onvif_port_open }">ONVIF</span>
       <span class="sig" :class="{ on: raw.http_signature }">HTTP</span>
@@ -19,17 +16,19 @@
   <div v-if="loading" class="empty">Wird geladen…</div>
 
   <template v-else-if="device">
-    <div class="btn-row">
+    <div v-if="!editing && !uploadEditing" class="btn-row">
       <button class="btn" :class="{ live: shown }" type="button" :disabled="busyShow" @click="toggleShow">
         {{ busyShow ? '…' : shown ? '✓ Sichtbar in der Ansicht' : 'In der Ansicht anzeigen' }}
       </button>
-      <RouterLink v-if="shown" class="btn ghost" to="/">Zur Kameras-Ansicht</RouterLink>
+      <RouterLink v-if="shown" class="btn ghost" to="/">Zur Live-Ansicht</RouterLink>
       <div class="spacer" />
-      <span class="mono-mute" style="font-size: 11px;">{{ shown ? 'Position wird in der Kameras-Ansicht festgelegt.' : 'Anzeigen, dann in der Ansicht platzieren.' }}</span>
+      <span class="mono-mute" style="font-size: 11px;">{{ shown ? 'Position wird in der Live-Ansicht festgelegt.' : 'Anzeigen, dann in der Ansicht platzieren.' }}</span>
     </div>
 
-    <div class="split">
-      <section class="panel">
+    <div v-if="editing" class="editor-actions"><button class="btn primary" :disabled="busy || savingAll || !editDirty" @click="saveAll">{{ savingAll ? 'Speichert…' : 'Kamera speichern' }}</button><RouterLink class="btn" :to="`/kamera/${device.id}`">Abbrechen</RouterLink><span role="status">{{ editDirty ? 'Ungespeicherte Änderungen' : 'Gespeichert' }}</span></div>
+    <RouterLink v-if="uploadEditing" class="btn ghost" :to="`/kamera/${device.id}`">← Zur Kameradetailseite</RouterLink>
+    <div v-if="!uploadEditing" class="device-sections">
+      <section v-if="!editing" class="panel">
         <div class="panel-head">
           <h2>Identität</h2>
         </div>
@@ -44,30 +43,29 @@
         </dl>
       </section>
 
-      <section class="panel">
+      <section v-if="editing" id="zugang" :inert="savingAll" class="panel edit-section">
         <div class="panel-head">
-          <h2>Zugang testen</h2>
+          <h2>Kamera-Zugang</h2>
           <div class="right">
             {{ credentials?.password_set ? 'Kamera-Passwort' : identitySummary }}
           </div>
         </div>
         <div class="field">
           <span class="lbl">Benutzername</span>
-          <input v-model="username" placeholder="tapo_hof" />
+          <input aria-label="Benutzername" v-model="username" placeholder="tapo_hof" />
         </div>
         <div class="field">
           <span class="lbl">Passwort</span>
-          <input v-model="password" type="password" :placeholder="credentials?.password_set ? '••••••••••••' : 'Kamera-Passwort'" />
+          <input aria-label="Passwort" v-model="password" type="password" :placeholder="credentials?.password_set ? '••••••••••••' : 'Kamera-Passwort'" />
         </div>
         <div class="field">
           <span class="lbl">Stream</span>
-          <select v-model="stream">
+          <select aria-label="Stream" v-model="stream">
             <option value="stream2">stream2 · empfohlen</option>
             <option value="stream1">stream1</option>
           </select>
         </div>
         <div class="btn-row">
-          <button class="btn primary" :disabled="busy || !username" @click="saveCredentials">Zugang speichern</button>
           <button class="btn" :disabled="busy" @click="probe">RTSP prüfen</button>
           <button class="btn" :disabled="busy || !canCapture" @click="capture(false)">Bild testen</button>
         </div>
@@ -84,7 +82,7 @@
       </section>
     </div>
 
-    <section v-if="relayIds.length" class="panel">
+    <section v-if="editing && relayIds.length" id="verbindung" :inert="savingAll" class="panel edit-section">
       <div class="panel-head">
         <h2>Verbindung</h2>
         <div class="right">aktiv über {{ activePathLabel }}</div>
@@ -92,7 +90,7 @@
       <div class="split">
         <div class="field">
           <span class="lbl">Verbindungsweg</span>
-          <select v-model="pathPolicy">
+          <select aria-label="Verbindungsweg" v-model="pathPolicy">
             <option value="auto">Automatisch (empfohlen)</option>
             <option value="relay_only">Muss über Relay</option>
             <option value="direct_only">Nur direkt</option>
@@ -119,13 +117,12 @@
           </div>
         </div>
         <div class="btn-row" style="margin-top: 12px;">
-          <button class="btn sm primary" type="button" :disabled="busy" @click="saveEndpointOverrides">Speichern</button>
           <span class="mono-mute" style="font-size: 11px;">Leere Felder = automatisch (Port aus Kameraplatz, Ziel = Kamera-IP).</span>
         </div>
       </details>
     </section>
 
-    <section class="panel card">
+    <section v-if="editing" id="anzeige" :inert="savingAll" class="panel edit-section">
       <div class="panel-head">
         <h2>Bild &amp; Anzeige</h2>
         <div class="right">{{ displaySummary }}</div>
@@ -160,7 +157,7 @@
           <div v-if="previewImageSrc" class="mono-mute" style="margin-top: 8px; font-size: 11px;">
             <template v-if="frame">Frame-ID · {{ frame.sha256.slice(0, 24) }}<span v-if="frame.credential_source"> · Zugang: {{ frame.credential_source }}</span></template>
             <template v-else>Gespeichertes Referenzbild</template>
-            · Ziehen = Ausschnitt verschieben · Mausrad = Zoom · Änderungen werden automatisch gespeichert
+            · Ziehen = Ausschnitt verschieben · Mausrad = Zoom · Änderungen werden mit „Kamera speichern“ übernommen
           </div>
         </div>
 
@@ -173,24 +170,30 @@
           <details class="advanced">
             <summary>Feinjustage</summary>
             <div class="crop-grid" style="margin-top: 12px;">
-              <div class="field"><span class="lbl">Crop X</span><input v-model.number="cropX" type="number" min="0" max="99" /></div>
-              <div class="field"><span class="lbl">Crop Y</span><input v-model.number="cropY" type="number" min="0" max="99" /></div>
-              <div class="field"><span class="lbl">Breite %</span><input v-model.number="cropWidth" type="number" min="1" max="100" /></div>
-              <div class="field"><span class="lbl">Höhe %</span><input v-model.number="cropHeight" type="number" min="1" max="100" /></div>
+              <div class="field"><span class="lbl">Crop X</span><input aria-label="Crop X" v-model.number="cropX" type="number" min="0" max="99" /></div>
+              <div class="field"><span class="lbl">Crop Y</span><input aria-label="Crop Y" v-model.number="cropY" type="number" min="0" max="99" /></div>
+              <div class="field"><span class="lbl">Breite %</span><input aria-label="Breite %" v-model.number="cropWidth" type="number" min="1" max="100" /></div>
+              <div class="field"><span class="lbl">Höhe %</span><input aria-label="Höhe %" v-model.number="cropHeight" type="number" min="1" max="100" /></div>
             </div>
           </details>
 
           <div class="btn-row">
             <button class="btn" :disabled="busy" @click="resetDisplay">Zurücksetzen</button>
-            <button class="btn ghost" :disabled="busy" @click="renderAfterDisplay">go2rtc erzeugen</button>
+            <button class="btn ghost" :disabled="busy || editDirty" title="Verwendet die gespeicherten Kamera-Einstellungen" @click="renderAfterDisplay">go2rtc erzeugen</button>
           </div>
         </div>
       </div>
     </section>
 
-    <SnapshotUpload :key="device.id" :device-id="device.id" :camera-label="title" :image-src="previewImageSrc" :username="username" :password="password" :stream="stream" :can-capture="canCapture" :camera-busy="busy" />
+    <template v-if="!editing && !uploadEditing">
+      <section class="panel edit-section"><div class="panel-head"><h2>Kamera-Zugang</h2><RouterLink class="btn ghost desktop-primary" :to="`/kamera/${device.id}/bearbeiten#zugang`">Bearbeiten</RouterLink></div><dl class="spec"><div><dt>Benutzername</dt><dd>{{ username || 'Gemeinsame Identität' }}</dd></div><div><dt>Passwort</dt><dd>{{ credentials?.password_set ? 'Kameraspezifisch gespeichert' : identitySummary }}</dd></div><div><dt>Stream</dt><dd>{{ stream }}</dd></div></dl></section>
+      <section class="panel edit-section"><div class="panel-head"><h2>Verbindung und Anzeige</h2><RouterLink class="btn ghost desktop-primary" :to="`/kamera/${device.id}/bearbeiten#anzeige`">Bearbeiten</RouterLink></div><dl class="spec"><div><dt>Verbindung</dt><dd>{{ activePathLabel }}</dd></div><div><dt>Ausrichtung</dt><dd>{{ displaySummary }}</dd></div></dl><img v-if="previewImageSrc" :src="previewImageSrc" alt="Gespeichertes Referenzbild" class="device-reference" /></section>
+      <section class="panel edit-section"><div class="panel-head"><h2>Bild-Upload</h2><RouterLink class="btn ghost" :to="`/kamera/${device.id}/bild-upload`">Bearbeiten</RouterLink></div><p class="mono-mute">Bildausschnitt, Privatbereiche, Zeitangabe, Dateiname und Zeitplan für diese Kamera.</p></section>
+      <RouterLink class="mobile-fab" aria-label="Kamera bearbeiten" :to="`/kamera/${device.id}/bearbeiten`"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m4 16 12-12 4 4-12 12H4zM14 6l4 4"/></svg></RouterLink>
+    </template>
+    <SnapshotUpload v-if="uploadEditing" :key="device.id" :device-id="device.id" :camera-label="title" :image-src="previewImageSrc" :username="username" :password="password" :stream="stream" :can-capture="canCapture" :camera-busy="busy" />
 
-    <section class="panel">
+    <section v-if="!editing && !uploadEditing" class="panel">
       <details class="advanced">
         <summary>Rohdaten · Diagnose</summary>
         <pre class="code" style="margin-top: 10px;">{{ JSON.stringify(raw, null, 2) }}</pre>
@@ -201,17 +204,40 @@
 
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { api } from '../api/client'
+import { useDraftGuard } from '../composables/discardChanges'
 import SnapshotUpload from '../components/SnapshotUpload.vue'
 import type { Binding, CredentialIdentity, Device, DeviceCredentials, FrameResult, ProbeResult, RelayStatus, Slot } from '../types'
 
-const route = useRoute()
+const route = useRoute(), router = useRouter()
+const editing = computed(() => route.name === 'device-edit')
+const uploadEditing = computed(() => route.name === 'device-upload')
+const editBaseline = ref(''), credentialBaseline = ref(''), savingAll = ref(false)
+const editSnapshot = computed(() => JSON.stringify({username:username.value,password:password.value,stream:stream.value,path:pathPolicy.value,rotation:rotation.value,mirror:mirror.value,flip:flip.value,fit:fitMode.value,crop:[cropX.value,cropY.value,cropWidth.value,cropHeight.value],endpoints:Object.fromEntries(Object.entries(settings.value).filter(([key])=>key.startsWith('camera.relay_endpoint.')))}))
+const editDirty = computed(() => ready.value && editing.value && editSnapshot.value !== editBaseline.value)
+useDraftGuard(() => editDirty.value, () => { editBaseline.value = editSnapshot.value })
+async function saveAll() {
+  if (savingAll.value || !device.value) return
+  savingAll.value = true
+  try {
+    if (JSON.stringify({ username: username.value, password: password.value }) !== credentialBaseline.value) {
+      await saveCredentials()
+      if(error.value)return
+      credentialBaseline.value=JSON.stringify({username:username.value,password:password.value})
+    }
+    await saveDisplay()
+    if(error.value)return
+    if(relayIds.value.length) await saveEndpointOverrides()
+    if(error.value)return
+    editBaseline.value = editSnapshot.value
+    await router.push(`/kamera/${device.value.id}`)
+  } finally { savingAll.value = false }
+}
 const device = ref<Device>()
 const slots = ref<Slot[]>([])
 const busyShow = ref(false)
 const ready = ref(false)
-let displaySaveTimer = 0
 let stopStagePan: (() => void) | null = null
 const loading = ref(true)
 const busy = ref(false)
@@ -425,8 +451,7 @@ async function saveDisplay() {
 }
 
 async function renderAfterDisplay() {
-  await saveDisplay()
-  if (error.value) return
+  if (editDirty.value) return
   busy.value = true
   try {
     await api.renderGo2RTC()
@@ -536,14 +561,6 @@ function startStagePan(event: PointerEvent) {
   window.addEventListener('pointerup', up)
 }
 
-function scheduleDisplaySave() {
-  if (!ready.value) return
-  window.clearTimeout(displaySaveTimer)
-  displaySaveTimer = window.setTimeout(() => void saveDisplay(), 700)
-}
-
-watch([rotation, mirror, flip, fitMode, cropX, cropY, cropWidth, cropHeight, stream, pathPolicy], scheduleDisplaySave)
-
 async function capture(save: boolean) {
   if (!device.value) return
   busy.value = true
@@ -616,7 +633,6 @@ watch(() => route.params.id, (id) => {
 })
 
 onBeforeUnmount(() => {
-  window.clearTimeout(displaySaveTimer)
   stopStagePan?.()
 })
 
@@ -634,6 +650,8 @@ async function loadDevice(id: string) {
     stream.value = credentials.value.stream || 'stream2'
     loadDisplaySettings()
     await loadRelayStatuses()
+    credentialBaseline.value=JSON.stringify({username:username.value,password:password.value})
+    editBaseline.value = editSnapshot.value
     ready.value = true
   } catch (err) {
     error.value = err instanceof Error ? err.message : 'Kamera konnte nicht geladen werden.'

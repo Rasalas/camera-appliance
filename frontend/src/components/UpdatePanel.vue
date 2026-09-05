@@ -114,21 +114,19 @@
 
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { api } from '../api/client'
-import type { UpdateFlowPhase, UpdateFlowStatus } from '../types'
+import { useUpdateFlow } from '../composables/useUpdateFlow'
+import type { UpdateFlowPhase } from '../types'
 import UpdateInfo from './UpdateInfo.vue'
 
 const props = defineProps<{ visible: boolean }>()
 
-const status = ref<UpdateFlowStatus>()
-const busy = ref(false)
+const { status, busy, client: updateClient } = useUpdateFlow()
 const triggerEl = ref<HTMLButtonElement>()
 const popEl = ref<HTMLElement>()
 const sheetEl = ref<HTMLElement>()
 const hoverOpen = ref(false)
 const mobileOpen = ref(false)
 let started = false
-let pollTimer = 0
 let autoCheckTimer = 0
 let enterTimer = 0
 let closeTimer = 0
@@ -457,59 +455,7 @@ function unbindPopListeners() {
 
 /* ---------- API flow ------------------------------------------------------ */
 
-async function refresh() {
-  try {
-    status.value = await api.getUpdateStatus()
-  } catch {
-    /* keep last state */
-  }
-  schedulePoll()
-}
-
-async function check() {
-  busy.value = true
-  try {
-    status.value = await api.checkForUpdates()
-  } catch {
-    await refresh()
-  } finally {
-    busy.value = false
-    schedulePoll()
-  }
-}
-
-async function download() {
-  busy.value = true
-  try {
-    status.value = await api.downloadUpdate()
-  } catch (err) {
-    status.value = { ...(status.value ?? { phase: 'idle', current_version: '' }), phase: 'failed', error: err instanceof Error ? err.message : 'Download fehlgeschlagen.' }
-  } finally {
-    busy.value = false
-    schedulePoll()
-  }
-}
-
-async function install() {
-  busy.value = true
-  try {
-    await api.installUpdate()
-    await refresh()
-  } catch (err) {
-    status.value = { ...(status.value ?? { phase: 'idle', current_version: '' }), phase: 'failed', error: err instanceof Error ? err.message : 'Installation fehlgeschlagen.' }
-  } finally {
-    busy.value = false
-    schedulePoll()
-  }
-}
-
-// Poll faster than before so the ring fills smoothly.
-function schedulePoll() {
-  window.clearInterval(pollTimer)
-  if (status.value?.phase === 'downloading' || status.value?.phase === 'installing') {
-    pollTimer = window.setInterval(() => void refresh(), 1000)
-  }
-}
+const { refresh, check, download, install } = updateClient
 
 watch(hoverOpen, (isOpen) => {
   if (!isOpen) {
@@ -573,7 +519,6 @@ onMounted(() => {
 })
 
 onBeforeUnmount(() => {
-  window.clearInterval(pollTimer)
   window.clearInterval(autoCheckTimer)
   window.clearTimeout(enterTimer)
   window.clearTimeout(closeTimer)

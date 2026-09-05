@@ -7,31 +7,38 @@
           <option v-if="![60, 300, 900, 3600].includes(config.interval_seconds)" :value="config.interval_seconds">Alle {{ config.interval_seconds / 60 }} Minuten</option>
         </select>
       </label>
-      <span class="mono-mute schedule-status" role="status">{{ saving ? 'Wird gespeichert…' : status?.running ? 'Upload läuft…' : status?.quiet_now ? `Ruhezeit bis ${config.quiet_hours.end}` : config.enabled && status?.next_run ? `Nächster Upload ${runTime(status.next_run)}` : 'Nur auf Knopfdruck' }}</span>
+      <span class="mono-mute schedule-status" role="status">{{ dirty ? 'Ungespeicherter Zeitplan' : saving ? 'Wird gespeichert…' : status?.running ? 'Upload läuft…' : status?.quiet_now ? `Ruhezeit bis ${config.quiet_hours.end}` : config.enabled && status?.next_run ? `Nächster Upload ${runTime(status.next_run)}` : 'Nur auf Knopfdruck' }}</span>
     </div>
     <div v-if="error || pollError || status?.last_error" class="notice err" role="alert">{{ error || pollError || `Letzter automatischer Upload: ${status?.last_error}` }}</div>
     <details v-if="config.enabled" class="advanced">
       <summary>{{ config.quiet_hours.enabled ? `Ruhezeit · ${config.quiet_hours.start} bis ${config.quiet_hours.end}` : 'Ruhezeit festlegen' }}</summary>
       <fieldset class="quiet-fields" :disabled="saving || loading">
-        <label class="quiet-toggle"><input v-model="config.quiet_hours.enabled" type="checkbox" @change="save(config)" />Täglich pausieren</label>
+        <label class="quiet-toggle"><input v-model="config.quiet_hours.enabled" type="checkbox" />Täglich pausieren</label>
         <template v-if="config.quiet_hours.enabled">
-          <label>Von <input v-model="config.quiet_hours.start" type="time" required @change="save(config)" /></label>
-          <label>Bis <input v-model="config.quiet_hours.end" type="time" required @change="save(config)" /></label>
+          <label>Von <input v-model="config.quiet_hours.start" type="time" required /></label>
+          <label>Bis <input v-model="config.quiet_hours.end" type="time" required /></label>
         </template>
       </fieldset>
     </details>
+    <div class="form-actions"><button class="btn ghost" :disabled="!dirty || saving" @click="cancel">Abbrechen</button><button class="btn" :disabled="!dirty || saving" @click="save(config)">Zeitplan speichern</button></div>
     <div v-if="status && config.enabled" class="mono-mute time-note">Gerätezeit {{ clockTime(status.device_time) }} · {{ status.time_zone }}<span v-if="status.last_success"> · Zuletzt hochgeladen {{ runTime(status.last_success) }}</span></div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { askDiscard, useDraftGuard } from '../composables/discardChanges'
 import { api } from '../api/client'
 import type { UploadScheduleInput, UploadScheduleStatus } from '../types'
 
 const props = defineProps<{ deviceId: string; beforeEnable: () => Promise<boolean> }>()
 const config = ref<UploadScheduleInput>({ enabled: false, interval_seconds: 60, quiet_hours: { enabled: false, start: '22:00', end: '07:00' } })
 const status = ref<UploadScheduleStatus>()
+const saved = ref('')
+const dirty = computed(()=>!loading.value && JSON.stringify(config.value)!==saved.value)
+function discard() {config.value=JSON.parse(saved.value);error.value=''}
+async function cancel() {if(!dirty.value || await askDiscard())discard()}
+useDraftGuard(()=>dirty.value,discard)
 const loading = ref(true)
 const saving = ref(false)
 const error = ref('')
@@ -44,6 +51,7 @@ function runTime(value: string) { return value.slice(0, 10) === status.value?.de
 function apply(result: UploadScheduleStatus) {
   status.value = result
   config.value = { enabled: result.enabled, interval_seconds: result.interval_seconds, quiet_hours: { ...result.quiet_hours } }
+  saved.value=JSON.stringify(config.value)
 }
 async function poll() {
   const started = generation
@@ -70,7 +78,7 @@ async function save(input: UploadScheduleInput) {
 }
 function changeInterval(event: Event) {
   const seconds = Number((event.target as HTMLSelectElement).value)
-  void save({ ...config.value, enabled: seconds !== 0, interval_seconds: seconds || config.value.interval_seconds })
+  config.value = { ...config.value, enabled: seconds !== 0, interval_seconds: seconds || config.value.interval_seconds }
 }
 onMounted(() => void poll())
 onBeforeUnmount(() => { disposed = true; clearTimeout(timer) })

@@ -2,30 +2,32 @@
   <div class="upload-naming">
     <fieldset :disabled="loading || saving || busy" class="naming-fields">
       <label class="mode-label">Dateien
-        <select v-model="mode" @change="changeMode">
+        <select v-model="mode">
           <option value="unique">Jedes Mal neu anlegen</option>
           <option value="fixed">Dieselbe Datei ersetzen</option>
         </select>
       </label>
       <label v-if="mode === 'fixed'" class="filename-label"><span class="sr-only">JPEG-Dateiname</span>
-        <input v-model="filename" class="input" type="text" placeholder="hof.jpg" maxlength="120" spellcheck="false" autocomplete="off" @input="queueSave" />
+        <input v-model="filename" class="input" type="text" placeholder="hof.jpg" maxlength="120" spellcheck="false" autocomplete="off" />
       </label>
       <span class="mono-mute naming-status" role="status">{{ loading ? 'Lädt…' : saving ? 'Wird gespeichert…' : dirty ? 'Noch nicht gespeichert' : 'Gespeichert' }}</span>
     </fieldset>
     <p class="mono-mute naming-hint">{{ mode === 'fixed' ? 'Immer das aktuelle Bild unter diesem Namen. Pro Kamera einen eigenen Namen oder Ordner wählen.' : 'Jeder Upload erhält einen eindeutigen Namen mit Datum und Uhrzeit.' }}</p>
     <fieldset :disabled="loading || saving || busy" class="directory-fields">
       <label class="directory-label">Verzeichnis
-        <input v-model="directory" class="input" type="text" :placeholder="defaultDirectory" maxlength="1024" spellcheck="false" autocomplete="off" @input="queueSave" />
+        <input v-model="directory" class="input" type="text" :placeholder="defaultDirectory" maxlength="1024" spellcheck="false" autocomplete="off" />
       </label>
       <span class="mono-mute naming-hint">Leer: {{ defaultDirectory }} · Serverstandard</span>
     </fieldset>
     <p class="mono-mute naming-hint">Relative Pfade beginnen im Anmeldeverzeichnis des Servers, absolute mit /.</p>
+    <div class="form-actions"><button class="btn ghost" :disabled="!dirty || saving" @click="cancel">Abbrechen</button><button class="btn" :disabled="!dirty || saving" @click="flush">Dateieinstellungen speichern</button></div>
     <p v-if="error" class="notice err" role="alert">{{ error }}</p>
   </div>
 </template>
 
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { askDiscard, useDraftGuard } from '../composables/discardChanges'
 import { api } from '../api/client'
 import type { UploadNaming } from '../types'
 
@@ -67,23 +69,18 @@ function flush(): Promise<boolean> {
   }).finally(() => { saving.value = false; pending = undefined })
   return pending
 }
-function queueSave() {
-  clearTimeout(timer)
-  timer = setTimeout(() => void flush(), 450)
-}
-function changeMode() {
-  clearTimeout(timer)
-  error.value = ''
-  if (mode.value === 'unique' || filename.value) void flush()
-}
+function discard() { const value:UploadNaming=JSON.parse(saved.value);mode.value=value.mode;filename.value=value.filename;directory.value=value.directory || '';error.value='' }
+async function cancel() { if(!dirty.value || await askDiscard())discard() }
+useDraftGuard(()=>!loading.value && dirty.value,discard)
+function ensureSaved() { if(dirty.value){error.value='Bitte Dateieinstellungen speichern oder abbrechen.';return Promise.resolve(false)}return Promise.resolve(!error.value && !loading.value) }
 onMounted(() => {
   void api.uploadNaming(props.deviceId).then((result) => {
     mode.value = result.mode; filename.value = result.filename; directory.value = result.directory || ''
     saved.value = JSON.stringify(draft.value); loading.value = false
   }).catch((err) => { error.value = err instanceof Error ? err.message : 'Dateieinstellungen konnten nicht geladen werden.' })
 })
-onBeforeUnmount(() => { void flush() })
-defineExpose({ flush })
+onBeforeUnmount(() => { clearTimeout(timer) })
+defineExpose({ flush: ensureSaved })
 </script>
 
 <style scoped>

@@ -19,6 +19,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export const api = {
+  health: () => request<{ version: string; commit: string; status: string }>('/api/health'),
   uploadSchedule: (id: string) => request<UploadScheduleStatus>(`/api/devices/${encodeURIComponent(id)}/upload-schedule`),
   uploadImageSettings: (id: string) => request<UploadImageSettings>(`/api/devices/${encodeURIComponent(id)}/upload-image-settings`),
   saveUploadImageSettings: (id: string, body: UploadImageSettings) => request<UploadImageSettings>(`/api/devices/${encodeURIComponent(id)}/upload-image-settings`, { method: 'PUT', body: JSON.stringify(body) }),

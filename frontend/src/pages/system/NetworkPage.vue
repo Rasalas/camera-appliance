@@ -1,10 +1,10 @@
 <template>
-  <section class="panel card">
+  <section class="panel">
     <div class="panel-head">
       <h2>Relays</h2>
       <div class="device-head-actions">
         <div class="right">{{ relayIds.length ? `${relayIds.length} eingerichtet` : 'nicht eingerichtet' }}</div>
-        <button class="btn sm primary" type="button" @click="openRelayModal">Relay hinzufügen</button>
+        <button class="btn primary desktop-primary" type="button" @click="openRelayModal">Relay hinzufügen</button>
       </div>
     </div>
 
@@ -29,17 +29,15 @@
     </div>
   </section>
 
-  <div v-if="showRelayModal" class="modal-backdrop" @click.self="closeRelayModal">
-    <form class="modal" @submit.prevent="onAddRelay">
-      <div class="modal-head">
-        <div><div class="eyebrow">Relays</div><h2>Relay hinzufügen</h2></div>
-        <button class="btn icon sm ghost" type="button" title="Schließen" @click="closeRelayModal">×</button>
-      </div>
+  <button class="mobile-fab" aria-label="Relay hinzufügen" @click="openRelayModal"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v16M4 12h16"/></svg></button>
+  <AdminDialog ref="relayDialog" :open="showRelayModal" title="Relay hinzufügen" :dirty="relayDirty" :busy="savingRelay" @close="showRelayModal=false">
+    <form @submit.prevent="onAddRelay">
       <div class="split">
-        <div class="field"><span class="lbl">Name</span><input v-model="relayDraft.name" placeholder="NAS Relay" autofocus /></div>
-        <div class="field"><span class="lbl">SSH-Ziel</span><input v-model="relayDraft.sshTarget" placeholder="nas oder user@nas" /></div>
-        <div class="field"><span class="lbl">Host aus go2rtc-Docker</span><input v-model="relayDraft.host" placeholder="host.docker.internal" /></div>
+        <label class="field"><span class="lbl">Name</span><input aria-label="Name" v-model="relayDraft.name" placeholder="NAS Relay" required autofocus /></label>
+        <label class="field"><span class="lbl">SSH-Ziel</span><input aria-label="SSH-Ziel" v-model="relayDraft.sshTarget" required placeholder="nas oder user@nas" /></label>
+        <label class="field"><span class="lbl">Host aus go2rtc-Docker</span><input aria-label="Host aus go2rtc-Docker" v-model="relayDraft.host" placeholder="host.docker.internal" /></label>
       </div>
+      <p v-if="error" class="notice err" role="alert">{{ error }}</p>
       <div class="modal-foot">
         <span class="mono-mute">Mehr ist nicht nötig — Ports und Kamera-Ziele werden automatisch vergeben.</span>
         <div class="btn-row">
@@ -48,11 +46,13 @@
         </div>
       </div>
     </form>
-  </div>
+  </AdminDialog>
 </template>
 
 <script setup lang="ts">
-import { onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
+import AdminDialog from '../../components/AdminDialog.vue'
+import { useDraftGuard } from '../../composables/discardChanges'
 import { useRouter } from 'vue-router'
 import { useSystem } from '../../composables/useSystem'
 import { relaySettingKeys } from '../../composables/settingsDraft'
@@ -67,6 +67,9 @@ const {
 const relayDraft = reactive({ name: '', host: 'host.docker.internal', sshTarget: '' })
 const showRelayModal = ref(false)
 const savingRelay = ref(false)
+const relayDialog=ref<InstanceType<typeof AdminDialog>>(), relayBaseline=ref('')
+const relayDirty=computed(()=>showRelayModal.value && JSON.stringify(relayDraft)!==relayBaseline.value)
+useDraftGuard(()=>relayDirty.value,()=>{showRelayModal.value=false})
 
 function forwardSummary(relayId: string) {
   const endpoints = relayStatusFor(relayId)?.endpoints || []
@@ -79,10 +82,11 @@ function openRelayModal() {
   relayDraft.name = relayIds.value.length ? '' : 'NAS Relay'
   relayDraft.sshTarget = ''
   relayDraft.host = 'host.docker.internal'
+  relayBaseline.value=JSON.stringify(relayDraft)
   showRelayModal.value = true
 }
 function closeRelayModal() {
-  if (!savingRelay.value) showRelayModal.value = false
+  void relayDialog.value?.requestClose()
 }
 
 async function onAddRelay() {

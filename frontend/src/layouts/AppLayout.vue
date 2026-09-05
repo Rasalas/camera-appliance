@@ -6,10 +6,35 @@
         <span class="name">Watch<em>deck</em></span>
       </div>
 
-      <nav class="nav">
-        <RouterLink to="/">Kameras<span class="nav-key">1</span></RouterLink>
-        <RouterLink v-if="canAdmin" to="/einrichtung">Geräte<span class="nav-key">2</span></RouterLink>
-        <RouterLink v-if="canAdmin" to="/system">System<span class="nav-key">3</span></RouterLink>
+      <AdminSearch v-if="canAdmin" />
+      <div class="mobile-overflow" v-if="auth?.enabled">
+        <button ref="overflowTrigger" class="btn icon ghost" aria-label="Weitere Aktionen" :aria-expanded="overflowOpen" @click="overflowOpen = !overflowOpen">⋮</button>
+        <div v-if="overflowOpen" ref="overflowPopup" class="overflow-popover" @keydown.esc="closeOverflow">
+          <button v-if="auth.authenticated" class="btn ghost" @click="logout">Logout</button>
+          <RouterLink v-else class="btn" to="/login">Login</RouterLink>
+        </div>
+      </div>
+      <nav class="nav" aria-label="Hauptnavigation">
+        <RouterLink to="/verwaltung">Home</RouterLink>
+        <RouterLink to="/">Live-Ansicht<span class="nav-key">1</span></RouterLink>
+        <div v-if="canAdmin" class="nav-group">
+          <RouterLink to="/einrichtung">Kameras<span class="nav-key">2</span></RouterLink>
+          <div class="nav-children" aria-label="Kameras">
+            <RouterLink to="/kameras/bild-upload">Bild-Upload</RouterLink>
+          </div>
+        </div>
+        <div v-if="canAdmin" class="nav-group">
+          <RouterLink to="/system/allgemein">System<span class="nav-key">3</span></RouterLink>
+          <div class="nav-children" aria-label="System">
+            <RouterLink v-for="item in systemPages" :key="item.to" :to="item.to">{{ item.label }}</RouterLink>
+          </div>
+        </div>
+        <div v-if="canAdmin" class="nav-group">
+          <RouterLink to="/system/wartung">Wartung</RouterLink>
+          <div class="nav-children" aria-label="Wartung">
+            <RouterLink v-for="item in maintenancePages" :key="item.to" :to="item.to">{{ item.label }}</RouterLink>
+          </div>
+        </div>
       </nav>
 
       <!-- Pinned bottom block: update control, metadata rows, then the auth
@@ -22,9 +47,10 @@
         <div class="rail-foot">
           <div class="row"><span>Stand</span><b>{{ clock }}</b></div>
           <div class="row"><span>Login</span><b>{{ roleLabel }}</b></div>
-          <div class="row"><span>Bind</span><b>127.0.0.1:8091</b></div>
+
         </div>
 
+        <div v-if="canAdmin" class="rail-version">Version {{ versionLabel }}</div>
         <div class="auth-actions">
           <button v-if="auth?.enabled && auth.authenticated" class="btn sm ghost rail-login" type="button" @click="logout">Logout</button>
           <RouterLink v-else-if="auth?.enabled" class="btn sm ghost rail-login" to="/login">Login</RouterLink>
@@ -32,25 +58,38 @@
       </div>
     </aside>
 
-    <main class="canvas">
+    <DiscardChanges />
+    <main class="canvas" :class="{ 'admin-canvas': !isViewer }">
       <RouterView v-slot="{ Component, route }">
         <div :key="route.fullPath" class="route-fade">
           <component :is="Component" />
         </div>
       </RouterView>
     </main>
+    <nav v-if="!isViewer && canAdmin" class="bottom-navigation" aria-label="Mobile Hauptnavigation"><RouterLink to="/verwaltung">Home</RouterLink><RouterLink to="/einrichtung">Kameras</RouterLink><RouterLink to="/">Live-Ansicht</RouterLink></nav>
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { api } from '../api/client'
 import type { AuthStatus } from '../types'
 import UpdatePanel from '../components/UpdatePanel.vue'
+import AdminSearch from '../components/AdminSearch.vue'
+import DiscardChanges from '../components/DiscardChanges.vue'
+import { systemPages, maintenancePages } from '../navigation'
+import { provideUpdateFlow } from '../composables/useUpdateFlow'
 
 const router = useRouter()
 const route = useRoute()
+provideUpdateFlow()
+const versionLabel = ref('…')
+const overflowOpen = ref(false), overflowTrigger = ref<HTMLElement>(), overflowPopup = ref<HTMLElement>()
+function closeOverflow() { overflowOpen.value = false; overflowTrigger.value?.focus() }
+watch(overflowOpen, async open => { if (open) { await nextTick(); overflowPopup.value?.querySelector<HTMLElement>('button,a')?.focus() } })
+watch(() => route.fullPath, () => { overflowOpen.value = false })
+function outsideOverflow(event: PointerEvent) { if (overflowOpen.value && !overflowPopup.value?.contains(event.target as Node) && !overflowTrigger.value?.contains(event.target as Node)) closeOverflow() }
 const clock = ref('')
 const auth = ref<AuthStatus>()
 const isViewer = computed(() => route.name === 'viewer')
@@ -74,6 +113,7 @@ let removeAfterEach: (() => void) | undefined
 async function refreshAuth() {
   try {
     auth.value = await api.authStatus()
+    if (canAdmin.value) await api.health().then(value => { versionLabel.value = value.version }).catch(() => undefined)
   } catch {
     auth.value = undefined
   }
@@ -98,14 +138,17 @@ onMounted(() => {
   tick()
   timer = window.setInterval(tick, 1000)
   onKey = (e: KeyboardEvent) => {
+    if (document.querySelector('dialog[open]') || (e.target as HTMLElement)?.closest('.search-popover')) return
     if (e.target instanceof HTMLElement && ['INPUT', 'TEXTAREA', 'SELECT'].includes(e.target.tagName)) return
     if (e.key === '1') router.push('/')
     if (canAdmin.value && e.key === '2') router.push('/einrichtung')
     if (canAdmin.value && e.key === '3') router.push('/system')
   }
   window.addEventListener('keydown', onKey)
+  window.addEventListener('pointerdown', outsideOverflow)
 })
 onBeforeUnmount(() => {
+  window.removeEventListener('pointerdown', outsideOverflow)
   window.clearInterval(timer)
   if (onKey) window.removeEventListener('keydown', onKey)
   if (onAuthChanged) window.removeEventListener('auth-changed', onAuthChanged)
@@ -145,4 +188,9 @@ onBeforeUnmount(() => {
   display: grid;
   min-width: 0;
 }
+.nav { min-height:0;overflow-y:auto; }
+.nav-group { display:grid;gap:2px; }
+.nav-children { margin:0 0 10px 16px; }
+.nav-children a { padding:8px 6px; }
+.rail-version { font-size:12px;color:var(--ink-mute); }
 </style>

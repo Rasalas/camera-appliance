@@ -13,7 +13,7 @@
           <button v-if="relayStatusFor(relayId)?.process_state !== 'running'" class="btn sm" type="button" :disabled="busy === 'start'" @click="onAction('start')">{{ busy === 'start' ? 'Startet…' : 'Start' }}</button>
           <button v-else class="btn sm ghost" type="button" :disabled="busy === 'restart'" @click="onAction('restart')">{{ busy === 'restart' ? 'Startet…' : 'Restart' }}</button>
           <button class="btn sm ghost" type="button" :disabled="busy === 'stop'" @click="onAction('stop')">{{ busy === 'stop' ? 'Stoppt…' : 'Stop' }}</button>
-          <button class="btn sm danger" type="button" @click="onRemove">Entfernen</button>
+          <button class="btn sm danger" type="button" @click="confirmRemove=true">Entfernen</button>
         </div>
       </div>
 
@@ -27,31 +27,28 @@
         <div class="mono-mute">{{ relayStatusFor(relayId)?.pid ? `PID ${relayStatusFor(relayId)?.pid}` : '' }}</div>
       </div>
 
+
+    </section>
+
+    <SettingsForm ref="configEditor" title="Konfiguration" :setting-keys="configKeys" :after-save="() => onAction('restart')">
+      <template #summary><dl class="spec"><div><dt>Name</dt><dd>{{ relayName(relayId) }}</dd></div><div><dt>SSH-Ziel</dt><dd>{{ settings[relaySettingKey(relayId,'ssh_target')] }}</dd></div><div><dt>go2rtc-Host</dt><dd>{{ settings[relaySettingKey(relayId,'host')] }}</dd></div><div><dt>Automatisch aktiv halten</dt><dd>{{ relayAutoStart(relayId) ? 'Ja' : 'Nein' }}</dd></div></dl></template>
       <label class="toggle-row compact">
-        <input type="checkbox" :checked="relayAutoStart(relayId)" @change="onAutoStartChange($event)" />
+        <input type="checkbox" :checked="relayAutoStart(relayId)" @change="setBool(relaySettingKey(relayId, 'auto_start'), $event)" />
         <div><div class="lbl-main">Automatisch aktiv halten</div><div class="lbl-sub">Watchdog startet das Relay bei Ausfall erneut (empfohlen).</div></div>
       </label>
-    </section>
-
-    <section class="panel card">
-      <div class="panel-head">
-        <h2>Konfiguration</h2>
-        <div class="right">{{ relayId }}</div>
-      </div>
       <div class="relay-config-grid">
-        <div class="field"><span class="lbl">Name</span><input v-model="settings[relaySettingKey(relayId, 'name')]" class="compact-input" :placeholder="relayId" /></div>
-        <div class="field"><span class="lbl">SSH-Ziel</span><input v-model="settings[relaySettingKey(relayId, 'ssh_target')]" class="compact-input" placeholder="nas oder user@nas" /></div>
-        <div class="field"><span class="lbl">Host aus go2rtc-Docker</span><input v-model="settings[relaySettingKey(relayId, 'host')]" class="compact-input" placeholder="host.docker.internal" /></div>
-        <div class="field"><span class="lbl">Bind-Adresse</span><input v-model="settings[relaySettingKey(relayId, 'bind_host')]" class="compact-input" placeholder="127.0.0.1" /></div>
-        <div class="field"><span class="lbl">Port-Basis</span><input v-model="settings[relaySettingKey(relayId, 'port_base')]" class="compact-input" :placeholder="String(relayPortBaseFallback)" /></div>
+        <div class="field"><span class="lbl">Name</span><input aria-label="Name" v-model="settings[relaySettingKey(relayId, 'name')]" class="compact-input" :placeholder="relayId" /></div>
+        <div class="field"><span class="lbl">SSH-Ziel</span><input aria-label="SSH-Ziel" v-model="settings[relaySettingKey(relayId, 'ssh_target')]" class="compact-input" placeholder="nas oder user@nas" /></div>
+        <div class="field"><span class="lbl">Host aus go2rtc-Docker</span><input aria-label="Host aus go2rtc-Docker" v-model="settings[relaySettingKey(relayId, 'host')]" class="compact-input" placeholder="host.docker.internal" /></div>
+        <div class="field"><span class="lbl">Bind-Adresse</span><input aria-label="Bind-Adresse" v-model="settings[relaySettingKey(relayId, 'bind_host')]" class="compact-input" placeholder="127.0.0.1" /></div>
+        <div class="field"><span class="lbl">Port-Basis</span><input aria-label="Port-Basis" v-model="settings[relaySettingKey(relayId, 'port_base')]" class="compact-input" :placeholder="String(relayPortBaseFallback)" /></div>
       </div>
-      <div class="btn-row">
-        <button class="btn sm primary" type="button" :disabled="busy !== ''" @click="onSaveConfig">Speichern & neu starten</button>
-        <span class="mono-mute" style="font-size: 11px;">Log · {{ relayStatusFor(relayId)?.log_path || '—' }}</span>
-      </div>
-    </section>
+      <p class="mono-mute">Speichern startet das Relay neu, damit die Konfiguration wirksam wird.</p>
+    </SettingsForm>
+    <button class="mobile-fab" aria-label="Relay bearbeiten" @click="configEditor?.edit()"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m4 16 12-12 4 4-12 12H4zM14 6l4 4"/></svg></button>
+    <AdminDialog :open="confirmRemove" title="Relay entfernen?" compact :busy="busy !== ''" @close="confirmRemove=false"><p>„{{ relayName(relayId) }}“ wird aus der Konfiguration entfernt. Kameras können diesen Ersatzpfad anschließend nicht mehr nutzen.</p><div class="form-actions"><button class="btn" @click="confirmRemove=false">Abbrechen</button><button class="btn danger" @click="onRemove">Entfernen</button></div></AdminDialog>
 
-    <section class="panel card">
+    <section class="panel">
       <div class="panel-head">
         <h2>Weiterleitungen</h2>
         <div class="right">automatisch aus den aktiven Kameras</div>
@@ -79,12 +76,14 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import SettingsForm from '../../components/SettingsForm.vue'
+import AdminDialog from '../../components/AdminDialog.vue'
 import { useSystem } from '../../composables/useSystem'
 
 const route = useRoute()
 const router = useRouter()
 const {
-  settings, relayIds, error,
+  settings, relayIds, error, setBool,
   loadAll, refreshStatus, saveSettings, removeRelay, relayAction,
   relaySettingKey, relayName, relayAutoStart, relayStatusFor, relayStateLabel, relayStateClass
 } = useSystem()
@@ -102,6 +101,8 @@ const relayPortBaseFallback = computed(() => {
   return relayPortBaseDefault + relayPortBaseSpacing * index
 })
 const busy = ref('')
+const configEditor=ref<InstanceType<typeof SettingsForm>>(),confirmRemove=ref(false)
+const configKeys=computed(()=>['name','ssh_target','host','bind_host','port_base','auto_start'].map(field=>relaySettingKey(relayId.value,field)))
 
 function endpointStateLabel(state: string) {
   if (state === 'ok') return 'OK'
@@ -125,18 +126,8 @@ async function onAction(action: 'start' | 'stop' | 'restart') {
   }
 }
 
-async function onAutoStartChange(e: Event) {
-  settings[relaySettingKey(relayId.value, 'auto_start')] = (e.target as HTMLInputElement).checked ? 'true' : 'false'
-  if (!await saveSettings([relaySettingKey(relayId.value, 'auto_start')])) return
-  await refreshStatus()
-}
-
-async function onSaveConfig() {
-  if (!await saveSettings(['name', 'ssh_target', 'host', 'bind_host', 'port_base'].map((field) => relaySettingKey(relayId.value, field)))) return
-  await onAction('restart')
-}
-
 async function onRemove() {
+  confirmRemove.value=false
   removeRelay(relayId.value)
   if (!await saveSettings(['camera.relay.ids'])) return
   await refreshStatus()

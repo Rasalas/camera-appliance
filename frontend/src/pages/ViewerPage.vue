@@ -3,7 +3,7 @@
     class="viewer-root"
     :class="rootClass"
     tabindex="0"
-    aria-label="Kameraansicht"
+    aria-label="Live-Ansicht"
     @pointerdown.capture="revealControls"
     @focusin="revealControls"
     @keydown="revealControls"

@@ -169,12 +169,6 @@ input, select, textarea { font: inherit; color: inherit; }
   gap: var(--gutter);
   padding-bottom: 4px;
 }
-.eyebrow {
-  font-size: 11px;
-  text-transform: uppercase;
-  letter-spacing: 0.18em;
-  color: var(--ink-mute);
-}
 .headline {
   font-family: var(--mono);
   font-weight: 500;
@@ -247,6 +241,7 @@ input, select, textarea { font: inherit; color: inherit; }
   border-color: var(--ink);
 }
 .btn.primary:hover:not(:disabled) { background: var(--live); border-color: var(--live); color: var(--bg); }
+.btn.primary:disabled { background: var(--raised); border-color: var(--hairline); color: var(--ink-dim); }
 
 .btn.live {
   background: var(--live);

@@ -1,7 +1,6 @@
 <template>
   <header class="topline">
     <div>
-      <div class="eyebrow">Zugriff · Lokaler Login</div>
       <h1 class="headline">Login.</h1>
     </div>
     <div class="meta">
@@ -21,11 +20,11 @@
     <form v-if="initialSetup" class="login-form" @submit.prevent="setInitialPassword">
       <div class="field">
         <span class="lbl">Neues Admin-Passwort</span>
-        <input v-model="newPassword" type="password" autocomplete="new-password" autofocus />
+        <input aria-label="Neues Admin-Passwort" v-model="newPassword" type="password" autocomplete="new-password" autofocus />
       </div>
       <div class="field">
         <span class="lbl">Bestätigung</span>
-        <input v-model="confirmPassword" type="password" autocomplete="new-password" />
+        <input aria-label="Bestätigung" v-model="confirmPassword" type="password" autocomplete="new-password" />
       </div>
       <div class="btn-row">
         <button class="btn primary" type="submit" :disabled="busy || !newPassword || !confirmPassword">
@@ -37,14 +36,14 @@
     <form v-else class="login-form" @submit.prevent="login">
       <div class="field">
         <span class="lbl">Rolle</span>
-        <select v-model="username" name="username" autocomplete="username">
+        <select aria-label="Rolle" v-model="username" name="username" autocomplete="username">
           <option value="admin">Admin</option>
           <option value="viewer" :disabled="!auth?.viewer_password_set">Viewer</option>
         </select>
       </div>
       <div class="field">
         <span class="lbl">Passwort</span>
-        <input v-model="password" name="password" type="password" autocomplete="current-password" autofocus />
+        <input aria-label="Passwort" v-model="password" name="password" type="password" autocomplete="current-password" autofocus />
       </div>
       <label class="toggle-row compact">
         <input v-model="remember" type="checkbox" />

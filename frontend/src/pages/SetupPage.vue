@@ -1,8 +1,7 @@
 <template>
   <header class="topline">
     <div>
-      <div class="eyebrow">Geräte</div>
-      <h1 class="headline">Kameras <em>verwalten.</em></h1>
+      <h1 class="headline">Kameras</h1>
     </div>
     <div class="meta">
       <div>Gefunden · <b>{{ assignableDevices.length }}</b></div>
@@ -15,15 +14,15 @@
   <section class="service-strip">
     <div class="service">
       <div>
-        <div class="name">Viewer</div>
-        <div class="endpoint">localhost:8091 · Kameraansicht</div>
+        <div class="name">Live-Ansicht</div>
+        <div class="endpoint">Laufende Kamerabilder</div>
       </div>
       <span class="pill" :class="managerOnline ? 'live' : 'down'">{{ managerOnline ? 'aktiv' : 'offline' }}</span>
     </div>
     <div class="service">
       <div>
         <div class="name">go2rtc</div>
-        <div class="endpoint">localhost:1984 · Stream-Alias</div>
+        <div class="endpoint">Streamdienst</div>
       </div>
       <span class="pill" :class="go2rtcOnline ? 'live' : 'down'">{{ go2rtcOnline ? 'aktiv' : 'offline' }}</span>
     </div>
@@ -43,7 +42,7 @@
     <button class="btn" :disabled="!!busy || !shownCount" @click="refreshFrames">
       {{ busy === 'frames' ? 'Vorschau wird geladen…' : 'Vorschau aktualisieren' }}
     </button>
-    <button class="btn icon" type="button" title="Kamera per RTSP hinzufügen" @click="showManualModal = true">+</button>
+    <button class="btn desktop-primary" type="button" aria-label="Kamera hinzufügen" title="Kamera per RTSP hinzufügen" @click="showManualModal = true">Kamera hinzufügen</button>
     <div class="spacer" />
     <span v-if="busy === 'scan'" class="mono-mute" style="font-size: 11px;">RTSP · ONVIF · ARP</span>
   </div>
@@ -68,7 +67,7 @@
   <section class="panel">
     <div class="panel-head">
       <h2>Gefundene Kameras</h2>
-      <div class="right">{{ assignableDevices.length }} Geräte · Klick öffnet Details</div>
+      <div class="right">{{ assignableDevices.length }} Geräte · nach Name sortiert</div>
     </div>
     <div v-if="!assignableDevices.length" class="empty">
       Noch keine Kameras. Starte die Suche oben oder füge eine RTSP-Kamera hinzu.
@@ -79,10 +78,7 @@
         :key="device.id"
         class="device-card"
         :class="{ active: isShown(device) }"
-        role="button"
-        tabindex="0"
-        @click="goDetail(device.id)"
-        @keydown.enter="goDetail(device.id)"
+        @click="openDeviceRow($event, device.id)"
       >
         <img
           v-if="referenceVisible(device.id)"
@@ -95,7 +91,7 @@
         <div>
           <div class="title">
             <span class="ix">{{ String(ix + 1).padStart(2, '0') }}</span>
-            <span>{{ deviceTitle(device) }}</span>
+            <RouterLink :to="`/kamera/${device.id}`">{{ deviceTitle(device) }}</RouterLink>
           </div>
           <div class="ip">{{ device.last_ip || 'IP unbekannt' }} · {{ device.mac_address || 'MAC unbekannt' }}</div>
         </div>
@@ -118,35 +114,29 @@
     </div>
   </section>
 
-  <div v-if="showManualModal" class="modal-backdrop" @click.self="closeManualModal">
-    <form class="modal" @submit.prevent="addManual">
-      <div class="modal-head">
-        <div>
-          <div class="eyebrow">Geräte</div>
-          <h2>Kamera per RTSP hinzufügen</h2>
-        </div>
-        <button class="btn icon sm ghost" type="button" title="Schließen" @click="closeManualModal">×</button>
-      </div>
+  <button class="mobile-fab" aria-label="Kamera hinzufügen" @click="showManualModal=true"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v16M4 12h16"/></svg></button>
+  <AdminDialog ref="manualDialog" :open="showManualModal" title="Kamera per RTSP hinzufügen" :dirty="manualDirty" :busy="busy === 'manual'" @close="showManualModal=false">
+    <form @submit.prevent="addManual">
       <div class="split manual-add">
-        <div class="field">
+        <label class="field">
           <span class="lbl">IP-Adresse</span>
-          <input v-model="manual.ip" placeholder="192.168.178.172" inputmode="numeric" autofocus />
-        </div>
-        <div class="field">
+          <input aria-label="IP-Adresse" v-model="manual.ip" required placeholder="192.168.178.172" autofocus />
+        </label>
+        <label class="field">
           <span class="lbl">Benutzername</span>
-          <input v-model="manual.username" placeholder="Kamera-Benutzer" />
-        </div>
-        <div class="field">
+          <input aria-label="Benutzername" v-model="manual.username" placeholder="Kamera-Benutzer" />
+        </label>
+        <label class="field">
           <span class="lbl">Passwort</span>
-          <input v-model="manual.password" type="password" placeholder="Kamera-Passwort" />
-        </div>
-        <div class="field">
+          <input aria-label="Passwort" v-model="manual.password" type="password" placeholder="Kamera-Passwort" />
+        </label>
+        <label class="field">
           <span class="lbl">Stream</span>
-          <select v-model="manual.stream">
+          <select aria-label="Stream" v-model="manual.stream">
             <option value="stream2">stream2 · Live</option>
             <option value="stream1">stream1 · HD</option>
           </select>
-        </div>
+        </label>
       </div>
       <div class="modal-foot">
         <span class="mono-mute">rtsp://IP:554/stream2 oder stream1</span>
@@ -158,7 +148,7 @@
         </div>
       </div>
     </form>
-  </div>
+  </AdminDialog>
 
   <div class="toast-host">
     <transition name="page"><div v-if="toast" class="toast" :key="toast">{{ toast }}</div></transition>
@@ -166,8 +156,12 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
+import AdminDialog from '../components/AdminDialog.vue'
+import { useDraftGuard } from '../composables/discardChanges'
+import { isCameraResource } from '../composables/cameraResources'
+import { rowDestination } from '../composables/resourceRow'
 import { api } from '../api/client'
 import type { Binding, Device, Slot, StatusResponse, ViewerResponse, ViewerSlot, ViewerSlotState } from '../types'
 
@@ -183,9 +177,14 @@ const busy = ref('')
 const frameRevision = ref(Date.now())
 const missingReferences = ref<Record<string, boolean>>({})
 const showManualModal = ref(false)
+const manualDialog=ref<InstanceType<typeof AdminDialog>>(), manualBaseline=ref('')
+const manualDirty=computed(()=>showManualModal.value && JSON.stringify(manual)!==manualBaseline.value)
+watch(showManualModal,open=>{if(open)manualBaseline.value=JSON.stringify(manual)})
+useDraftGuard(()=>manualDirty.value,()=>{showManualModal.value=false})
+function openDeviceRow(event:MouseEvent,id:string) { const href=rowDestination(event,`/kamera/${id}`);if(href)void router.push(href) }
 const manual = reactive({ ip: '', username: '', password: '', stream: 'stream2' })
 
-const assignableDevices = computed(() => devices.value.filter((device) => isAssignableCamera(device)))
+const assignableDevices = computed(() => devices.value.filter((device) => isCameraResource(device, bindings.value)).sort((a,b)=>deviceTitle(a).localeCompare(deviceTitle(b),'de')))
 const shownCount = computed(() => bindings.value.filter((b) => b.device_id).length)
 const go2rtcOnline = computed(() => systemStatus.value?.system.go2rtc.online ?? false)
 const managerOnline = computed(() => systemStatus.value?.system.camera_appliance.online ?? true)
@@ -225,11 +224,6 @@ function sig(d: Device, key: string): boolean {
   const r = typeof d.raw_json === 'string' ? safeParse(d.raw_json) : (d.raw_json || {})
   return Boolean(r[key])
 }
-function isAssignableCamera(d: Device): boolean {
-  if (bindings.value.some((binding) => binding.device_id === d.id)) return true
-  const raw = typeof d.raw_json === 'string' ? safeParse(d.raw_json) : (d.raw_json || {})
-  return Boolean(raw.manual || raw.rtsp_port_open || raw.onvif_port_open)
-}
 function safeParse(v: string): Record<string, unknown> {
   try { return JSON.parse(v) as Record<string, unknown> } catch { return {} }
 }
@@ -245,9 +239,6 @@ function slotStateLabel(state: ViewerSlotState) {
   return labels[state]
 }
 
-function goDetail(deviceId: string) {
-  void router.push(`/kamera/${deviceId}`)
-}
 
 async function load() {
   const status = await api.status()
@@ -377,7 +368,7 @@ async function addManual() {
 }
 
 function closeManualModal() {
-  if (busy.value !== 'manual') showManualModal.value = false
+  void manualDialog.value?.requestClose()
 }
 
 onMounted(load)
