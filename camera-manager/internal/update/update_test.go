@@ -305,6 +305,8 @@ func TestShouldSkipCopyPathExcludesRuntimeSecrets(t *testing.T) {
 		"config/local.env",
 		"config/secrets.env",
 		"config/admin-password.txt",
+		"config/snapshot-upload-password.json",
+		"config/.upload-password-temp",
 	} {
 		if !shouldSkipCopyPath(path) {
 			t.Errorf("expected %q to be excluded from release copy and rollback snapshots", path)

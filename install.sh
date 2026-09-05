@@ -91,7 +91,7 @@ fi
 
 need_or_install() {
   local missing_base=()
-  for command_name in curl tar docker; do
+  for command_name in curl tar docker ffmpeg; do
     if ! command -v "$command_name" >/dev/null 2>&1; then
       missing_base+=("$command_name")
     fi
@@ -104,12 +104,12 @@ need_or_install() {
   if command -v apt-get >/dev/null 2>&1; then
     echo "Installiere fehlende Bootstrap-Abhängigkeiten."
     apt-get update
-    apt-get install -y ca-certificates curl tar docker.io
+    apt-get install -y ca-certificates curl tar docker.io ffmpeg
     apt-get install -y docker-compose-plugin >/dev/null 2>&1 || apt-get install -y docker-compose-v2 >/dev/null 2>&1 || true
     systemctl enable --now docker >/dev/null 2>&1 || true
   elif [[ "${#missing_base[@]}" -gt 0 ]]; then
     echo "Fehlende Abhängigkeiten: ${missing_base[*]}" >&2
-    echo "Bitte curl, tar und Docker installieren und erneut ausführen." >&2
+    echo "Bitte curl, tar, Docker und ffmpeg installieren und erneut ausführen." >&2
     exit 1
   fi
 

@@ -188,6 +188,8 @@
       </div>
     </section>
 
+    <SnapshotUpload :key="device.id" :device-id="device.id" :image-src="previewImageSrc" :username="username" :password="password" :stream="stream" :can-capture="canCapture" :camera-busy="busy" @preview="capture(false)" />
+
     <section class="panel">
       <details class="advanced">
         <summary>Rohdaten · Diagnose</summary>
@@ -201,6 +203,7 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { api } from '../api/client'
+import SnapshotUpload from '../components/SnapshotUpload.vue'
 import type { Binding, CredentialIdentity, Device, DeviceCredentials, FrameResult, ProbeResult, RelayStatus, Slot } from '../types'
 
 const route = useRoute()

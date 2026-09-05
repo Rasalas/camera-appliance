@@ -381,3 +381,27 @@ export interface UpdateFlowStatus {
   error?: string
   checked_at?: string
 }
+export interface UploadSettings {
+  protocol: 'ftp' | 'sftp'
+  host: string
+  port: number
+  username: string
+  directory: string
+  host_key: string
+  password_set: boolean
+}
+
+export interface UploadCrop {
+  enabled: boolean
+  x: number
+  y: number
+  width: number
+  height: number
+}
+
+export interface SnapshotUploadResult {
+  filename: string
+  width: number
+  height: number
+  bytes: number
+}

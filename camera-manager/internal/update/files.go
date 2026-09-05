@@ -132,12 +132,12 @@ func copyTree(ctx context.Context, src, dst string, opts copyOptions) error {
 func shouldSkipCopyPath(rel string) bool {
 	for _, part := range strings.Split(filepath.ToSlash(rel), "/") {
 		lower := strings.ToLower(part)
-		if lower == ".ds_store" || strings.HasPrefix(lower, "._") {
+		if lower == ".ds_store" || strings.HasPrefix(lower, "._") || strings.HasPrefix(lower, ".upload-password-") {
 			return true
 		}
 		switch lower {
 		case ".git", ".private", "data", "node_modules", ".release",
-			".env", "local.env", "secrets.env", "admin-password.txt":
+			".env", "local.env", "secrets.env", "admin-password.txt", "snapshot-upload-password.json":
 			return true
 		}
 	}

@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"camera-appliance/camera-manager/internal/config"
+	"camera-appliance/camera-manager/internal/secrets"
 	"camera-appliance/camera-manager/internal/state"
 )
 
@@ -61,6 +62,31 @@ func TestCreateArchiveHasRestrictedPermissions(t *testing.T) {
 	}
 	if !strings.Contains(result.Warning, "Zugangsdaten") {
 		t.Fatalf("warning must disclose credential content, got %q", result.Warning)
+	}
+}
+
+func TestUploadPasswordSurvivesProtectedBackupRestore(t *testing.T) {
+	cfg := newBackupTestConfig(t)
+	if err := secrets.SaveUpload(cfg.ConfigDir, "test-target", "local-upload-test-password"); err != nil {
+		t.Fatal(err)
+	}
+	result, err := Create(context.Background(), cfg, "", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := secrets.SaveUpload(cfg.ConfigDir, "test-target", "changed-password"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Restore(context.Background(), cfg, result.Path); err != nil {
+		t.Fatal(err)
+	}
+	p, err := secrets.LoadUpload(cfg.ConfigDir, "test-target")
+	if err != nil || p != "local-upload-test-password" {
+		t.Fatalf("password was not restored: %v", err)
+	}
+	info, err := os.Stat(filepath.Join(cfg.ConfigDir, secrets.UploadPasswordFile))
+	if err != nil || info.Mode().Perm() != 0o600 {
+		t.Fatalf("restored password permissions: %v", err)
 	}
 }
 

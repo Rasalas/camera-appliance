@@ -96,6 +96,42 @@ The viewer consumes only stable go2rtc aliases:
 
 Do not put camera DHCP IPs into viewer configuration.
 
+## Einzelbilder per FTP/SFTP hochladen
+
+Unter **System → Bild-Upload** lassen sich Protokoll, Server, Port, Benutzername,
+Passwort und ein vorhandenes Zielverzeichnis konfigurieren. SFTP benötigt zusätzlich
+den SHA256-Fingerabdruck des SSH-Hostschlüssels vom Serverbetreiber. FTP ist
+unverschlüsselt; SFTP verschlüsselt sowohl Bilder als auch Zugangsdaten.
+
+In **Einrichtung → Kamera → Einzelbild hochladen** nimmt „Jetzt aufnehmen &
+hochladen“ ein neues JPEG aus dem ausgewählten Kamerastream auf. Der vorhandene
+Kamerazugang und die direkte oder Relay-Verbindung werden weiterverwendet.
+Eine Vorschau kann über „Vorschau aufnehmen“ geladen werden. „Nur Bildausschnitt“
+erlaubt die Auswahl eines Rahmens im Originalbild oder die Eingabe von Prozentwerten.
+„Bildbereich speichern“ merkt sich diese Auswahl pro Kamera; der Upload verwendet
+immer die aktuell angezeigte Auswahl. Alternativ wird das gesamte Originalbild
+hochgeladen. Die Anzeige-Transforms des Viewers ändern das Upload-Bild nicht.
+
+Es gibt keinen Intervallbetrieb und kein Videoarchiv. Jede Datei erhält einen
+eindeutigen Namen mit Kamera-Kennung und UTC-Zeit. Das Zielverzeichnis muss existieren
+und Schreiben sowie Umbenennen erlauben: Eine Übertragung wird zunächst als `.part`
+geschrieben und erst danach als `.jpg` veröffentlicht. Bei Netzwerkabbruch können
+`.part`-Dateien auf dem Server zurückbleiben. Ein Upload hat maximal 30 Sekunden
+Übertragungszeit zuzüglich der bestehenden Aufnahmezeit von bis zu 8 Sekunden.
+
+Das Serverpasswort liegt mit Dateimodus `0600` in
+`/etc/camera-appliance/snapshot-upload-password.json`. Die API liefert nur zurück,
+ob ein Passwort vorhanden ist. Ein leeres Passwortfeld behält das gespeicherte
+Passwort für dasselbe Ziel; Änderungen an Server, Port, Protokoll, Benutzer oder
+SSH-Hostschlüssel benötigen ein neues Passwort. Das Passwort lässt sich dort auch
+löschen. Geschützte Backups enthalten diese Datei, Support-Bundles nicht.
+
+Die Funktion erfordert `ffmpeg` für die vorhandene Einzelbildaufnahme. Installer
+und Docker-Image bringen es mit; bei älteren nativen Installationen kann es mit
+`sudo apt install ffmpeg` nachinstalliert werden. Bei einem Capture-Hop muss es auf
+dem konfigurierten SSH-Host verfügbar sein. Der Go-Build benötigt Go 1.26 oder neuer
+für die verwendeten SSH/SFTP-Bibliotheken.
+
 ## Optional AgentDVR
 
 AgentDVR is not required for normal install, startup, status, or camera display. It remains available only as an optional Docker Compose profile for NVR experiments:
@@ -119,6 +155,7 @@ The bootstrap installer installs the remaining base dependencies where possible:
 
 - `ca-certificates`
 - `tar`
+- `ffmpeg`
 - Docker Engine (`docker.io`)
 - Docker Compose plugin (`docker-compose-plugin`)
 

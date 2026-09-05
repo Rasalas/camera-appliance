@@ -8,11 +8,13 @@ import (
 	"camera-appliance/camera-manager/internal/app"
 	"camera-appliance/camera-manager/internal/cameraaccess"
 	"camera-appliance/camera-manager/internal/config"
+	"camera-appliance/camera-manager/internal/snapshotupload"
 	updater "camera-appliance/camera-manager/internal/update"
 	"camera-appliance/camera-manager/internal/version"
 )
 
 type Server struct {
+	uploads        *snapshotupload.Service
 	cameras        *cameraaccess.Service
 	app            *app.App
 	mux            *http.ServeMux
@@ -30,6 +32,9 @@ func New(a *app.App) *Server {
 		startUpdateJob: updater.StartJob,
 		updates:        newUpdateFlow(filepath.Join(a.Config.StateDir, "updates")),
 	}
+	s.uploads = snapshotupload.New(a.Store, a.Config.ConfigDir, func(ctx context.Context, id string, input cameraaccess.CredentialsInput) (cameraaccess.Frame, error) {
+		return s.cameras.Frame(ctx, id, cameraaccess.FrameInput{CredentialsInput: input})
+	})
 	s.routes()
 	return s
 }
@@ -75,6 +80,11 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("DELETE /api/credential-identities/{id}", s.deleteCredentialIdentity)
 	s.mux.HandleFunc("GET /api/settings", s.getSettings)
 	s.mux.HandleFunc("PUT /api/settings", s.putSettings)
+	s.mux.HandleFunc("GET /api/snapshot-upload", s.getUploadSettings)
+	s.mux.HandleFunc("PUT /api/snapshot-upload", s.putUploadSettings)
+	s.mux.HandleFunc("GET /api/devices/{id}/upload-crop", s.getUploadCrop)
+	s.mux.HandleFunc("PUT /api/devices/{id}/upload-crop", s.putUploadCrop)
+	s.mux.HandleFunc("POST /api/devices/{id}/upload-snapshot", s.uploadSnapshot)
 	s.mux.HandleFunc("POST /api/secrets/camera-password", s.setCameraPassword)
 	s.mux.HandleFunc("GET /api/events", s.getEvents)
 	s.mux.HandleFunc("POST /api/backup", s.createBackup)

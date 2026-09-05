@@ -1,20 +1,20 @@
 package releasearchive
 
 import (
-"archive/tar"
-"compress/gzip"
-"context"
-"crypto/sha256"
-"encoding/hex"
-"encoding/json"
-"errors"
-"fmt"
-"io"
-"net/http"
-"net/url"
-"os"
-"path/filepath"
-"strings"
+	"archive/tar"
+	"compress/gzip"
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"net/http"
+	"net/url"
+	"os"
+	"path/filepath"
+	"strings"
 )
 
 type Manifest struct {
@@ -183,11 +183,11 @@ func cleanArchiveName(name string) (string, error) {
 func forbiddenArchivePath(name string) bool {
 	for _, part := range strings.Split(filepath.ToSlash(name), "/") {
 		lower := strings.ToLower(part)
-		if lower == ".ds_store" || strings.HasPrefix(lower, "._") {
+		if lower == ".ds_store" || strings.HasPrefix(lower, "._") || strings.HasPrefix(lower, ".upload-password-") {
 			return true
 		}
 		switch lower {
-		case ".git", ".private", "data", "node_modules", "secrets.env", "local.env", ".env":
+		case ".git", ".private", "data", "node_modules", "secrets.env", "local.env", ".env", "snapshot-upload-password.json":
 			return true
 		}
 	}

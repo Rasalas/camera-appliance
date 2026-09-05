@@ -13,7 +13,7 @@ import (
 // Business modules must stay usable without the application or HTTP adapters.
 // Pure layout/routing code may return decisions, but must not perform I/O itself.
 func TestModuleDependencyDirection(t *testing.T) {
-	for _, module := range []string{"display", "streamrouting", "relay", "cameraaccess", "releasearchive", "update"} {
+	for _, module := range []string{"display", "streamrouting", "relay", "cameraaccess", "snapshotupload", "releasearchive", "update"} {
 		t.Run(module, func(t *testing.T) {
 			files, err := os.ReadDir(filepath.Join("..", module))
 			if err != nil {

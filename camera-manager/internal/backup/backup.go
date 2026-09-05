@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"camera-appliance/camera-manager/internal/config"
+	"camera-appliance/camera-manager/internal/secrets"
 	"camera-appliance/camera-manager/internal/state"
 )
 
@@ -57,6 +58,7 @@ func Create(ctx context.Context, cfg config.Config, out string, includeSecrets b
 		{snapshot, "var/lib/camera-appliance/state.db"},
 		{cfg.Go2RTCConfigPath(), "var/lib/camera-appliance/generated/go2rtc.yaml"},
 		{filepath.Join(cfg.ConfigDir, "local.env"), "etc/camera-appliance/local.env"},
+		{filepath.Join(cfg.ConfigDir, secrets.UploadPasswordFile), "etc/camera-appliance/" + secrets.UploadPasswordFile},
 	}
 	if includeSecrets {
 		files = append(files, struct{ path, name string }{filepath.Join(cfg.ConfigDir, "secrets.env"), "etc/camera-appliance/secrets.env"})
@@ -76,7 +78,7 @@ func Create(ctx context.Context, cfg config.Config, out string, includeSecrets b
 		}
 		included = append(included, item.name)
 	}
-	warning := "Backup enthält Kamera-Zugangsdaten aus local.env und ist sensibel. Geschützt speichern."
+	warning := "Backup enthält Kamera-Zugangsdaten aus local.env und gegebenenfalls das Upload-Passwort. Geschützt speichern."
 	if includeSecrets {
 		warning = "Backup enthält secrets.env mit allen Zugangsdaten und ist besonders sensibel. Geschützt speichern."
 	}
@@ -294,6 +296,8 @@ func restoreTarget(cfg config.Config, name string) (string, bool) {
 		return cfg.Go2RTCConfigPath(), true
 	case "etc/camera-appliance/local.env":
 		return filepath.Join(cfg.ConfigDir, "local.env"), true
+	case "etc/camera-appliance/" + secrets.UploadPasswordFile:
+		return filepath.Join(cfg.ConfigDir, secrets.UploadPasswordFile), true
 	case "etc/camera-appliance/secrets.env":
 		return filepath.Join(cfg.ConfigDir, "secrets.env"), true
 	default:
@@ -305,5 +309,5 @@ func ExplainSensitive(includeSecrets bool) string {
 	if includeSecrets {
 		return "Dieses Backup enthält lokale Secrets."
 	}
-	return "Dieses Backup enthält Kamera-Zugangsdaten aus local.env; secrets.env wird standardmäßig ausgeschlossen."
+	return "Dieses Backup enthält Kamera-Zugangsdaten aus local.env und gegebenenfalls das Upload-Passwort; secrets.env wird standardmäßig ausgeschlossen."
 }
