@@ -97,6 +97,8 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /api/events", s.getEvents)
 	s.mux.HandleFunc("POST /api/backup", s.createBackup)
 	s.mux.HandleFunc("POST /api/support-bundle", s.createSupportBundle)
+	s.mux.HandleFunc("GET /api/support", s.getSupportReport)
+	s.mux.HandleFunc("POST /api/support-bundle/download", s.downloadSupportBundle)
 	s.mux.HandleFunc("POST /api/restore", s.restoreBackup)
 	s.mux.HandleFunc("GET /go2rtc/api/ws", s.proxyGo2RTCWebSocket)
 	s.mux.HandleFunc("GET /go2rtc/{asset}", s.getGo2RTCAsset)

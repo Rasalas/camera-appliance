@@ -1,6 +1,6 @@
 <template>
   <section class="panel">
-    <div class="panel-head"><h2>Kamera-Identitäten</h2><button class="btn primary desktop-primary" @click="editing=true">Identität hinzufügen</button></div>
+    <div class="panel-head"><h2>Kamera-Identitäten</h2><button class="btn primary desktop-primary" @click="editing=true"><AppIcon name="plus" />Identität hinzufügen</button></div>
     <p class="mono-mute">Wiederverwendbare Kamera-Logins. Beim Bildtest werden sie für Kameras ohne eigenes Passwort ausprobiert.</p>
     <p class="mono-mute">{{ credentialIdentities.length }} gespeichert · nach Name sortiert</p>
     <div v-if="!credentialIdentities.length" class="empty">Noch keine Identitäten. Füge einen gemeinsamen Kamera-Login hinzu.</div>
@@ -10,6 +10,7 @@
   <IdentityEditor :open="editing" @close="editing=false" />
 </template>
 <script setup lang="ts">
+import AppIcon from '../../components/AppIcon.vue'
 import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useSystem } from '../../composables/useSystem'

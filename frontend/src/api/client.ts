@@ -81,5 +81,11 @@ export const api = {
   events: () => request<EventItem[]>('/api/events'),
   backup: () => request<{ path: string; files: string[]; warning: string }>('/api/backup', { method: 'POST', body: JSON.stringify({}) }),
   supportBundle: () => request<SupportBundleResult>('/api/support-bundle', { method: 'POST', body: JSON.stringify({}) }),
+  supportReport: () => request<{ version: { version: string; commit: string }; events: EventItem[] }>('/api/support'),
+  downloadSupportBundle: async () => {
+    const response = await fetch('/api/support-bundle/download', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: '{}' })
+    if (!response.ok) throw new Error((await response.json().catch(() => ({}))).error || 'Support-Bundle konnte nicht erstellt werden.')
+    return response.blob()
+  },
   restore: (path: string) => request<{ path: string; files: string[]; warning: string }>('/api/restore', { method: 'POST', body: JSON.stringify({ in: path }) })
 }

@@ -1,13 +1,19 @@
 <template>
   <header class="topline"><div><RouterLink v-if="editing" class="mono-mute" to="/kameras/bild-upload">← Bild-Upload</RouterLink><h1 class="headline">{{ editing ? 'Upload-Server bearbeiten' : 'Bild-Upload' }}</h1></div><div v-if="editing" class="editor-actions"><button class="btn primary" type="submit" form="upload-server" :disabled="busy || !dirty">Server speichern</button><RouterLink class="btn" to="/kameras/bild-upload">Abbrechen</RouterLink></div></header>
-  <section class="panel card">
-    <div class="panel-head"><h2>Server für Einzelbilder</h2><RouterLink v-if="!editing" class="btn ghost desktop-primary" to="/kameras/bild-upload/bearbeiten">Bearbeiten</RouterLink></div>
+  <EditableSection v-if="!editing" title="Server für Einzelbilder" to="/kameras/bild-upload/bearbeiten" :disabled="loading">
+    <p class="mono-mute">Gemeinsamer Server für Kamera-Uploads. Bildausschnitt und Zeitplan stellst du bei der jeweiligen Kamera ein.</p>
+    <p v-if="loading" role="status">Einstellungen werden geladen…</p>
+    <p v-if="error" class="notice err" role="alert">{{ error }}</p>
+    <dl v-if="!loading && baseline" class="spec"><div><dt>Protokoll</dt><dd>{{ form.protocol.toUpperCase() }}</dd></div><div><dt>Server</dt><dd>{{ form.host || 'Noch nicht eingerichtet' }}</dd></div><div><dt>Benutzername</dt><dd>{{ form.username || 'Nicht gesetzt' }}</dd></div><div><dt>Verzeichnis</dt><dd>{{ form.directory }}</dd></div><div><dt>Passwort</dt><dd>{{ passwordSet ? 'Gespeichert' : 'Nicht gesetzt' }}</dd></div></dl>
+  </EditableSection>
+  <section v-else class="panel card">
+    <div class="panel-head"><h2>Server für Einzelbilder</h2></div>
     <p class="mono-mute">Gemeinsamer Server für die Kamera-Uploads. Bildausschnitt, Privatbereiche, Zeitangabe und Zeitplan stellst du bei der jeweiligen Kamera ein.</p>
     <div v-if="error" class="notice err" role="alert">{{ error }}</div>
     <div v-if="message && !dirty" class="notice ok" role="status">{{ message }}</div>
     <div v-if="loading" class="empty">Einstellungen werden geladen…</div>
-    <dl v-else-if="!editing" class="spec"><div><dt>Protokoll</dt><dd>{{ form.protocol.toUpperCase() }}</dd></div><div><dt>Server</dt><dd>{{ form.host || 'Noch nicht eingerichtet' }}</dd></div><div><dt>Benutzername</dt><dd>{{ form.username || 'Nicht gesetzt' }}</dd></div><div><dt>Verzeichnis</dt><dd>{{ form.directory }}</dd></div><div><dt>Passwort</dt><dd>{{ passwordSet ? 'Gespeichert' : 'Nicht gesetzt' }}</dd></div></dl>
-    <form v-else id="upload-server" @submit.prevent="save">
+
+    <form v-if="!loading" id="upload-server" @submit.prevent="save">
       <fieldset :disabled="busy || !baseline" class="upload-fields">
         <div class="split">
           <label class="field"><span class="lbl">Protokoll</span><select aria-label="Protokoll" v-model="form.protocol" @change="changeProtocol"><option value="sftp">SFTP · verschlüsselt</option><option value="ftp">FTP · unverschlüsselt</option></select></label>
@@ -32,6 +38,7 @@
 </template>
 
 <script setup lang="ts">
+import EditableSection from '../components/EditableSection.vue'
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useDraftGuard } from '../composables/discardChanges'

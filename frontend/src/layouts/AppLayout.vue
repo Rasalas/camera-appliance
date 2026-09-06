@@ -15,26 +15,20 @@
         </div>
       </div>
       <nav class="nav" aria-label="Hauptnavigation">
-        <RouterLink to="/verwaltung">Home</RouterLink>
-        <RouterLink to="/">Live-Ansicht<span class="nav-key">1</span></RouterLink>
+        <AdminNavLink :item="{ to: '/', label: 'Live-Ansicht', icon: 'live', shortcut: '1' }" />
         <div v-if="canAdmin" class="nav-group">
-          <RouterLink to="/einrichtung">Kameras<span class="nav-key">2</span></RouterLink>
-          <div class="nav-children" aria-label="Kameras">
-            <RouterLink to="/kameras/bild-upload">Bild-Upload</RouterLink>
-          </div>
+          <AdminNavLink :item="cameraPages[0]!" />
+          <div class="nav-children" aria-label="Kameras"><AdminNavLink :item="cameraPages[1]!" /></div>
         </div>
-        <div v-if="canAdmin" class="nav-group">
-          <RouterLink to="/system/allgemein">System<span class="nav-key">3</span></RouterLink>
-          <div class="nav-children" aria-label="System">
-            <RouterLink v-for="item in systemPages" :key="item.to" :to="item.to">{{ item.label }}</RouterLink>
-          </div>
+        <div v-if="canAdmin" class="nav-group" role="group" aria-labelledby="nav-system">
+          <div id="nav-system" class="nav-group-label"><AppIcon name="system" /><span>System</span></div>
+          <div class="nav-children"><AdminNavLink v-for="item in systemPages" :key="item.to" :item="item" /></div>
         </div>
-        <div v-if="canAdmin" class="nav-group">
-          <RouterLink to="/system/wartung">Wartung</RouterLink>
-          <div class="nav-children" aria-label="Wartung">
-            <RouterLink v-for="item in maintenancePages" :key="item.to" :to="item.to">{{ item.label }}</RouterLink>
-          </div>
+        <div v-if="canAdmin" class="nav-group" role="group" aria-labelledby="nav-maintenance">
+          <div id="nav-maintenance" class="nav-group-label"><AppIcon name="tools" /><span>Wartung</span></div>
+          <div class="nav-children"><AdminNavLink v-for="item in maintenancePages" :key="item.to" :item="item" /></div>
         </div>
+        <AdminNavLink v-if="canAdmin" :item="aboutPage" />
       </nav>
 
       <!-- Pinned bottom block: update control, metadata rows, then the auth
@@ -47,10 +41,10 @@
         <div class="rail-foot">
           <div class="row"><span>Stand</span><b>{{ clock }}</b></div>
           <div class="row"><span>Login</span><b>{{ roleLabel }}</b></div>
+          <div v-if="canAdmin" class="row"><span>Version</span><b>{{ versionLabel }}</b></div>
 
         </div>
 
-        <div v-if="canAdmin" class="rail-version">Version {{ versionLabel }}</div>
         <div class="auth-actions">
           <button v-if="auth?.enabled && auth.authenticated" class="btn sm ghost rail-login" type="button" @click="logout">Logout</button>
           <RouterLink v-else-if="auth?.enabled" class="btn sm ghost rail-login" to="/login">Login</RouterLink>
@@ -66,7 +60,7 @@
         </div>
       </RouterView>
     </main>
-    <nav v-if="!isViewer && canAdmin" class="bottom-navigation" aria-label="Mobile Hauptnavigation"><RouterLink to="/verwaltung">Home</RouterLink><RouterLink to="/einrichtung">Kameras</RouterLink><RouterLink to="/">Live-Ansicht</RouterLink></nav>
+    <nav v-if="!isViewer && canAdmin" class="bottom-navigation" aria-label="Mobile Hauptnavigation"><RouterLink to="/verwaltung"><AppIcon name="home" />Home</RouterLink><RouterLink to="/einrichtung"><AppIcon name="camera" />Kameras</RouterLink><RouterLink to="/"><AppIcon name="live" />Live-Ansicht</RouterLink></nav>
   </div>
 </template>
 
@@ -78,7 +72,9 @@ import type { AuthStatus } from '../types'
 import UpdatePanel from '../components/UpdatePanel.vue'
 import AdminSearch from '../components/AdminSearch.vue'
 import DiscardChanges from '../components/DiscardChanges.vue'
-import { systemPages, maintenancePages } from '../navigation'
+import AppIcon from '../components/AppIcon.vue'
+import AdminNavLink from '../components/AdminNavLink.vue'
+import { cameraPages, systemPages, maintenancePages, aboutPage } from '../navigation'
 import { provideUpdateFlow } from '../composables/useUpdateFlow'
 
 const router = useRouter()
@@ -190,7 +186,5 @@ onBeforeUnmount(() => {
 }
 .nav { min-height:0;overflow-y:auto; }
 .nav-group { display:grid;gap:2px; }
-.nav-children { margin:0 0 10px 16px; }
-.nav-children a { padding:8px 6px; }
-.rail-version { font-size:12px;color:var(--ink-mute); }
+
 </style>
