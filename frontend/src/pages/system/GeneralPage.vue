@@ -3,22 +3,10 @@
   <AdminDialog ref="passwordDialog" :open="passwordOpen" title="Kamera-Passwort bearbeiten" :dirty="!!cameraPassword" :busy="savingPassword" @close="closePassword">
   <form class="password-form" @submit.prevent="saveCamPassword">
     <p class="mono-mute">Gemeinsames Passwort für Kameras ohne eigenen gespeicherten Zugang.</p>
-      <div class="field">
-        <span class="lbl">Kamera-Passwort</span>
-        <div class="btn-row" style="align-items: stretch;">
-          <input v-model="cameraPassword" type="password" :disabled="savingPassword" :placeholder="settings.camera_password_set === 'true' ? '••••••••••••' : 'Passwort setzen'" style="flex: 1;" />
-          <button class="btn ghost" type="button" :disabled="!cameraPassword || savingPassword" @click="passwordDialog?.requestClose()">Abbrechen</button>
-          <button class="btn" :disabled="!cameraPassword || savingPassword" type="submit">
-            {{ savingPassword ? 'Speichert…' : 'Passwort speichern' }}
-          </button>
-        </div>
-        <div class="mono-mute" style="margin-top: 6px;">
-          {{ settings.camera_password_set === 'true' ? `Gespeichert über ${passwordSource}` : 'Noch kein Kamera-Passwort gespeichert.' }}
-        </div>
-      </div>
-    <div v-if="cameraPassword" role="status" class="mono-mute">Ungespeichertes Passwort</div>
-    <div v-else-if="passwordMessage" role="status" class="mono-mute">{{ passwordMessage }}</div>
+    <label class="field"><span class="lbl">Kamera-Passwort</span><input aria-label="Kamera-Passwort" v-model="cameraPassword" type="password" :disabled="savingPassword" autocomplete="new-password" :placeholder="settings.camera_password_set === 'true' ? '••••••••••••' : 'Passwort setzen'" /></label>
+    <p v-if="settings.camera_password_set === 'true'" class="mono-mute">Gespeichert über {{ passwordSource }}</p>
     <div v-if="passwordError" role="alert" class="notice err">{{ passwordError }}</div>
+    <div class="form-actions"><button class="btn ghost" type="button" :disabled="savingPassword" @click="passwordDialog?.requestClose()">Abbrechen</button><button class="btn primary" :disabled="!cameraPassword || savingPassword" type="submit">{{ savingPassword ? 'Speichert…' : 'Passwort speichern' }}</button></div>
   </form>
   </AdminDialog>
   <SettingsForm title="Verbindungen und Automatik" :setting-keys="connectionKeys">

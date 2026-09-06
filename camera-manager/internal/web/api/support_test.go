@@ -108,3 +108,22 @@ func TestSupportEndpointsRequireAdmin(t *testing.T) {
 		}
 	}
 }
+
+func TestSupportReportIncludesUpTo100EventsForDownload(t *testing.T) {
+	a := newAuthTestApp(t)
+	for i := 0; i < 101; i++ {
+		if err := a.Store.AddEvent(context.Background(), "info", "test", "fixture event", nil); err != nil {
+			t.Fatal(err)
+		}
+	}
+	response := performJSON(New(a).Handler(), http.MethodGet, "/api/support", nil, nil)
+	var report struct {
+		Events []state.Event `json:"events"`
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &report); err != nil {
+		t.Fatal(err)
+	}
+	if len(report.Events) != 100 {
+		t.Fatalf("download should include 100 recent events, got %d", len(report.Events))
+	}
+}

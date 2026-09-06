@@ -189,7 +189,7 @@
       <EditableSection title="Kamera-Zugang" :to="`/kamera/${device.id}/bearbeiten#zugang`"><dl class="spec"><div><dt>Benutzername</dt><dd>{{ username || 'Gemeinsame Identität' }}</dd></div><div><dt>Passwort</dt><dd>{{ credentials?.password_set ? 'Kameraspezifisch gespeichert' : identitySummary }}</dd></div><div><dt>Stream</dt><dd>{{ stream }}</dd></div></dl></EditableSection>
       <EditableSection title="Verbindung und Anzeige" :to="`/kamera/${device.id}/bearbeiten#anzeige`"><dl class="spec"><div><dt>Verbindung</dt><dd>{{ activePathLabel }}</dd></div><div><dt>Ausrichtung</dt><dd>{{ displaySummary }}</dd></div></dl><img v-if="previewImageSrc" :src="previewImageSrc" alt="Gespeichertes Referenzbild" class="device-reference" /></EditableSection>
       <EditableSection title="Bild-Upload" :to="`/kamera/${device.id}/bild-upload`"><p class="mono-mute">Bildausschnitt, Privatbereiche, Zeitangabe, Dateiname und Zeitplan für diese Kamera.</p></EditableSection>
-      <RouterLink class="mobile-fab" aria-label="Kamera bearbeiten" :to="`/kamera/${device.id}/bearbeiten`"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m4 16 12-12 4 4-12 12H4zM14 6l4 4"/></svg></RouterLink>
+      <RouterLink class="mobile-fab" aria-label="Kamera bearbeiten" :to="`/kamera/${device.id}/bearbeiten`"><AppIcon name="edit" /></RouterLink>
     </template>
     <SnapshotUpload v-if="uploadEditing" :key="device.id" :device-id="device.id" :camera-label="title" :image-src="previewImageSrc" :username="username" :password="password" :stream="stream" :can-capture="canCapture" :camera-busy="busy" />
 
@@ -203,6 +203,7 @@
 </template>
 
 <script setup lang="ts">
+import AppIcon from '../components/AppIcon.vue'
 import EditableSection from '../components/EditableSection.vue'
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'

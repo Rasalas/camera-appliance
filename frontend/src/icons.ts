@@ -1,26 +1,16 @@
+import {
+  House, MonitorPlay, Camera, Upload, Server, SlidersHorizontal, ShieldCheck,
+  Network, UserRound, Wrench, Activity, History, RefreshCw, Headset, Logs, Info,
+  Plus, Pencil, Mail, Download, ExternalLink, Coffee, Heart, Search, EllipsisVertical, X, ChevronRight
+} from '@lucide/vue'
+
+// Import individual library components so unused icons stay out of the bundle.
 export const icons = {
-  home: ['m3 10 9-7 9 7v11h-6v-7H9v7H3z'],
-  live: ['M3 4h18v13H3zM8 21h8M12 17v4', 'm10 8 5 3-5 3z'],
-  camera: ['M3 7h4l2-3h6l2 3h4v13H3z', 'M16 13a4 4 0 1 1-8 0 4 4 0 0 1 8 0'],
-  upload: ['M12 16V3m-5 5 5-5 5 5M4 15v6h16v-6'],
-  system: ['M4 3h16v7H4zM4 14h16v7H4zM8 6h.01M8 17h.01'],
-  settings: ['M4 7h16M4 17h16M8 4v6M16 14v6'],
-  shield: ['M12 3 3 7v5c0 5 9 9 9 9s9-4 9-9V7z', 'm8 12 3 3 5-6'],
-  relay: ['M3 3h6v6H3zM15 15h6v6h-6zM6 9v9h9M15 6h6m-3-3 3 3-3 3'],
-  identity: ['M16 7a4 4 0 1 1-8 0 4 4 0 0 1 8 0M4 21v-2a8 8 0 0 1 16 0v2'],
-  tools: ['m14 6 4 4M3 21l8-8M14 3l-4 4 7 7 4-4M3 3l6 6M2 2l3 1-2 2z'],
-  activity: ['M2 12h5l3-8 4 16 3-8h5'],
-  backup: ['M4 9V4h5M4 4a10 10 0 1 1-2 10M12 7v5l4 2'],
-  update: ['M20 7V3l-4 4h4M4 17v4l4-4H4M20 7a9 9 0 0 0-16 1M4 17a9 9 0 0 0 16-1'],
-  support: ['M4 14v-3a8 8 0 0 1 16 0v3M4 11H2v7h4v-7zM20 11h2v7h-4v-7zM20 18v3h-8'],
-  log: ['M4 3h16v18H4zM8 7h8M8 12h8M8 17h5'],
-  info: ['M22 12a10 10 0 1 1-20 0 10 10 0 0 1 20 0M12 11v6M12 7h.01'],
-  plus: ['M12 4v16M4 12h16'],
-  edit: ['m4 16 12-12 4 4-12 12H4zM14 6l4 4'],
-  mail: ['M3 5h18v14H3zM3 5l9 8 9-8'],
-  download: ['M12 3v13m-5-5 5 5 5-5M4 17v4h16v-4'],
-  external: ['M14 3h7v7M21 3 10 14M10 3H3v18h18v-7'],
-  coffee: ['M3 7h13v8a5 5 0 0 1-5 5H8a5 5 0 0 1-5-5zM16 8h2a3 3 0 0 1 0 6h-2M6 2v2M11 2v2'],
-  heart: ['M20 4c-3-2-6 0-8 3-2-3-5-5-8-3-6 4 0 11 8 17 8-6 14-13 8-17']
+  home: House, live: MonitorPlay, camera: Camera, upload: Upload, system: Server,
+  settings: SlidersHorizontal, shield: ShieldCheck, relay: Network, identity: UserRound,
+  tools: Wrench, activity: Activity, backup: History, update: RefreshCw, support: Headset,
+  log: Logs, info: Info, plus: Plus, edit: Pencil, mail: Mail, download: Download,
+  external: ExternalLink, coffee: Coffee, heart: Heart, search: Search,
+  overflow: EllipsisVertical, close: X, chevron: ChevronRight
 } as const
 export type IconName = keyof typeof icons

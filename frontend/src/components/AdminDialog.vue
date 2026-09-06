@@ -1,12 +1,13 @@
 <template>
   <dialog ref="dialog" class="admin-dialog" :class="{ 'discard-dialog': compact }" :aria-label="title" @cancel.prevent="requestClose" @click="outside" @touchstart.passive="touchStart" @touchmove="touchMove" @touchend="touchEnd" @touchcancel="resetDrag">
     <div class="dialog-surface" :style="{ transform: `translateY(${dragY}px)` }">
-      <header class="modal-head"><h2>{{ title }}</h2><button class="btn icon ghost" type="button" aria-label="Schließen" :disabled="busy" @click="requestClose"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18" /></svg></button></header>
+      <header class="modal-head"><h2>{{ title }}</h2><button class="btn icon ghost" type="button" aria-label="Schließen" :disabled="busy" @click="requestClose"><AppIcon name="close" /></button></header>
       <div ref="body" class="dialog-body"><slot /></div>
     </div>
   </dialog>
 </template>
 <script setup lang="ts">
+import AppIcon from './AppIcon.vue'
 import { nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { askDiscard } from '../composables/discardChanges'
 const props = defineProps<{ open: boolean; title: string; dirty?: boolean; busy?: boolean; compact?: boolean }>()

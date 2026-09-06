@@ -11,11 +11,11 @@ import SystemAccessPage from '../pages/system/AccessPage.vue'
 import SystemNetworkPage from '../pages/system/NetworkPage.vue'
 import SystemRelayDetailPage from '../pages/system/RelayDetailPage.vue'
 import SystemIdentitiesPage from '../pages/system/IdentitiesPage.vue'
+import { legacyMaintenanceDestination } from '../navigation'
+import MaintenanceHomePage from '../pages/maintenance/MaintenanceHomePage.vue'
 import WatchdogPage from '../pages/maintenance/WatchdogPage.vue'
 import BackupPage from '../pages/maintenance/BackupPage.vue'
-import UpdatesPage from '../pages/maintenance/UpdatesPage.vue'
 import SupportPage from '../pages/maintenance/SupportPage.vue'
-import EventsPage from '../pages/maintenance/EventsPage.vue'
 import DeviceDetailsPage from '../pages/DeviceDetailsPage.vue'
 import LoginPage from '../pages/LoginPage.vue'
 import { api } from '../api/client'
@@ -36,9 +36,9 @@ const router = createRouter({
       component: SystemLayout,
       meta: { requiresAdmin: true },
       children: [
-        { path: '', redirect: '/system/allgemein' },
+        { path: '', name: 'system-general', component: SystemGeneralPage, meta: { title: 'System' } },
         { path: 'ueber', component: AboutPage, meta: { title: 'Über Watchdeck' } },
-        { path: 'allgemein', name: 'system-general', component: SystemGeneralPage, meta: { title: 'Allgemein' } },
+        { path: 'allgemein', redirect: to => ({ path: '/system', query: to.query, hash: to.hash }) },
         { path: 'bild-upload', name: 'system-upload', redirect: '/kameras/bild-upload' },
         { path: 'zugriff', name: 'system-access', component: SystemAccessPage, meta: { title: 'Zugriff' } },
         { path: 'relays', name: 'system-relays', component: SystemNetworkPage, meta: { title: 'Relays' } },
@@ -46,12 +46,12 @@ const router = createRouter({
         { path: 'netzwerk', redirect: '/system/relays' },
         { path: 'identitaeten', name: 'system-identities', component: SystemIdentitiesPage, meta: { title: 'Identitäten' } },
         { path: 'identitaeten/:id', component: IdentityDetailPage, meta: { title: 'Identität' } },
-        { path: 'wartung', name: 'system-maintenance', redirect: to => ({ path: '/system/wartung/' + ({ '#backup': 'sicherung', '#sicherung': 'sicherung', '#updates': 'updates', '#version': 'updates', '#support': 'support', '#events': 'ereignisse', '#ereignisse': 'ereignisse' }[to.hash] || 'watchdog'), query: to.query, hash: '' }) },
+        { path: 'wartung', name: 'system-maintenance', component: MaintenanceHomePage, meta: { title: 'Wartung' } },
         { path: 'wartung/watchdog', component: WatchdogPage, meta: { title: 'Watchdog' } },
         { path: 'wartung/sicherung', component: BackupPage, meta: { title: 'Sicherung' } },
-        { path: 'wartung/updates', component: UpdatesPage, meta: { title: 'Version und Updates' } },
+        { path: 'wartung/updates', redirect: to => ({ path: '/system/ueber', hash: '#updates', query: to.query }) },
         { path: 'wartung/support', component: SupportPage, meta: { title: 'Support' } },
-        { path: 'wartung/ereignisse', component: EventsPage, meta: { title: 'Ereignisprotokoll' } }
+        { path: 'wartung/ereignisse', redirect: to => ({ path: '/system/wartung/support', hash: '#ereignisse', query: to.query }) }
       ]
     },
     { path: '/kamera/:id/bearbeiten', name: 'device-edit', component: DeviceDetailsPage, meta: { requiresAdmin: true } },
@@ -76,6 +76,10 @@ const router = createRouter({
 })
 
 router.beforeEach(async (to) => {
+  if (to.path === '/system/wartung') {
+    const destination = legacyMaintenanceDestination(to.hash)
+    if (destination) return { path: destination, query: to.query, replace: true }
+  }
   if (to.path === '/verwaltung' && window.matchMedia('(min-width: 821px)').matches) return { path: '/einrichtung', replace: true }
   if (to.name === 'login') return true
   let auth: AuthStatus

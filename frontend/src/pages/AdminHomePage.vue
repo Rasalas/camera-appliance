@@ -7,11 +7,11 @@
 import { onBeforeUnmount, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import AppIcon from '../components/AppIcon.vue'
-import { cameraPages, systemPages, maintenancePages, aboutPage } from '../navigation'
+import { cameraPages, systemPage, systemPages, maintenancePage, maintenancePages, aboutPage } from '../navigation'
 const groups = [
   { title: 'Kameras', items: [{to:'/',label:'Live-Ansicht',icon:'live' as const}, ...cameraPages] },
-  { title: 'System', items: systemPages },
-  { title: 'Wartung', items: maintenancePages },
+  { title: 'System', items: [systemPage, ...systemPages] },
+  { title: 'Wartung', items: [maintenancePage, ...maintenancePages] },
   { title: 'Projekt', items: [aboutPage] }
 ]
 const router = useRouter()

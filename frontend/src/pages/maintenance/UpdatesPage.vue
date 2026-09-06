@@ -3,10 +3,10 @@
     <div class="panel-head"><h2>Software aktualisieren</h2></div>
     <p class="mono-mute">{{ versionDetail }}</p>
     <UpdateInfo :phase="flow?.phase || 'idle'" :status="flow" />
-    <div class="btn-row">
-      <button v-if="flow?.phase === 'available'" class="btn primary" :disabled="busy" @click="client.download()">Update herunterladen</button>
-      <button v-else-if="flow?.phase === 'ready'" class="btn primary" :disabled="busy" @click="client.install()">Jetzt aktualisieren</button>
-      <button v-else class="btn primary" :disabled="busy || working" @click="client.check()">{{ working ? 'Update läuft…' : 'Nach Updates suchen' }}</button>
+    <div class="btn-row update-actions">
+      <button v-if="flow?.phase === 'available'" class="btn primary" :disabled="busy" @click="client.download()"><AppIcon name="download" />Update herunterladen</button>
+      <button v-else-if="flow?.phase === 'ready'" class="btn primary" :disabled="busy" @click="client.install()"><AppIcon name="upload" />Jetzt aktualisieren</button>
+      <button v-else class="btn primary" :disabled="busy || working" @click="client.check()"><AppIcon name="update" />{{ working ? 'Update läuft…' : 'Nach Updates suchen' }}</button>
     </div>
     <p class="mono-mute">Ein laufendes Update wird auch beim Wechsel auf eine andere Seite weiter überwacht.</p>
   </section>
@@ -22,6 +22,7 @@
   </details>
 </template>
 <script setup lang="ts">
+import AppIcon from '../../components/AppIcon.vue'
 import { computed, onMounted, ref } from 'vue'
 import UpdateInfo from '../../components/UpdateInfo.vue'
 import { useUpdateFlow } from '../../composables/useUpdateFlow'
@@ -35,6 +36,7 @@ function customInstall() { return client.install(()=>api.startUpdate(url.value.t
 onMounted(()=>void client.refresh())
 </script>
 <style scoped>
+.update-actions { justify-content:flex-end; }
 .custom-update { display:grid;gap:16px;border:0;padding:16px 0 0;margin:0; }
-.custom-update .btn { justify-self:start; }
+.custom-update .btn { justify-self:end; }
 </style>
