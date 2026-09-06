@@ -34,10 +34,11 @@
       </fieldset>
     </form>
   </section>
-  <RouterLink v-if="!editing" class="mobile-fab" aria-label="Upload-Server bearbeiten" to="/kameras/bild-upload/bearbeiten"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m4 16 12-12 4 4-12 12H4zM14 6l4 4"/></svg></RouterLink>
+  <RouterLink v-if="!editing" class="mobile-fab" aria-label="Upload-Server bearbeiten" to="/kameras/bild-upload/bearbeiten"><AppIcon name="edit" /></RouterLink>
 </template>
 
 <script setup lang="ts">
+import AppIcon from '../components/AppIcon.vue'
 import EditableSection from '../components/EditableSection.vue'
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'

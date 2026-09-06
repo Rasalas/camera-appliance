@@ -45,7 +45,7 @@
       </div>
       <p class="mono-mute">Speichern startet das Relay neu, damit die Konfiguration wirksam wird.</p>
     </SettingsForm>
-    <button class="mobile-fab" aria-label="Relay bearbeiten" @click="configEditor?.edit()"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m4 16 12-12 4 4-12 12H4zM14 6l4 4"/></svg></button>
+    <button class="mobile-fab" aria-label="Relay bearbeiten" @click="configEditor?.edit()"><AppIcon name="edit" /></button>
     <AdminDialog :open="confirmRemove" title="Relay entfernen?" compact :busy="busy !== ''" @close="confirmRemove=false"><p>„{{ relayName(relayId) }}“ wird aus der Konfiguration entfernt. Kameras können diesen Ersatzpfad anschließend nicht mehr nutzen.</p><div class="form-actions"><button class="btn" @click="confirmRemove=false">Abbrechen</button><button class="btn danger" @click="onRemove">Entfernen</button></div></AdminDialog>
 
     <section class="panel">
@@ -74,6 +74,7 @@
 </template>
 
 <script setup lang="ts">
+import AppIcon from '../../components/AppIcon.vue'
 import { computed, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import SettingsForm from '../../components/SettingsForm.vue'

@@ -13,7 +13,7 @@ import (
 )
 
 func (s *Server) getSupportReport(w http.ResponseWriter, r *http.Request) {
-	events, err := s.app.Store.Events(r.Context(), 20)
+	events, err := s.app.Store.Events(r.Context(), 100)
 	if err != nil {
 		writeError(w, err, http.StatusInternalServerError)
 		return

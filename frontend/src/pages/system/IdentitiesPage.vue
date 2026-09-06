@@ -1,12 +1,13 @@
 <template>
+  <Teleport defer to="#system-page-actions"><button class="btn primary desktop-primary" @click="editing=true"><AppIcon name="plus" />Identität hinzufügen</button></Teleport>
   <section class="panel">
-    <div class="panel-head"><h2>Kamera-Identitäten</h2><button class="btn primary desktop-primary" @click="editing=true"><AppIcon name="plus" />Identität hinzufügen</button></div>
+    <div class="panel-head"><h2>Kamera-Identitäten</h2></div>
     <p class="mono-mute">Wiederverwendbare Kamera-Logins. Beim Bildtest werden sie für Kameras ohne eigenes Passwort ausprobiert.</p>
     <p class="mono-mute">{{ credentialIdentities.length }} gespeichert · nach Name sortiert</p>
     <div v-if="!credentialIdentities.length" class="empty">Noch keine Identitäten. Füge einen gemeinsamen Kamera-Login hinzu.</div>
     <div v-else class="identity-list"><div v-for="identity in sorted" :key="identity.id" class="identity-resource-row" @click="openRow($event,identity.id)"><RouterLink :to="`/system/identitaeten/${identity.id}`">{{ identity.name }}</RouterLink><span>{{ identity.username }}</span><span class="mono-mute">{{ identity.password_set ? 'Passwort gespeichert' : 'Kein Passwort' }}</span><button class="btn ghost" :disabled="busy" @click="duplicate(identity)">Duplizieren</button></div></div>
   </section>
-  <button class="mobile-fab" aria-label="Identität hinzufügen" @click="editing=true"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v16M4 12h16"/></svg></button>
+  <button class="mobile-fab" aria-label="Identität hinzufügen" @click="editing=true"><AppIcon name="plus" /></button>
   <IdentityEditor :open="editing" @close="editing=false" />
 </template>
 <script setup lang="ts">

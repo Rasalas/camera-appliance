@@ -1,47 +1,50 @@
 # Administration navigation and support verification
 
-The September 6 follow-up addresses feedback on v0.5.0:
+The September 6 revision incorporates the sidebar and action-placement feedback:
 
-- Home is mobile-only. Desktop `/verwaltung` opens the camera list; resizing
-  an open Home page to desktop also redirects there.
-- Sidebar destinations have consistent SVG icons, indented children and a
-  full-width active background. System and Maintenance are non-link group
-  labels. Camera, identity, relay and upload details retain their parent target.
-  Version uses the same label/value columns as time and login.
-- `EditableSection` opens the existing edit action when its free surface is
-  clicked. Native buttons and links remain keyboard accessible. Text selection,
-  modifier clicks and nested controls are excluded. Dialogs are outside the
-  clickable surface to avoid reopening on close.
-- Access is grouped into Network, Administration and Live View. Passwords remain
-  separate protected actions within their corresponding group. Shared session
-  duration explicitly applies to admin and viewer sessions.
-- Add actions include plus icons. About includes project attribution, the
-  authorized MIT license and the owner's existing support links.
-- Support prepares a mail draft addressed to `mail@tbuck.de`. Diagnostics are
-  editable and opt-in. It never sends mail or attaches files automatically.
-  A POST creates a redacted bundle for download; the server accepts no source
-  or output path and removes the temporary archive after serving it.
+- Navigation and shared actions use pinned `@lucide/vue` components, with the
+  package's complete license notice shipped locally. Navigation has 14 px main
+  items, 13 px indented children, a full-row active background and a straight
+  3 px left border with zero left corner radius. Only the current destination
+  has `aria-current`; its actual parent is emphasized separately.
+- System opens the general settings directly at `/system`. Maintenance opens an
+  overview at `/system/wartung`. Old general, update and event routes/anchors
+  redirect to their current destinations. Mobile Home retains direct access.
+- Camera, relay and identity creation actions sit at the right of the page
+  header. Dialog cancellation and primary actions align right at desktop and
+  mobile widths; no new delete operations were added.
+- Free-surface editing, selection exclusions, native links/buttons, keyboard
+  behavior and protected drafts remain in use.
+- Updates live under About. The application layout retains background recovery
+  and the existing six-hour check independently of the About page.
+- Support shows five redacted events. The text download contains up to 100;
+  the separate diagnostic archive adds status, camera connections and settings.
+  Download failures retain the draft and allow retry. Email opens a draft for
+  `mail@tbuck.de`; version/log inclusion is opt-in. Files are attached manually.
 
 ## Checks
 
-The original reproduction clicked the actual rendered Display summary and
-failed because the editor remained closed. It passes after the shared section
-component was introduced.
+Before the navigation change, the browser reproduction failed because System
+was not a link. The shared fixture now verifies keyboard navigation through
+System and Maintenance as well as aliases, parents and current destinations.
 
 `frontend/tests/fixtures/admin_navigation_browser.js` runs against the actual
-Vue app with deterministic API fixtures. Open a Playwright CLI session, run the
-Vite server on port 18174, create `output/playwright`, and pass the fixture to
-`playwright-cli run-code`. It checks desktop Home redirects, section clicks,
-selection exclusion, keyboard activation, cancel without writes, scoped save,
-nested password controls, active-row backgrounds, footer columns, icons,
-camera/identity/upload editor routes, mail opt-in, download retry and mobile
-layouts at 390 and 320 px. Screenshots disable route animations.
+Vue application with deterministic API fixtures. Start Vite on port 18174,
+open a Playwright CLI session, create `output/playwright`, and pass the fixture
+text to `playwright-cli run-code`. It checks actual Lucide SVGs, active-edge
+geometry, type sizes, right-aligned headers and dialog actions, editing and
+cancellation, old-route redirects, updates under About and polling away from
+About, five-event preview, both downloads and retry, mail opt-in, and layouts
+at 390 and 320 px. Screenshots disable route animations and were inspected.
+The downloaded text was independently checked to contain all eight fixture
+entries, although the preview displays only five.
 
-The browser download is a fixture response. Go API tests separately verify the
-real compressed archive contents, credential masking, temporary-file cleanup,
-rejection of unauthenticated/viewer access and diagnostic-detail omission.
-`go test -race ./...`, `go vet ./...`, all 25 frontend tests and the production
-build pass. No camera upload or email was sent during verification.
+The browser archive response is a fixture. Go tests independently verify real
+archive contents, credential masking, temporary-file cleanup, rejection of
+unauthenticated/viewer access and omission of raw event details. The new
+100-event contract test failed with the old 20-event limit before the change.
+All 27 frontend tests, the production build, relevant Go API tests with race
+checking and Go API vet passed locally. Release CI runs the full checks.
 
-Physical mobile keyboards, assistive technology and an external mail client
-were not available. Bundle attachment remains a manual mail-client action.
+No camera upload or email was sent. Physical mobile keyboards, assistive
+technology and external mail clients were not available for verification.

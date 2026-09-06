@@ -1,5 +1,5 @@
 <template>
-  <header class="topline"><h1 class="headline">{{ activeLabel }}</h1></header>
+  <header class="topline"><h1 class="headline">{{ activeLabel }}</h1><div id="system-page-actions" class="page-actions" /></header>
 
   <div v-if="error" class="notice err"><span class="tag">FEHLER</span>{{ error }}</div>
 

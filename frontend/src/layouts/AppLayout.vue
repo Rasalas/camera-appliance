@@ -8,7 +8,7 @@
 
       <AdminSearch v-if="canAdmin" />
       <div class="mobile-overflow" v-if="auth?.enabled">
-        <button ref="overflowTrigger" class="btn icon ghost" aria-label="Weitere Aktionen" :aria-expanded="overflowOpen" @click="overflowOpen = !overflowOpen">⋮</button>
+        <button ref="overflowTrigger" class="btn icon ghost" aria-label="Weitere Aktionen" :aria-expanded="overflowOpen" @click="overflowOpen = !overflowOpen"><AppIcon name="overflow" /></button>
         <div v-if="overflowOpen" ref="overflowPopup" class="overflow-popover" @keydown.esc="closeOverflow">
           <button v-if="auth.authenticated" class="btn ghost" @click="logout">Logout</button>
           <RouterLink v-else class="btn" to="/login">Login</RouterLink>
@@ -20,24 +20,18 @@
           <AdminNavLink :item="cameraPages[0]!" />
           <div class="nav-children" aria-label="Kameras"><AdminNavLink :item="cameraPages[1]!" /></div>
         </div>
-        <div v-if="canAdmin" class="nav-group" role="group" aria-labelledby="nav-system">
-          <div id="nav-system" class="nav-group-label"><AppIcon name="system" /><span>System</span></div>
+        <div v-if="canAdmin" class="nav-group" role="group" aria-label="System">
+          <AdminNavLink :item="systemPage" />
           <div class="nav-children"><AdminNavLink v-for="item in systemPages" :key="item.to" :item="item" /></div>
         </div>
-        <div v-if="canAdmin" class="nav-group" role="group" aria-labelledby="nav-maintenance">
-          <div id="nav-maintenance" class="nav-group-label"><AppIcon name="tools" /><span>Wartung</span></div>
+        <div v-if="canAdmin" class="nav-group" role="group" aria-label="Wartung">
+          <AdminNavLink :item="maintenancePage" />
           <div class="nav-children"><AdminNavLink v-for="item in maintenancePages" :key="item.to" :item="item" /></div>
         </div>
         <AdminNavLink v-if="canAdmin" :item="aboutPage" />
       </nav>
 
-      <!-- Pinned bottom block: update control, metadata rows, then the auth
-           action. On narrow screens the control moves up into the brand row. -->
       <div class="rail-bottom">
-        <div class="rail-tray">
-          <UpdatePanel :visible="canAdmin" />
-        </div>
-
         <div class="rail-foot">
           <div class="row"><span>Stand</span><b>{{ clock }}</b></div>
           <div class="row"><span>Login</span><b>{{ roleLabel }}</b></div>
@@ -69,17 +63,16 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { api } from '../api/client'
 import type { AuthStatus } from '../types'
-import UpdatePanel from '../components/UpdatePanel.vue'
 import AdminSearch from '../components/AdminSearch.vue'
 import DiscardChanges from '../components/DiscardChanges.vue'
 import AppIcon from '../components/AppIcon.vue'
 import AdminNavLink from '../components/AdminNavLink.vue'
-import { cameraPages, systemPages, maintenancePages, aboutPage } from '../navigation'
-import { provideUpdateFlow } from '../composables/useUpdateFlow'
+import { cameraPages, systemPage, systemPages, maintenancePage, maintenancePages, aboutPage } from '../navigation'
+import { provideUpdateFlow, useUpdateMonitoring } from '../composables/useUpdateFlow'
 
 const router = useRouter()
 const route = useRoute()
-provideUpdateFlow()
+const updateFlow = provideUpdateFlow()
 const versionLabel = ref('…')
 const overflowOpen = ref(false), overflowTrigger = ref<HTMLElement>(), overflowPopup = ref<HTMLElement>()
 function closeOverflow() { overflowOpen.value = false; overflowTrigger.value?.focus() }
@@ -91,6 +84,7 @@ const auth = ref<AuthStatus>()
 const isViewer = computed(() => route.name === 'viewer')
 
 const canAdmin = computed(() => auth.value ? (!auth.value.enabled || auth.value.role === 'admin') : false)
+useUpdateMonitoring(updateFlow, canAdmin)
 const roleLabel = computed(() => {
   if (!auth.value?.enabled) return 'offen'
   if (auth.value.role === 'admin') return auth.value.local_admin_bypass_now ? 'Host' : 'Admin'

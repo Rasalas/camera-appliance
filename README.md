@@ -99,9 +99,10 @@ Do not put camera DHCP IPs into viewer configuration.
 ## Einzelbilder per FTP/SFTP hochladen
 
 Die Seitenleiste trennt **Live-Ansicht**, **Kameras**, **System** und **Wartung**.
-Unter System stehen Allgemein, Zugriff, Relays und Identitäten. Wartung enthält
-fünf eigene Seiten: Watchdog, Sicherung, Updates, Support und
-Ereignisprotokoll. Bestehende Links wie `/system/bild-upload`, `/backup` und
+System öffnet direkt die allgemeinen Einstellungen; darunter stehen Zugriff,
+Relays und Identitäten. Wartung öffnet eine Übersicht mit Watchdog, Sicherung
+und Support. Updates findest du unter Über Watchdeck, das Ereignisprotokoll
+unter Support. Bestehende Links wie `/system/bild-upload`, `/backup` und
 `/events` werden auf die passenden Seiten weitergeleitet. Auf schmalen
 Bildschirmen führt **Home** unter `/verwaltung` zu allen Zielen. Die untere
 Navigation hält Home, Kameras und Live-Ansicht erreichbar. Die Suche unter dem
@@ -264,14 +265,21 @@ Use `camera-appliance backup` before customer changes. Use `camera-appliance res
 
 ## Support und Projektinformationen
 
-Unter **Wartung → Support** kannst du ein Problem beschreiben und eine E-Mail
-an `mail@tbuck.de` vorbereiten. Der Diagnoseauszug lässt sich vorab prüfen und
-bearbeiten; er wird nur auf Wunsch in den Entwurf übernommen. Das Support-Bundle
-wird auf der Station erstellt und im Browser zum Download angeboten. Hänge das
-Archiv anschließend selbst an die E-Mail an. Es wird nichts automatisch versendet.
+Unter **Wartung → Support** siehst du die letzten fünf Ereignisse. Der
+Protokoll-Download enthält bis zu 100 Einträge als Text. Das Diagnosepaket
+ergänzt Systemstatus, Kamera-Verbindungen und Einstellungen; Zugangsdaten
+werden maskiert.
+
+Dort kannst du auch ein Problem beschreiben und eine E-Mail an `mail@tbuck.de`
+vorbereiten. Version und Protokollvorschau werden nur auf Wunsch übernommen.
+Heruntergeladene Dateien hängst du selbst an. Es wird nichts automatisch versendet.
 
 **Über Watchdeck** enthält Projektinformationen, die installierte Version,
-Unterstützungslinks und den vollständigen Text der [MIT-Lizenz](LICENSE).
-Die Home-Seite ist für Mobilgeräte gedacht; auf Desktop führt `/verwaltung`
-zur Kameraliste. In der Seitenleiste markieren Hintergrundfarbe und Seitenkante
-das aktive Ziel, auch auf dessen Detail- und Bearbeitungsseiten.
+Update-Prüfung und Installation, Unterstützungslinks und den Text der
+[MIT-Lizenz](LICENSE). Laufende Updates werden beim Seitenwechsel weiter überwacht.
+Die Icon-Bibliothek Lucide und ihre Lizenzhinweise werden lokal ausgeliefert.
+
+Home ist für Mobilgeräte gedacht; auf Desktop führt `/verwaltung` zur Kameraliste.
+In der Seitenleiste markieren Hintergrundfarbe und eine gerade linke Kante das
+aktive Ziel. Unterpunkte sind kleiner und eingerückt. Alte Links auf Allgemein,
+Updates und das Ereignisprotokoll werden auf die neuen Ziele weitergeleitet.

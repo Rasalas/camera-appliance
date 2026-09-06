@@ -1,10 +1,11 @@
 <template>
+  <Teleport defer to="#system-page-actions"><button class="btn primary desktop-primary" type="button" @click="openRelayModal"><AppIcon name="plus" />Relay hinzufügen</button></Teleport>
   <section class="panel">
     <div class="panel-head">
       <h2>Relays</h2>
       <div class="device-head-actions">
         <div class="right">{{ relayIds.length ? `${relayIds.length} eingerichtet` : 'nicht eingerichtet' }}</div>
-        <button class="btn primary desktop-primary" type="button" @click="openRelayModal"><AppIcon name="plus" />Relay hinzufügen</button>
+
       </div>
     </div>
 
@@ -29,7 +30,7 @@
     </div>
   </section>
 
-  <button class="mobile-fab" aria-label="Relay hinzufügen" @click="openRelayModal"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v16M4 12h16"/></svg></button>
+  <button class="mobile-fab" aria-label="Relay hinzufügen" @click="openRelayModal"><AppIcon name="plus" /></button>
   <AdminDialog ref="relayDialog" :open="showRelayModal" title="Relay hinzufügen" :dirty="relayDirty" :busy="savingRelay" @close="showRelayModal=false">
     <form @submit.prevent="onAddRelay">
       <div class="split">

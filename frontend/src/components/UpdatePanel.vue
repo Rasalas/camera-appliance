@@ -17,17 +17,7 @@
     >
       <!-- Download arrow for a pending release, install arrow when ready,
            refresh otherwise. -->
-      <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-        <template v-if="isReady">
-          <path d="M12 21V9" /><path d="m7 14 5-5 5 5" /><path d="M4 3h16" />
-        </template>
-        <template v-else-if="hasUpdate || phase === 'downloading'">
-          <path d="M12 3v12" /><path d="m7 10 5 5 5-5" /><path d="M4 21h16" />
-        </template>
-        <template v-else>
-          <path d="M21 12a9 9 0 1 1-2.64-6.36" /><path d="M21 3v6h-6" />
-        </template>
-      </svg>
+      <AppIcon :name="isReady ? 'upload' : hasUpdate || phase === 'downloading' ? 'download' : 'update'" />
       <span v-if="showBadge" class="update-badge" />
 
       <!-- Progress ring: fills with the real download share, spins while the
@@ -84,9 +74,7 @@
               <h3>{{ headline }}</h3>
               <span v-if="versionChip" class="update-version">{{ versionChip }}</span>
               <button class="update-icon-btn" type="button" aria-label="Schließen" title="Schließen" @click="closeMobile">
-                <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" aria-hidden="true">
-                  <path d="M6 6l12 12M18 6 6 18" />
-                </svg>
+                <AppIcon name="close" />
               </button>
             </header>
 
@@ -113,6 +101,7 @@
 </template>
 
 <script setup lang="ts">
+import AppIcon from './AppIcon.vue'
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useUpdateFlow } from '../composables/useUpdateFlow'
 import type { UpdateFlowPhase } from '../types'

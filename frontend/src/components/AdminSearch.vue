@@ -1,6 +1,6 @@
 <template>
   <div class="admin-search">
-    <button ref="trigger" class="search-trigger btn" aria-label="Verwaltung durchsuchen" aria-haspopup="dialog" :aria-expanded="open" @click="toggle"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 5 5"/></svg><span>Suchen</span><kbd>⌘ K</kbd></button>
+    <button ref="trigger" class="search-trigger btn" aria-label="Verwaltung durchsuchen" aria-haspopup="dialog" :aria-expanded="open" @click="toggle"><AppIcon name="search" /><span>Suchen</span><kbd>⌘ K</kbd></button>
     <section v-if="open" ref="popup" class="search-popover" role="dialog" aria-label="Verwaltung durchsuchen" @keydown.esc.stop.prevent="close" @keydown="trap">
       <div class="search-input-row"><input ref="input" v-model="query" type="search" placeholder="Name, IP oder Benutzername" aria-label="Suchbegriff" autocomplete="off" role="combobox" aria-autocomplete="list" aria-controls="resource-results" aria-expanded="true" :aria-activedescendant="results[active] ? `search-${active}` : undefined" @keydown.down.prevent="move(1)" @keydown.up.prevent="move(-1)" @keydown.enter.prevent="choose" /><button class="btn icon ghost" aria-label="Suche schließen" @click="close">×</button></div>
       <fieldset v-if="currentKind" class="search-scope"><legend class="sr-only">Suchbereich</legend><label><input v-model="scope" type="radio" value="all" />Alle Bereiche</label><label><input v-model="scope" type="radio" :value="currentKind" />Nur {{ currentKind }}</label></fieldset>
@@ -17,6 +17,7 @@
   </div>
 </template>
 <script setup lang="ts">
+import AppIcon from './AppIcon.vue'
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { api } from '../api/client'

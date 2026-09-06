@@ -1,11 +1,10 @@
 <template>
   <header class="topline">
-    <div>
-      <h1 class="headline">Kameras</h1>
-    </div>
-    <div class="meta">
-      <div>Gefunden · <b>{{ assignableDevices.length }}</b></div>
-      <div>Sichtbar · <b>{{ shownCount }}/{{ slots.length }}</b></div>
+    <div><h1 class="headline">Kameras</h1><p class="mono-mute">{{ assignableDevices.length }} gefunden · {{ shownCount }}/{{ slots.length }} sichtbar</p></div>
+    <div class="page-actions">
+      <button class="btn ghost" :disabled="busy === 'scan'" @click="runDiscovery"><AppIcon name="search" />{{ busy === 'scan' ? 'Suche läuft…' : 'Kameras suchen' }}</button>
+      <button class="btn ghost" :disabled="!!busy || !shownCount" @click="refreshFrames">{{ busy === 'frames' ? 'Vorschau wird geladen…' : 'Vorschau aktualisieren' }}</button>
+      <button class="btn primary desktop-primary" type="button" aria-label="Kamera hinzufügen" title="Kamera per RTSP hinzufügen" @click="showManualModal = true"><AppIcon name="plus" />Kamera hinzufügen</button>
     </div>
   </header>
 
@@ -35,17 +34,6 @@
     </div>
   </section>
 
-  <div class="btn-row">
-    <button class="btn primary" :disabled="busy === 'scan'" @click="runDiscovery">
-      {{ busy === 'scan' ? 'Suche läuft…' : 'Kameras suchen' }}
-    </button>
-    <button class="btn" :disabled="!!busy || !shownCount" @click="refreshFrames">
-      {{ busy === 'frames' ? 'Vorschau wird geladen…' : 'Vorschau aktualisieren' }}
-    </button>
-    <button class="btn desktop-primary" type="button" aria-label="Kamera hinzufügen" title="Kamera per RTSP hinzufügen" @click="showManualModal = true"><AppIcon name="plus" />Kamera hinzufügen</button>
-    <div class="spacer" />
-    <span v-if="busy === 'scan'" class="mono-mute" style="font-size: 11px;">RTSP · ONVIF · ARP</span>
-  </div>
   <div v-if="busy === 'scan'" class="progress" />
 
   <section v-if="blockingSlots.length" class="panel">
@@ -114,7 +102,7 @@
     </div>
   </section>
 
-  <button class="mobile-fab" aria-label="Kamera hinzufügen" @click="showManualModal=true"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v16M4 12h16"/></svg></button>
+  <button class="mobile-fab" aria-label="Kamera hinzufügen" @click="showManualModal=true"><AppIcon name="plus" /></button>
   <AdminDialog ref="manualDialog" :open="showManualModal" title="Kamera per RTSP hinzufügen" :dirty="manualDirty" :busy="busy === 'manual'" @close="showManualModal=false">
     <form @submit.prevent="addManual">
       <div class="split manual-add">
