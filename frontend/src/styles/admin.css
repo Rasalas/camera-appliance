@@ -18,7 +18,8 @@
 :focus-visible { outline:2px solid var(--live);outline-offset:4px; }
 .admin-canvas .panel { border:0;padding-top:0; }
 .admin-canvas .panel.card,.admin-canvas .edit-section { border:1px solid var(--hairline-strong);border-radius:8px;background:transparent;padding:var(--admin-section-padding);width:100%; }
-.admin-canvas .edit-section:hover,.admin-canvas .edit-section:focus-within { background:var(--surface); }
+.admin-canvas .section-clickable { cursor:pointer; }
+.admin-canvas .section-clickable:hover,.admin-canvas .section-clickable:focus-within { background:var(--surface);border-color:var(--ink-dim); }
 .admin-canvas .panel-head { align-items:center;margin:0; }
 .admin-canvas .panel-head h2 { margin:0; }
 .admin-canvas .field { align-content:start;min-width:0; }
@@ -53,6 +54,22 @@
 .home-group h2 { margin:16px 0 12px; }
 .home-group a { display:flex;justify-content:space-between;align-items:center;padding:18px 0;border-bottom:1px solid var(--hairline);min-height:56px; }
 .home-group a:hover { color:var(--live); }
+.home-group a { gap:14px; }
+.home-label { flex:1; }
+.rail .nav { gap:4px; }
+.rail .nav a,.nav-group-label { display:flex;align-items:center;gap:12px;padding:10px 12px;min-width:0; }
+.rail .nav a::before { display:none; }
+.rail .nav a { min-height:40px;padding-top:8px;padding-bottom:8px; }
+.rail .nav a > span { flex:1; }
+.rail .nav a:hover { background:#ffffff0c; }
+.rail .nav a.nav-active { background:#344425;color:#e0f4bd;box-shadow:inset 3px 0 var(--live); }
+.rail .nav a.nav-active .nav-key { color:inherit;border-color:#e0f4bd55; }
+.nav-group-label { color:var(--ink-mute);font-size:13px;margin-top:8px;padding-top:8px;padding-bottom:8px; }
+.nav-children { display:grid;gap:2px; }
+.rail .nav-children a { padding-left:36px; }
+.rail .nav a .app-icon { width:20px;height:20px; }
+.btn:has(> .app-icon) { display:inline-flex;align-items:center;justify-content:center;gap:8px; }
+.admin-canvas .section-edit-action .app-icon { width:18px;height:18px; }
 .bottom-navigation,.mobile-overflow,.mobile-fab { display:none; }
 .admin-dialog { padding:0;border:1px solid var(--hairline-strong);border-radius:12px;background:var(--surface);color:var(--ink);width:min(640px,calc(100vw - 40px));max-height:90dvh;overflow:hidden;font-size:14px;box-shadow:0 20px 90px #0008; }
 .admin-dialog::backdrop { background:#000a; }
@@ -83,7 +100,7 @@
   .mobile-overflow { display:block; }
   .overflow-popover { position:absolute;right:12px;top:66px;z-index:80;background:var(--surface);border:1px solid var(--hairline-strong);padding:12px;border-radius:8px; }
   .bottom-navigation { display:flex;position:fixed;bottom:0;left:0;right:0;z-index:50;background:var(--surface);border-top:1px solid var(--hairline-strong);padding:6px 8px calc(6px + env(safe-area-inset-bottom)); }
-  .bottom-navigation a { flex:1;display:flex;align-items:center;justify-content:center;min-height:52px;font-size:14px;border-radius:6px; }
+  .bottom-navigation a { flex:1;display:flex;flex-direction:column;gap:4px;align-items:center;justify-content:center;min-height:52px;font-size:13px;border-radius:6px; }
   .bottom-navigation a.router-link-exact-active { background:var(--raised);color:var(--live); }
   .admin-canvas { padding:24px 16px 172px;font-size:16px; }
   .admin-canvas .headline { font-size:32px; }
@@ -127,3 +144,7 @@
 .admin-canvas .crop-mode label,.admin-canvas .mask-list button { font-size:14px;min-height:44px;display:inline-flex;align-items:center; }
 .admin-canvas .upload-naming,.admin-canvas .upload-schedule { border:0;padding-top:24px; }
 @media(max-width:820px) { .admin-canvas .panel-head h2 { font-size:20px; }.admin-canvas .directory-label { min-width:0;width:100%;flex-wrap:wrap; }.admin-canvas .directory-label input { min-width:0;width:100%;flex-basis:100%; }.admin-canvas .relay-endpoint-row { grid-template-columns:1fr; } }
+
+.admin-canvas .edit-section > .btn { justify-self:start;align-self:flex-start; }
+.admin-canvas .spec dt { text-transform:none; }
+.admin-canvas textarea { background:var(--raised);color:var(--ink);border:1px solid var(--hairline-strong);border-radius:6px;padding:12px; }

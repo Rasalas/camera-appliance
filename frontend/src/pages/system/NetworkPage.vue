@@ -4,7 +4,7 @@
       <h2>Relays</h2>
       <div class="device-head-actions">
         <div class="right">{{ relayIds.length ? `${relayIds.length} eingerichtet` : 'nicht eingerichtet' }}</div>
-        <button class="btn primary desktop-primary" type="button" @click="openRelayModal">Relay hinzufügen</button>
+        <button class="btn primary desktop-primary" type="button" @click="openRelayModal"><AppIcon name="plus" />Relay hinzufügen</button>
       </div>
     </div>
 
@@ -42,7 +42,7 @@
         <span class="mono-mute">Mehr ist nicht nötig — Ports und Kamera-Ziele werden automatisch vergeben.</span>
         <div class="btn-row">
           <button class="btn ghost" type="button" @click="closeRelayModal">Abbrechen</button>
-          <button class="btn primary" type="submit" :disabled="savingRelay || !relayDraft.name || !relayDraft.sshTarget">{{ savingRelay ? 'Speichert…' : 'Hinzufügen & starten' }}</button>
+          <button class="btn primary" type="submit" :disabled="savingRelay || !relayDraft.name || !relayDraft.sshTarget"><AppIcon name="plus" />{{ savingRelay ? 'Speichert…' : 'Hinzufügen & starten' }}</button>
         </div>
       </div>
     </form>
@@ -50,6 +50,7 @@
 </template>
 
 <script setup lang="ts">
+import AppIcon from '../../components/AppIcon.vue'
 import { computed, onMounted, reactive, ref } from 'vue'
 import AdminDialog from '../../components/AdminDialog.vue'
 import { useDraftGuard } from '../../composables/discardChanges'

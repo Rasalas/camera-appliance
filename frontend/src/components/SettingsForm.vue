@@ -1,22 +1,22 @@
 <template>
-  <section class="panel edit-section">
-    <div class="panel-head"><h2>{{ title }}</h2><button class="btn ghost" :disabled="!settingsLoaded" :aria-label="title + ' bearbeiten'" @click="editing = true">Bearbeiten</button></div>
+  <EditableSection :title="title" :disabled="!settingsLoaded" @edit="editing = true">
     <div v-if="!settingsLoaded" role="status">Wird geladen…</div>
     <slot v-else name="summary"><p class="mono-mute">{{ title }} ist eingerichtet.</p></slot>
-    <AdminDialog :open="editing" :title="title + ' bearbeiten'" :dirty="dirty" :busy="saving" @close="cancel">
-      <form @submit.prevent="save">
-        <fieldset :disabled="saving || !settingsLoaded"><slot /></fieldset>
-        <div v-if="saveError" class="notice err" role="alert">{{ saveError }}</div>
-        <div class="form-actions"><span role="status">{{ saving ? 'Wird gespeichert…' : saveError ? 'Nicht gespeichert' : dirty ? 'Ungespeicherte Änderungen' : 'Keine Änderungen' }}</span><button class="btn ghost" type="button" :disabled="saving" @click="requestCancel">Abbrechen</button><button class="btn primary" type="submit" :disabled="!dirty || saving">{{ title }} speichern</button></div>
-      </form>
-    </AdminDialog>
-  </section>
+  </EditableSection>
+  <AdminDialog :open="editing" :title="title + ' bearbeiten'" :dirty="dirty" :busy="saving" @close="cancel">
+    <form @submit.prevent="save">
+      <fieldset :disabled="saving || !settingsLoaded"><slot /></fieldset>
+      <div v-if="saveError" class="notice err" role="alert">{{ saveError }}</div>
+      <div class="form-actions"><span role="status">{{ saving ? 'Wird gespeichert…' : saveError ? 'Nicht gespeichert' : dirty ? 'Ungespeicherte Änderungen' : 'Keine Änderungen' }}</span><button class="btn ghost" type="button" :disabled="saving" @click="requestCancel">Abbrechen</button><button class="btn primary" type="submit" :disabled="!dirty || saving">{{ title }} speichern</button></div>
+    </form>
+  </AdminDialog>
 </template>
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import { useSystem } from '../composables/useSystem'
 import { askDiscard, useDraftGuard } from '../composables/discardChanges'
 import AdminDialog from './AdminDialog.vue'
+import EditableSection from './EditableSection.vue'
 const props = defineProps<{ title: string; settingKeys: string[]; afterSave?: () => Promise<void> }>()
 const { settingsLoaded, settingsDirty, discardSettings, saveSettings, error } = useSystem()
 const saving = ref(false), saveError = ref(''), editing = ref(false)

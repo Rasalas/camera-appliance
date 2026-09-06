@@ -2,7 +2,7 @@
   <RouterLink to="/system/identitaeten" class="mono-mute">← Identitäten</RouterLink>
   <div v-if="!settingsLoaded" role="status">Wird geladen…</div>
   <template v-else-if="identity">
-    <section class="panel edit-section"><div class="panel-head"><h2>Kamera-Login</h2><button class="btn ghost desktop-primary" @click="editing=true">Bearbeiten</button></div><dl class="spec"><div><dt>Name</dt><dd>{{ identity.name }}</dd></div><div><dt>Benutzername</dt><dd>{{ identity.username }}</dd></div><div><dt>Passwort</dt><dd>{{ identity.password_set ? 'Gespeichert' : 'Nicht gesetzt' }}</dd></div></dl></section>
+    <EditableSection title="Kamera-Login" @edit="editing=true"><dl class="spec"><div><dt>Name</dt><dd>{{ identity.name }}</dd></div><div><dt>Benutzername</dt><dd>{{ identity.username }}</dd></div><div><dt>Passwort</dt><dd>{{ identity.password_set ? 'Gespeichert' : 'Nicht gesetzt' }}</dd></div></dl></EditableSection>
     <button class="btn danger" style="align-self:start" @click="deleting=true">Identität entfernen</button>
     <button class="mobile-fab" aria-label="Identität bearbeiten" @click="editing=true"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m4 16 12-12 4 4-12 12H4zM14 6l4 4"/></svg></button>
     <IdentityEditor :open="editing" :identity="identity" @close="editing=false" />
@@ -11,6 +11,7 @@
   <p v-else>Diese Identität ist nicht mehr vorhanden.</p>
 </template>
 <script setup lang="ts">
+import EditableSection from '../../components/EditableSection.vue'
 import { computed, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useSystem } from '../../composables/useSystem'

@@ -1,4 +1,5 @@
 import { createRouter, createWebHistory } from 'vue-router'
+import AboutPage from '../pages/system/AboutPage.vue'
 import AdminHomePage from '../pages/AdminHomePage.vue'
 import IdentityDetailPage from '../pages/system/IdentityDetailPage.vue'
 import ViewerPage from '../pages/ViewerPage.vue'
@@ -36,6 +37,7 @@ const router = createRouter({
       meta: { requiresAdmin: true },
       children: [
         { path: '', redirect: '/system/allgemein' },
+        { path: 'ueber', component: AboutPage, meta: { title: 'Über Watchdeck' } },
         { path: 'allgemein', name: 'system-general', component: SystemGeneralPage, meta: { title: 'Allgemein' } },
         { path: 'bild-upload', name: 'system-upload', redirect: '/kameras/bild-upload' },
         { path: 'zugriff', name: 'system-access', component: SystemAccessPage, meta: { title: 'Zugriff' } },
@@ -48,7 +50,7 @@ const router = createRouter({
         { path: 'wartung/watchdog', component: WatchdogPage, meta: { title: 'Watchdog' } },
         { path: 'wartung/sicherung', component: BackupPage, meta: { title: 'Sicherung' } },
         { path: 'wartung/updates', component: UpdatesPage, meta: { title: 'Version und Updates' } },
-        { path: 'wartung/support', component: SupportPage, meta: { title: 'Support-Bundle' } },
+        { path: 'wartung/support', component: SupportPage, meta: { title: 'Support' } },
         { path: 'wartung/ereignisse', component: EventsPage, meta: { title: 'Ereignisprotokoll' } }
       ]
     },
@@ -74,6 +76,7 @@ const router = createRouter({
 })
 
 router.beforeEach(async (to) => {
+  if (to.path === '/verwaltung' && window.matchMedia('(min-width: 821px)').matches) return { path: '/einrichtung', replace: true }
   if (to.name === 'login') return true
   let auth: AuthStatus
   try {

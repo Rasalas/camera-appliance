@@ -42,7 +42,7 @@
     <button class="btn" :disabled="!!busy || !shownCount" @click="refreshFrames">
       {{ busy === 'frames' ? 'Vorschau wird geladen…' : 'Vorschau aktualisieren' }}
     </button>
-    <button class="btn desktop-primary" type="button" aria-label="Kamera hinzufügen" title="Kamera per RTSP hinzufügen" @click="showManualModal = true">Kamera hinzufügen</button>
+    <button class="btn desktop-primary" type="button" aria-label="Kamera hinzufügen" title="Kamera per RTSP hinzufügen" @click="showManualModal = true"><AppIcon name="plus" />Kamera hinzufügen</button>
     <div class="spacer" />
     <span v-if="busy === 'scan'" class="mono-mute" style="font-size: 11px;">RTSP · ONVIF · ARP</span>
   </div>
@@ -142,7 +142,7 @@
         <span class="mono-mute">rtsp://IP:554/stream2 oder stream1</span>
         <div class="btn-row">
           <button class="btn ghost" type="button" @click="closeManualModal">Abbrechen</button>
-          <button class="btn primary" type="submit" :disabled="busy === 'manual' || !manual.ip">
+          <button class="btn primary" type="submit" :disabled="busy === 'manual' || !manual.ip"><AppIcon name="plus" />
             {{ busy === 'manual' ? 'Wird geprüft…' : 'Hinzufügen' }}
           </button>
         </div>
@@ -156,6 +156,7 @@
 </template>
 
 <script setup lang="ts">
+import AppIcon from '../components/AppIcon.vue'
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import AdminDialog from '../components/AdminDialog.vue'

@@ -1,5 +1,5 @@
 <template>
-  <section class="panel edit-section"><div class="panel-head"><h2>Kamera-Passwort</h2><button class="btn ghost" @click="passwordOpen = true">Bearbeiten</button></div><p>{{ settings.camera_password_set === 'true' ? 'Gemeinsames Kamera-Passwort gespeichert.' : 'Noch kein gemeinsames Passwort gespeichert.' }}</p></section>
+  <EditableSection title="Kamera-Passwort" @edit="passwordOpen = true"><p>{{ settings.camera_password_set === 'true' ? 'Gemeinsames Kamera-Passwort gespeichert.' : 'Noch kein gemeinsames Passwort gespeichert.' }}</p></EditableSection>
   <AdminDialog ref="passwordDialog" :open="passwordOpen" title="Kamera-Passwort bearbeiten" :dirty="!!cameraPassword" :busy="savingPassword" @close="closePassword">
   <form class="password-form" @submit.prevent="saveCamPassword">
     <p class="mono-mute">Gemeinsames Passwort für Kameras ohne eigenen gespeicherten Zugang.</p>
@@ -70,6 +70,7 @@
 </template>
 
 <script setup lang="ts">
+import EditableSection from '../../components/EditableSection.vue'
 import { onMounted, ref } from 'vue'
 import { useSystem } from '../../composables/useSystem'
 import { generalSettingKeys } from '../../composables/settingsDraft'

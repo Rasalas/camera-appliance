@@ -100,7 +100,7 @@ Do not put camera DHCP IPs into viewer configuration.
 
 Die Seitenleiste trennt **Live-Ansicht**, **Kameras**, **System** und **Wartung**.
 Unter System stehen Allgemein, Zugriff, Relays und Identitäten. Wartung enthält
-fünf eigene Seiten: Watchdog, Sicherung, Version und Updates, Support-Bundle und
+fünf eigene Seiten: Watchdog, Sicherung, Updates, Support und
 Ereignisprotokoll. Bestehende Links wie `/system/bild-upload`, `/backup` und
 `/events` werden auf die passenden Seiten weitergeleitet. Auf schmalen
 Bildschirmen führt **Home** unter `/verwaltung` zu allen Zielen. Die untere
@@ -261,3 +261,17 @@ Open `http://127.0.0.1:8091`, set the camera password in the local UI, discover 
 ## Recovery
 
 Use `camera-appliance backup` before customer changes. Use `camera-appliance restore --in FILE` to restore state and generated config, then restart the stack.
+
+## Support und Projektinformationen
+
+Unter **Wartung → Support** kannst du ein Problem beschreiben und eine E-Mail
+an `mail@tbuck.de` vorbereiten. Der Diagnoseauszug lässt sich vorab prüfen und
+bearbeiten; er wird nur auf Wunsch in den Entwurf übernommen. Das Support-Bundle
+wird auf der Station erstellt und im Browser zum Download angeboten. Hänge das
+Archiv anschließend selbst an die E-Mail an. Es wird nichts automatisch versendet.
+
+**Über Watchdeck** enthält Projektinformationen, die installierte Version,
+Unterstützungslinks und den vollständigen Text der [MIT-Lizenz](LICENSE).
+Die Home-Seite ist für Mobilgeräte gedacht; auf Desktop führt `/verwaltung`
+zur Kameraliste. In der Seitenleiste markieren Hintergrundfarbe und Seitenkante
+das aktive Ziel, auch auf dessen Detail- und Bearbeitungsseiten.
