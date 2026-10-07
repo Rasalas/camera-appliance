@@ -3,6 +3,8 @@ WORKDIR /src/frontend
 COPY frontend/package*.json ./
 RUN npm ci
 COPY frontend/ ./
+COPY LICENSE /src/LICENSE
+COPY camera-manager/internal/snapshotupload/stamp-font.json /src/camera-manager/internal/snapshotupload/stamp-font.json
 RUN npm run build
 
 FROM golang:1.26-bookworm AS backend

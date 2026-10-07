@@ -41,7 +41,7 @@ Both the `docker compose` plugin and the `docker-compose` helper entrypoint are
 available. API versions are negotiated normally; the host daemon is not changed.
 
 For an old installation whose update button cannot start, download
-`repair-update.sh` from the v0.5.3 release assets in the laptop's browser and run:
+`repair-update.sh` from the latest release assets in the laptop's browser and run:
 
 ```bash
 sudo bash ~/Downloads/repair-update.sh
@@ -88,6 +88,25 @@ host, bypassing the old manager's container detection:
 ```bash
 curl -fsSL https://raw.githubusercontent.com/Rasalas/camera-appliance/main/install.sh | sudo bash
 ```
+
+### Frontend build fails after an update or rollback
+
+Versions before 0.5.4 overlay source files during update and rollback. An upgrade
+from 0.1.9 leaves the removed `MaintenancePage.vue` referring to APIs no longer
+present. A failed update then overlays the old snapshot without removing new
+pages, producing errors about missing `supportReport`, `downloadSupportBundle`,
+`health` and `settingsLoaded`.
+
+The updater now replaces release-owned frontend source, public assets, tests,
+build output and Go sources before copying either a release or a rollback
+snapshot. Runtime state and customer configuration stay outside these trees.
+The Docker frontend stage also includes the shared stamp font and project
+license imported by the UI. CI builds the actual Docker frontend stage and
+builds the frontend after upgrading from 0.1.9 and after restoring its snapshot.
+
+Run the same downloaded `repair-update.sh` again after 0.5.4 is published. It
+always downloads the latest release and uses that release's updater, so it can
+repair the source mixture without manual file removal.
 
 ### Independent update worker
 

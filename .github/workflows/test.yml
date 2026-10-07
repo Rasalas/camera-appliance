@@ -17,6 +17,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: actions/setup-go@v5
         with:
           go-version-file: camera-manager/go.mod
@@ -30,6 +32,9 @@ jobs:
         working-directory: frontend
       - run: python3 -m unittest discover -s scripts/tests -v
       - run: go test -race ./...
+        working-directory: camera-manager
+      - name: Build after upgrading and rolling back a legacy installation
+        run: CAMERA_APPLIANCE_UPGRADE_BUILD_TEST=1 go test ./internal/update -run TestReleaseTreesBuildAcrossLegacyUpgradeAndRollback -count=1 -v
         working-directory: camera-manager
       - run: go vet ./...
         working-directory: camera-manager

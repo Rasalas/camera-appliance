@@ -1,0 +1,11 @@
+# Dependencies and generated output must come from the Linux build stages.
+**/node_modules
+frontend/dist
+bin
+.release
+.git
+.private
+data
+**/secrets.env
+**/local.env
+**/.env

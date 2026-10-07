@@ -6,16 +6,19 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 run_id="camera-runtime-check-$$"
 runtime_image="$run_id:runtime"
+frontend_image="$run_id:frontend"
 daemon="$run_id-daemon"
 fixture="$(mktemp -d)"
 cleanup() {
   docker rm -fv "$daemon" >/dev/null 2>&1 || true
   docker network rm "$run_id" >/dev/null 2>&1 || true
-  docker image rm "$runtime_image" >/dev/null 2>&1 || true
+  docker image rm "$runtime_image" "$frontend_image" >/dev/null 2>&1 || true
   rm -rf "$fixture"
 }
 trap cleanup EXIT
 
+# Verify the real Docker frontend stage, including files imported from outside frontend/.
+docker build --target frontend -t "$frontend_image" -f "$ROOT/camera-manager/Dockerfile" "$ROOT"
 docker build --target runtime -t "$runtime_image" -f "$ROOT/camera-manager/Dockerfile" "$ROOT"
 docker network create "$run_id" >/dev/null
 docker run --privileged -d --name "$daemon" --network "$run_id" --network-alias docker \
