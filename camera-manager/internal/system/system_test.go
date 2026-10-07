@@ -95,6 +95,62 @@ func TestApplyStackModeIgnoresErrorOutputWhenDiscoveryFailed(t *testing.T) {
 	}
 }
 
+func TestCurrentContainerImageWithHostNetworkHostname(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	// With host networking, the hostname may be the laptop's name rather
+	// than a Docker container ID. The deployed compose service has a stable name.
+	script := "#!/bin/sh\nfor arg do ref=\"$arg\"; done\nif [ \"$ref\" = camera-manager ]; then echo sha256:installed; exit 0; fi\necho 'Error: No such object: customer-laptop' >&2\nexit 1\n"
+	if err := os.WriteFile(filepath.Join(dir, "docker"), []byte(script), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	image, found := currentContainerImage(context.Background())
+	detached, err := applyStackMode(image, found, true)
+	if err != nil || !detached || image != "sha256:installed" {
+		t.Fatalf("host-network update cannot recreate camera-manager: image=%q found=%t detached=%t err=%v", image, found, detached, err)
+	}
+}
+
+func TestCurrentContainerImageIgnoresFailedAndEmptyInspections(t *testing.T) {
+	for _, response := range []string{
+		"echo 'Error: Docker socket unavailable' >&2\nexit 1\n",
+		"echo 'Error: No such container'\nexit 1\n",
+		"printf '\\n'\n",
+	} {
+		t.Run(response, func(t *testing.T) {
+			dir := t.TempDir()
+			t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+			if err := os.WriteFile(filepath.Join(dir, "docker"), []byte("#!/bin/sh\n"+response), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			image, found := currentContainerImage(context.Background())
+			if image != "" || found {
+				t.Fatalf("invalid inspection accepted as image: image=%q found=%t", image, found)
+			}
+			if _, err := applyStackMode(image, found, true); err == nil {
+				t.Fatal("container update must still fail closed without a usable image")
+			}
+		})
+	}
+}
+
+func TestCurrentContainerImageUsesContainerIDHostname(t *testing.T) {
+	dir := t.TempDir()
+	hostname, err := os.Hostname()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("CAMERA_TEST_CONTAINER_HOSTNAME", hostname)
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	script := "#!/bin/sh\nfor arg do ref=\"$arg\"; done\nif [ \"$ref\" = \"$CAMERA_TEST_CONTAINER_HOSTNAME\" ]; then echo sha256:container-id; exit 0; fi\nexit 1\n"
+	if err := os.WriteFile(filepath.Join(dir, "docker"), []byte(script), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if image, found := currentContainerImage(context.Background()); !found || image != "sha256:container-id" {
+		t.Fatalf("container ID discovery regressed: image=%q found=%t", image, found)
+	}
+}
+
 func TestSystemctlArgsForUserUnits(t *testing.T) {
 	got := systemctlArgs(true, "--no-block", "restart", "camera-appliance")
 	want := []string{"--user", "--no-block", "restart", "camera-appliance"}

@@ -30,6 +30,36 @@ to identify a physical camera.
 
 ## Update supervision and rollback
 
+### Older Docker installations cannot identify the manager image
+
+If the update reports `current container image could not be determined`, the
+manager may be using the laptop hostname under host networking. Older versions
+only pass this hostname to `docker inspect`. Current code also checks the fixed
+`camera-manager` container name from `compose.yaml`, for both stack restart and
+independent update-worker launch.
+
+To unblock the existing update button before that fix is installed, run once
+in the customer laptop's terminal:
+
+```bash
+sudo docker rename camera-manager "$(sudo docker exec camera-manager hostname)"
+```
+
+Then retry the update button. This changes only the running container's name.
+Compose identifies the existing service by its labels and restores the configured
+name when recreating it. Do not run the rename again after it succeeds. If Docker
+reports a socket/permission error or a name conflict, leave the containers in
+place and inspect that error before continuing.
+
+Alternatively, the bootstrap installer runs the downloaded release CLI on the
+host, bypassing the old manager's container detection:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Rasalas/camera-appliance/main/install.sh | sudo bash
+```
+
+### Independent update worker
+
 API installations and regular `camera-appliance update` / `update rollback`
 commands hand execution to an independent supervisor. Docker uses a separate
 container with host networking and shared installation, configuration and state

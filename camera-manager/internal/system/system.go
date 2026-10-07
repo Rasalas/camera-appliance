@@ -119,16 +119,22 @@ func applyStackMode(image string, imageFound, inContainer bool) (bool, error) {
 }
 
 func currentContainerImage(ctx context.Context) (string, bool) {
-	hostname, err := os.Hostname()
-	if err != nil || hostname == "" {
-		return "", false
+	hostname, _ := os.Hostname()
+	// Host networking can expose the laptop hostname instead of a container
+	// ID. compose.yaml assigns the manager a stable, daemon-wide unique name.
+	for _, ref := range []string{hostname, "camera-manager"} {
+		if ref == "" {
+			continue
+		}
+		output, err := commandOutput(ctx, 2*time.Second, "docker", "inspect", "--type", "container", "--format", "{{.Image}}", ref)
+		if err != nil {
+			continue
+		}
+		if image := strings.TrimSpace(output); image != "" {
+			return image, true
+		}
 	}
-	output, err := commandOutput(ctx, 2*time.Second, "docker", "inspect", "--format", "{{.Image}}", hostname)
-	if err != nil {
-		return "", false
-	}
-	image := strings.TrimSpace(output)
-	return image, image != ""
+	return "", false
 }
 
 func launchDetachedCompose(ctx context.Context, cfg config.Config, image string, composeCommand ...string) error {
