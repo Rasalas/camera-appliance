@@ -32,6 +32,27 @@ to identify a physical camera.
 
 ### Older Docker installations cannot identify the manager image
 
+The customer installation on 2026-10-07 confirmed another cause of this message:
+the Bookworm runtime shipped Docker 20.10.24 with API 1.41, while the host daemon
+required at least API 1.44. A container rename cannot fix that incompatibility.
+The runtime now copies a pinned Docker CLI, Compose and Buildx from Docker's
+official CLI image instead of installing Bookworm's Docker/Compose packages.
+Both the `docker compose` plugin and the `docker-compose` helper entrypoint are
+available. API versions are negotiated normally; the host daemon is not changed.
+
+For an old installation whose update button cannot start, download
+`repair-update.sh` from the v0.5.3 release assets in the laptop's browser and run:
+
+```bash
+sudo bash ~/Downloads/repair-update.sh
+```
+
+The repair invokes the downloaded current release CLI on the host, bypassing the old
+container's client. It uses the regular update path with backup, rollback and
+version healthcheck. It requires an existing installation and does not alter
+kiosk/desktop setup. Reload the browser after success; later updates use the
+fixed container client through the normal button.
+
 If the update reports `current container image could not be determined`, the
 manager may be using the laptop hostname under host networking. Older versions
 only pass this hostname to `docker inspect`. Current code also checks the fixed
