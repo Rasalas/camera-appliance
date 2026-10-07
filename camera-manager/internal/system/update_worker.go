@@ -24,9 +24,9 @@ func StartUpdateWorker(ctx context.Context, cfg config.Config, executable, jobPa
 		return nil
 	}
 	if runningInContainer() {
-		image, found := currentContainerImage(ctx)
-		if !found {
-			return fmt.Errorf("cannot start updater: current container image is unknown")
+		image, err := currentContainerImage(ctx)
+		if err != nil {
+			return fmt.Errorf("cannot start updater: current container image is unknown: %w", err)
 		}
 		out, err := exec.CommandContext(ctx, "docker", updateWorkerArgs(cfg, image, executable, jobPath, id)...).CombinedOutput()
 		if err != nil {

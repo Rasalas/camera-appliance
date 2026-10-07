@@ -104,10 +104,10 @@ func TestCurrentContainerImageWithHostNetworkHostname(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "docker"), []byte(script), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	image, found := currentContainerImage(context.Background())
-	detached, err := applyStackMode(image, found, true)
+	image, imageErr := currentContainerImage(context.Background())
+	detached, err := applyStackMode(image, imageErr == nil, true)
 	if err != nil || !detached || image != "sha256:installed" {
-		t.Fatalf("host-network update cannot recreate camera-manager: image=%q found=%t detached=%t err=%v", image, found, detached, err)
+		t.Fatalf("host-network update cannot recreate camera-manager: image=%q imageErr=%v detached=%t err=%v", image, imageErr, detached, err)
 	}
 }
 
@@ -123,11 +123,11 @@ func TestCurrentContainerImageIgnoresFailedAndEmptyInspections(t *testing.T) {
 			if err := os.WriteFile(filepath.Join(dir, "docker"), []byte("#!/bin/sh\n"+response), 0o700); err != nil {
 				t.Fatal(err)
 			}
-			image, found := currentContainerImage(context.Background())
-			if image != "" || found {
-				t.Fatalf("invalid inspection accepted as image: image=%q found=%t", image, found)
+			image, err := currentContainerImage(context.Background())
+			if image != "" || err == nil {
+				t.Fatalf("invalid inspection accepted as image: image=%q err=%v", image, err)
 			}
-			if _, err := applyStackMode(image, found, true); err == nil {
+			if _, err := applyStackMode(image, err == nil, true); err == nil {
 				t.Fatal("container update must still fail closed without a usable image")
 			}
 		})
@@ -146,8 +146,21 @@ func TestCurrentContainerImageUsesContainerIDHostname(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "docker"), []byte(script), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if image, found := currentContainerImage(context.Background()); !found || image != "sha256:container-id" {
-		t.Fatalf("container ID discovery regressed: image=%q found=%t", image, found)
+	if image, err := currentContainerImage(context.Background()); err != nil || image != "sha256:container-id" {
+		t.Fatalf("container ID discovery regressed: image=%q err=%v", image, err)
+	}
+}
+
+func TestCurrentContainerImagePreservesDockerFailure(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	script := "#!/bin/sh\necho 'client version 1.41 is too old. Minimum supported API version is 1.44' >&2\nexit 1\n"
+	if err := os.WriteFile(filepath.Join(dir, "docker"), []byte(script), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	_, err := currentContainerImage(context.Background())
+	if err == nil || !containsAll(err.Error(), "docker inspect camera-manager", "client version 1.41 is too old", "Minimum supported API version is 1.44") {
+		t.Fatalf("Docker failure was hidden: %v", err)
 	}
 }
 

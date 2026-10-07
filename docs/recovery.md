@@ -38,8 +38,16 @@ only pass this hostname to `docker inspect`. Current code also checks the fixed
 `camera-manager` container name from `compose.yaml`, for both stack restart and
 independent update-worker launch.
 
-To unblock the existing update button before that fix is installed, run once
-in the customer laptop's terminal:
+Before attempting a repair, inspect the actual Docker error. The old manager
+hides it behind the image-discovery message. This command reads the client/server
+versions and repeats the old lookup inside the running manager:
+
+```bash
+sudo docker exec "$(sudo docker ps --filter label=com.docker.compose.service=camera-manager --format '{{.ID}}')" sh -c 'docker version; docker inspect --format "{{.Image}}" "$(hostname)"'
+```
+
+If Docker works and only reports that the hostname is not a container, a one-time
+rename can unblock that lookup before the fix is installed:
 
 ```bash
 sudo docker rename camera-manager "$(sudo docker exec camera-manager hostname)"
@@ -49,7 +57,9 @@ Then retry the update button. This changes only the running container's name.
 Compose identifies the existing service by its labels and restores the configured
 name when recreating it. Do not run the rename again after it succeeds. If Docker
 reports a socket/permission error or a name conflict, leave the containers in
-place and inspect that error before continuing.
+place and inspect that error before continuing. Renaming cannot repair an
+unreachable socket, an incompatible Docker client or a timeout. Current code
+includes the underlying inspection errors in the update failure.
 
 Alternatively, the bootstrap installer runs the downloaded release CLI on the
 host, bypassing the old manager's container detection:
