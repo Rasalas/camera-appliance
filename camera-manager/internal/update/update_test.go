@@ -318,3 +318,53 @@ func TestShouldSkipCopyPathExcludesRuntimeSecrets(t *testing.T) {
 		}
 	}
 }
+
+func TestUpdateAndRollbackReplaceFrontendSources(t *testing.T) {
+	cfg := newTestConfig(t)
+	installDir := newTestInstall(t, "old")
+	oldPage := filepath.Join(installDir, "frontend", "src", "pages", "system", "MaintenancePage.vue")
+	newPage := filepath.Join(installDir, "frontend", "src", "pages", "maintenance", "SupportPage.vue")
+	writeFile(t, oldPage, "old page calls removed startUpdate")
+	writeFile(t, filepath.Join(installDir, "frontend", "src", "api", "client.ts"), "old API")
+	writeFile(t, filepath.Join(installDir, "frontend", "public", "obsolete.js"), "old script")
+	writeFile(t, filepath.Join(installDir, "camera-manager", "internal", "obsolete", "old.go"), "old Go source")
+	writeFile(t, filepath.Join(installDir, "config", "secrets.env"), "customer secret")
+	writeFile(t, filepath.Join(installDir, "data", "keep.txt"), "customer data")
+	archive := newReleaseArchive(t, map[string]string{
+		"release/manifest.json":                                  `{"version":"1.2.3","commit":"abc123"}`,
+		"release/bin/camera-appliance":                           "new",
+		"release/frontend/src/pages/maintenance/SupportPage.vue": "new page calls supportReport",
+		"release/frontend/src/api/client.ts":                     "new API with supportReport",
+		"release/frontend/public/embed.js":                       "new script",
+		"release/camera-manager/go.mod":                          "new Go module",
+	})
+	result, err := Apply(context.Background(), Options{Config: cfg, Archive: archive, InstallDir: installDir, NoRestart: true, AutoRollback: true, Now: fixedNow})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, stale := range []string{oldPage, filepath.Join(installDir, "frontend", "public", "obsolete.js"), filepath.Join(installDir, "camera-manager", "internal", "obsolete", "old.go")} {
+		if pathExists(stale) {
+			t.Errorf("obsolete release source survived update: %s", stale)
+		}
+	}
+	if got := readFile(t, newPage); got != "new page calls supportReport" {
+		t.Fatal(got)
+	}
+	if err := restoreRollback(context.Background(), result.RollbackDir, installDir); err != nil {
+		t.Fatal(err)
+	}
+	if pathExists(newPage) {
+		t.Error("new SupportPage survived rollback and still calls missing supportReport on old API")
+	}
+	if got := readFile(t, oldPage); got != "old page calls removed startUpdate" {
+		t.Fatal(got)
+	}
+	if got := readFile(t, filepath.Join(installDir, "frontend", "src", "api", "client.ts")); got != "old API" {
+		t.Fatal(got)
+	}
+	for path, want := range map[string]string{"config/secrets.env": "customer secret", "data/keep.txt": "customer data"} {
+		if got := readFile(t, filepath.Join(installDir, path)); got != want {
+			t.Errorf("customer file %s changed: %q", path, got)
+		}
+	}
+}

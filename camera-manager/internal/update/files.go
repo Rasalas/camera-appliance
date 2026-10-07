@@ -36,10 +36,8 @@ func snapshotInstall(ctx context.Context, installDir, rollbackDir string) error 
 }
 
 func applyRelease(ctx context.Context, releaseRoot, installDir string) ([]string, error) {
-	if pathExists(filepath.Join(releaseRoot, "frontend", "dist")) {
-		if err := os.RemoveAll(filepath.Join(installDir, "frontend", "dist")); err != nil {
-			return nil, err
-		}
+	if err := removeReplacedReleaseTrees(ctx, releaseRoot, installDir); err != nil {
+		return nil, err
 	}
 	var files []string
 	err := copyTree(ctx, releaseRoot, installDir, copyOptions{
@@ -67,12 +65,35 @@ func restoreRollback(ctx context.Context, rollbackDir, installDir string) error 
 	if !pathExists(rollbackDir) {
 		return fmt.Errorf("rollback dir not found: %s", rollbackDir)
 	}
-	if pathExists(filepath.Join(rollbackDir, "frontend", "dist")) {
-		if err := os.RemoveAll(filepath.Join(installDir, "frontend", "dist")); err != nil {
+	if err := removeReplacedReleaseTrees(ctx, rollbackDir, installDir); err != nil {
+		return err
+	}
+	return copyTree(ctx, rollbackDir, installDir, copyOptions{ExcludeGenerated: true})
+}
+
+// These trees contain release-owned source/assets, never customer settings or
+// state. Overlaying them keeps deleted files that can break the next build,
+// including new pages left behind when restoring an older rollback snapshot.
+func removeReplacedReleaseTrees(ctx context.Context, source, installDir string) error {
+	for _, rel := range []string{"frontend/src", "frontend/public", "frontend/tests", "frontend/dist", "camera-manager"} {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		info, err := os.Stat(filepath.Join(source, filepath.FromSlash(rel)))
+		if errors.Is(err, os.ErrNotExist) {
+			continue
+		}
+		if err != nil {
+			return err
+		}
+		if !info.IsDir() {
+			return fmt.Errorf("release tree is not a directory: %s", rel)
+		}
+		if err := os.RemoveAll(filepath.Join(installDir, filepath.FromSlash(rel))); err != nil {
 			return err
 		}
 	}
-	return copyTree(ctx, rollbackDir, installDir, copyOptions{ExcludeGenerated: true})
+	return nil
 }
 
 type copyOptions struct {
