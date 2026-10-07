@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"camera-appliance/camera-manager/internal/config"
+	"camera-appliance/camera-manager/internal/redaction"
 )
 
 type Status struct {
@@ -66,10 +67,10 @@ func ApplyStack(ctx context.Context, cfg config.Config) error {
 	if strings.EqualFold(cfg.RestartStrategy, "systemd") {
 		return applyStackSystemd(ctx, cfg)
 	}
-	image, imageFound := currentContainerImage(ctx)
-	detached, err := applyStackMode(image, imageFound, runningInContainer())
+	image, imageErr := currentContainerImage(ctx)
+	detached, err := applyStackMode(image, imageErr == nil, runningInContainer())
 	if err != nil {
-		return err
+		return fmt.Errorf("%w: %v", err, imageErr)
 	}
 	if detached {
 		return launchDetachedCompose(ctx, cfg, image, "up", "-d", "--build", "--force-recreate", "--remove-orphans")
@@ -118,17 +119,26 @@ func applyStackMode(image string, imageFound, inContainer bool) (bool, error) {
 	return false, nil
 }
 
-func currentContainerImage(ctx context.Context) (string, bool) {
-	hostname, err := os.Hostname()
-	if err != nil || hostname == "" {
-		return "", false
+func currentContainerImage(ctx context.Context) (string, error) {
+	hostname, _ := os.Hostname()
+	// Host networking can expose the laptop hostname instead of a container
+	// ID. compose.yaml assigns the manager a stable, daemon-wide unique name.
+	var failures []error
+	for _, ref := range []string{hostname, "camera-manager"} {
+		if ref == "" {
+			continue
+		}
+		output, err := commandOutput(ctx, 2*time.Second, "docker", "inspect", "--type", "container", "--format", "{{.Image}}", ref)
+		if err != nil {
+			failures = append(failures, fmt.Errorf("docker inspect %s: %w: %s", ref, err, redaction.Text(strings.TrimSpace(output))))
+			continue
+		}
+		if image := strings.TrimSpace(output); image != "" {
+			return image, nil
+		}
+		failures = append(failures, fmt.Errorf("docker inspect %s returned no image", ref))
 	}
-	output, err := commandOutput(ctx, 2*time.Second, "docker", "inspect", "--format", "{{.Image}}", hostname)
-	if err != nil {
-		return "", false
-	}
-	image := strings.TrimSpace(output)
-	return image, image != ""
+	return "", errors.Join(failures...)
 }
 
 func launchDetachedCompose(ctx context.Context, cfg config.Config, image string, composeCommand ...string) error {

@@ -64,11 +64,13 @@ jobs:
             gh release upload "$REF_NAME" \
               "$archive" \
               ".release/camera-appliance-latest.tar.gz" \
+              "repair-update.sh" \
               --clobber
           else
             gh release create "$REF_NAME" \
               "$archive" \
               ".release/camera-appliance-latest.tar.gz" \
+              "repair-update.sh" \
               --title "camera-appliance ${REF_NAME}" \
               --notes-file "$notes_file" \
               --generate-notes \

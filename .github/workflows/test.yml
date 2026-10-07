@@ -35,3 +35,11 @@ jobs:
         working-directory: camera-manager
       - run: npm test && npm run build
         working-directory: frontend
+
+  docker-runtime:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify Docker client and Compose against API minimum 1.44
+        run: scripts/verify-docker-runtime

@@ -30,6 +30,67 @@ to identify a physical camera.
 
 ## Update supervision and rollback
 
+### Older Docker installations cannot identify the manager image
+
+The customer installation on 2026-10-07 confirmed another cause of this message:
+the Bookworm runtime shipped Docker 20.10.24 with API 1.41, while the host daemon
+required at least API 1.44. A container rename cannot fix that incompatibility.
+The runtime now copies a pinned Docker CLI, Compose and Buildx from Docker's
+official CLI image instead of installing Bookworm's Docker/Compose packages.
+Both the `docker compose` plugin and the `docker-compose` helper entrypoint are
+available. API versions are negotiated normally; the host daemon is not changed.
+
+For an old installation whose update button cannot start, download
+`repair-update.sh` from the v0.5.3 release assets in the laptop's browser and run:
+
+```bash
+sudo bash ~/Downloads/repair-update.sh
+```
+
+The repair invokes the downloaded current release CLI on the host, bypassing the old
+container's client. It uses the regular update path with backup, rollback and
+version healthcheck. It requires an existing installation and does not alter
+kiosk/desktop setup. Reload the browser after success; later updates use the
+fixed container client through the normal button.
+
+If the update reports `current container image could not be determined`, the
+manager may be using the laptop hostname under host networking. Older versions
+only pass this hostname to `docker inspect`. Current code also checks the fixed
+`camera-manager` container name from `compose.yaml`, for both stack restart and
+independent update-worker launch.
+
+Before attempting a repair, inspect the actual Docker error. The old manager
+hides it behind the image-discovery message. This command reads the client/server
+versions and repeats the old lookup inside the running manager:
+
+```bash
+sudo docker exec "$(sudo docker ps --filter label=com.docker.compose.service=camera-manager --format '{{.ID}}')" sh -c 'docker version; docker inspect --format "{{.Image}}" "$(hostname)"'
+```
+
+If Docker works and only reports that the hostname is not a container, a one-time
+rename can unblock that lookup before the fix is installed:
+
+```bash
+sudo docker rename camera-manager "$(sudo docker exec camera-manager hostname)"
+```
+
+Then retry the update button. This changes only the running container's name.
+Compose identifies the existing service by its labels and restores the configured
+name when recreating it. Do not run the rename again after it succeeds. If Docker
+reports a socket/permission error or a name conflict, leave the containers in
+place and inspect that error before continuing. Renaming cannot repair an
+unreachable socket, an incompatible Docker client or a timeout. Current code
+includes the underlying inspection errors in the update failure.
+
+Alternatively, the bootstrap installer runs the downloaded release CLI on the
+host, bypassing the old manager's container detection:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Rasalas/camera-appliance/main/install.sh | sudo bash
+```
+
+### Independent update worker
+
 API installations and regular `camera-appliance update` / `update rollback`
 commands hand execution to an independent supervisor. Docker uses a separate
 container with host networking and shared installation, configuration and state
