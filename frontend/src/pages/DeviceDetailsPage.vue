@@ -4,42 +4,39 @@
       <nav aria-label="Zurück"><RouterLink to="/einrichtung" class="mono-mute">← Kameras</RouterLink></nav>
       <h1 class="headline">{{ title }}{{ editing ? ' bearbeiten' : uploadEditing ? ' · Bild-Upload' : '' }}</h1>
     </div>
-    <div v-if="device && !editing && !uploadEditing" class="meta sig-row">
-      <span class="sig" :class="{ on: raw.rtsp_port_open }">RTSP</span>
-      <span class="sig" :class="{ on: raw.onvif_port_open }">ONVIF</span>
-      <span class="sig" :class="{ on: raw.http_signature }">HTTP</span>
-    </div>
   </header>
 
-  <div v-if="error" class="notice err"><span class="tag">FEHLER</span>{{ error }}</div>
+  <div v-if="error" class="notice err" role="alert"><span class="tag">FEHLER</span>{{ error }}</div>
 
   <div v-if="loading" class="empty">Wird geladen…</div>
 
   <template v-else-if="device">
     <div v-if="!editing && !uploadEditing" class="btn-row">
-      <button class="btn" :class="{ live: shown }" type="button" :disabled="busyShow" @click="toggleShow">
-        {{ busyShow ? '…' : shown ? '✓ Sichtbar in der Ansicht' : 'In der Ansicht anzeigen' }}
-      </button>
+      <span class="pill" :class="{ live: shown }">{{ shown ? 'In der Live-Ansicht' : 'Ausgeblendet' }}</span>
+      <button class="btn" type="button" :disabled="busyShow" @click="openVisibility">{{ shown ? 'Ausblenden' : 'Einblenden' }}</button>
       <RouterLink v-if="shown" class="btn ghost" to="/">Zur Live-Ansicht</RouterLink>
       <div class="spacer" />
-      <span class="mono-mute" style="font-size: 11px;">{{ shown ? 'Position wird in der Live-Ansicht festgelegt.' : 'Anzeigen, dann in der Ansicht platzieren.' }}</span>
+      <span class="mono-mute">{{ shown ? 'Die Position legst du in der Live-Ansicht fest.' : 'Einblenden, dann in der Live-Ansicht platzieren.' }}</span>
     </div>
 
     <div v-if="editing" class="editor-actions"><button class="btn primary" :disabled="busy || savingAll || !editDirty" @click="saveAll">{{ savingAll ? 'Speichert…' : 'Kamera speichern' }}</button><RouterLink class="btn" :to="`/kamera/${device.id}`">Abbrechen</RouterLink><span role="status">{{ editDirty ? 'Ungespeicherte Änderungen' : 'Gespeichert' }}</span></div>
     <RouterLink v-if="uploadEditing" class="btn ghost" :to="`/kamera/${device.id}`">← Zur Kameradetailseite</RouterLink>
     <div v-if="!uploadEditing" class="device-sections">
+      <EditableSection v-if="!editing" title="Name" @edit="renaming = true">
+        <dl class="spec">
+          <div><dt>Angezeigter Name</dt><dd>{{ title }}</dd></div>
+          <div v-if="!device.name"><dt>Eigener Name</dt><dd>Noch keiner. Ohne eigenen Namen werden Hersteller und Modell angezeigt.</dd></div>
+        </dl>
+      </EditableSection>
+
       <section v-if="!editing" class="panel">
         <div class="panel-head">
-          <h2>Identität</h2>
+          <h2>Gerätedaten</h2>
         </div>
         <dl class="spec">
-          <div><dt>IP</dt><dd>{{ device.last_ip || '—' }}</dd></div>
-          <div><dt>MAC</dt><dd>{{ device.mac_address || '—' }}</dd></div>
           <div><dt>Hersteller</dt><dd>{{ device.manufacturer || '—' }}</dd></div>
           <div><dt>Modell</dt><dd>{{ device.model || '—' }}</dd></div>
-          <div><dt>Seriennummer</dt><dd>{{ device.serial_number || '—' }}</dd></div>
-          <div><dt>Hostname</dt><dd>{{ device.hostname || '—' }}</dd></div>
-          <div><dt>Geräte-ID</dt><dd style="font-size: 11px; color: var(--ink-mute);">{{ device.id }}</dd></div>
+          <div><dt>IP-Adresse</dt><dd>{{ device.last_ip || '—' }}</dd></div>
         </dl>
       </section>
 
@@ -47,7 +44,7 @@
         <div class="panel-head">
           <h2>Kamera-Zugang</h2>
           <div class="right">
-            {{ credentials?.password_set ? 'Kamera-Passwort' : identitySummary }}
+            {{ credentials?.password_set ? 'Eigenes Passwort' : identitySummary }}
           </div>
         </div>
         <div class="field">
@@ -59,24 +56,27 @@
           <input aria-label="Passwort" v-model="password" type="password" :placeholder="credentials?.password_set ? '••••••••••••' : 'Kamera-Passwort'" />
         </div>
         <div class="field">
-          <span class="lbl">Stream</span>
-          <select aria-label="Stream" v-model="stream">
-            <option value="stream2">stream2 · empfohlen</option>
-            <option value="stream1">stream1</option>
+          <span class="lbl">Bildqualität</span>
+          <select aria-label="Bildqualität" v-model="stream">
+            <option value="stream2">{{ streamLabel('stream2') }}</option>
+            <option value="stream1">{{ streamLabel('stream1') }}</option>
           </select>
         </div>
         <div class="btn-row">
-          <button class="btn" :disabled="busy" @click="probe">RTSP prüfen</button>
+          <button class="btn" :disabled="busy" @click="probe">Verbindung prüfen</button>
           <button class="btn" :disabled="busy || !canCapture" @click="capture(false)">Bild testen</button>
         </div>
-        <div v-if="!credentials?.password_set && credentialIdentities.length" class="mono-mute" style="font-size: 11px;">
-          Kein Kamera-Passwort gesetzt. Beim Bildtest werden {{ credentialIdentities.length }} gespeicherte Identität(en) ausprobiert.
+        <div v-if="!credentials?.password_set && credentialIdentities.length" class="mono-mute">
+          Kein eigenes Kamera-Passwort gesetzt. {{ credentialIdentities.length === 1 ? 'Beim Bildtest wird der gespeicherte Kamera-Zugang ausprobiert.' : `Beim Bildtest werden ${credentialIdentities.length} gespeicherte Kamera-Zugänge ausprobiert.` }}
         </div>
         <div v-if="probeResult" class="notice" :class="probeResult.success ? 'ok' : 'err'">
-          <span class="tag">{{ probeResult.success ? 'OK' : 'ERR' }}</span>
+          <span class="tag">{{ probeResult.success ? 'OK' : 'FEHLER' }}</span>
           <div>
             <div>{{ probeResult.message }}</div>
-            <div class="mono-mute" style="margin-top: 4px; font-size: 11px;">{{ probeResult.url_redacted }}</div>
+            <details v-if="probeResult.url_redacted" class="advanced detail-gap-sm">
+              <summary>Technische Details</summary>
+              <div class="mono-mute">{{ probeResult.url_redacted }}</div>
+            </details>
           </div>
         </div>
       </section>
@@ -85,20 +85,20 @@
     <section v-if="editing && relayIds.length" id="verbindung" :inert="savingAll" class="panel edit-section">
       <div class="panel-head">
         <h2>Verbindung</h2>
-        <div class="right">aktiv über {{ activePathLabel }}</div>
+        <div class="right">Aktuell: {{ activePathLabel }}</div>
       </div>
       <div class="split">
         <div class="field">
           <span class="lbl">Verbindungsweg</span>
           <select aria-label="Verbindungsweg" v-model="pathPolicy">
             <option value="auto">Automatisch (empfohlen)</option>
-            <option value="relay_only">Muss über Relay</option>
+            <option value="relay_only">Nur über Weiterleitung</option>
             <option value="direct_only">Nur direkt</option>
             <option v-if="pathPolicy === 'prefer_direct'" value="prefer_direct">Direkt bevorzugen (alt)</option>
-            <option v-if="pathPolicy === 'prefer_relay'" value="prefer_relay">Relay bevorzugen (alt)</option>
+            <option v-if="pathPolicy === 'prefer_relay'" value="prefer_relay">Weiterleitung bevorzugen (alt)</option>
           </select>
         </div>
-        <div v-if="pathPolicy !== 'direct_only'" class="relay-endpoints" style="align-content: center;">
+        <div v-if="pathPolicy !== 'direct_only'" class="relay-endpoints centered">
           <div v-for="relayId in relayIds" :key="relayId" class="endpoint-summary">
             <span class="endpoint-state" :class="endpointStateClass(relayId)">{{ endpointStateLabel(relayId) }}</span>
             <span class="mono-mute">{{ relayNameFor(relayId) }} · Port {{ endpointPort(relayId) }}</span>
@@ -107,18 +107,16 @@
       </div>
       <details class="advanced">
         <summary>Feinjustage</summary>
-        <div class="relay-endpoints" style="margin-top: 12px;">
+        <div class="relay-endpoints detail-gap">
           <div v-for="relayId in relayIds" :key="`adv-${relayId}`" class="relay-endpoint-row">
             <span>{{ relayNameFor(relayId) }}</span>
-            <input v-model="settings[endpointKey(relayId, 'port')]" class="compact-input" :placeholder="`Port · auto ${autoPortFor(relayId)}`" />
-            <input v-model="settings[endpointKey(relayId, 'host')]" class="compact-input" :placeholder="relayHostFor(relayId) || 'go2rtc-Host'" />
-            <input v-model="settings[endpointKey(relayId, 'target_host')]" class="compact-input" :placeholder="device.last_ip || 'Ziel-IP'" />
-            <input v-model="settings[endpointKey(relayId, 'target_port')]" class="compact-input" placeholder="554" />
+            <input v-model="settings[endpointKey(relayId, 'port')]" class="compact-input" :aria-label="`${relayNameFor(relayId)}: Port`" :placeholder="`Port · auto ${autoPortFor(relayId)}`" />
+            <input v-model="settings[endpointKey(relayId, 'host')]" class="compact-input" :aria-label="`${relayNameFor(relayId)}: Host des Videodienstes`" :placeholder="relayHostFor(relayId) || 'Host des Videodienstes'" />
+            <input v-model="settings[endpointKey(relayId, 'target_host')]" class="compact-input" :aria-label="`${relayNameFor(relayId)}: Ziel-IP`" :placeholder="device.last_ip || 'Ziel-IP'" />
+            <input v-model="settings[endpointKey(relayId, 'target_port')]" class="compact-input" :aria-label="`${relayNameFor(relayId)}: Ziel-Port`" placeholder="554" />
           </div>
         </div>
-        <div class="btn-row" style="margin-top: 12px;">
-          <span class="mono-mute" style="font-size: 11px;">Leere Felder = automatisch (Port aus Kameraplatz, Ziel = Kamera-IP).</span>
-        </div>
+        <p class="mono-mute detail-gap">Leere Felder werden automatisch belegt (Port aus dem Kameraplatz, Ziel ist die Kamera-IP).</p>
       </details>
     </section>
 
@@ -147,16 +145,15 @@
               <button class="btn icon sm" type="button" title="90° drehen" @click="rotateStage">⟳</button>
               <button class="btn sm" :class="{ live: mirror }" type="button" title="Horizontal spiegeln" @click="toggleMirror">⇋</button>
               <button class="btn sm" :class="{ live: flip }" type="button" title="Vertikal spiegeln" @click="toggleFlip">⇅</button>
-              <button class="btn sm" type="button" :title="fitMode === 'cover' ? 'Ganzes Bild zeigen' : 'Format füllen'" @click="toggleFit">{{ fitMode === 'cover' ? 'Füllen' : 'Ganz' }}</button>
+              <button class="btn sm" type="button" :title="fitMode === 'cover' ? 'Zu „Einpassen“ wechseln: ganzes Bild zeigen' : 'Zu „Ausfüllen“ wechseln: Kachel ganz füllen'" @click="toggleFit">{{ fitModeLabel(fitMode) }}</button>
               <button class="btn icon sm" type="button" title="Hineinzoomen" @click="zoomStage(-1)">＋</button>
               <button class="btn icon sm" type="button" title="Herauszoomen" @click="zoomStage(1)">－</button>
               <button class="btn icon sm" type="button" title="Zuschnitt zurücksetzen" @click="resetDisplay">⟲</button>
             </div>
           </div>
           <div v-else class="empty">Noch kein Referenzbild — zuerst Zugang speichern, dann rechts „Referenzbild aufnehmen“.</div>
-          <div v-if="previewImageSrc" class="mono-mute" style="margin-top: 8px; font-size: 11px;">
-            <template v-if="frame">Frame-ID · {{ frame.sha256.slice(0, 24) }}<span v-if="frame.credential_source"> · Zugang: {{ frame.credential_source }}</span></template>
-            <template v-else>Gespeichertes Referenzbild</template>
+          <div v-if="previewImageSrc" class="mono-mute detail-gap-sm">
+            {{ frame ? 'Neues Testbild' : 'Gespeichertes Referenzbild' }}
             · Ziehen = Ausschnitt verschieben · Mausrad = Zoom · Änderungen werden mit „Kamera speichern“ übernommen
           </div>
         </div>
@@ -165,28 +162,30 @@
           <div class="btn-row">
             <button class="btn primary" :disabled="busy || !canCapture" @click="capture(true)">{{ previewImageSrc ? 'Referenzbild aktualisieren' : 'Referenzbild aufnehmen' }}</button>
           </div>
-          <div class="mono-mute" style="font-size: 11px;">Das Referenzbild dient als Vorschau für den Zuschnitt und hilft beim späteren Wiedererkennen der Kamera.</div>
+          <div class="mono-mute">Das Referenzbild dient als Vorschau für den Zuschnitt und hilft beim späteren Wiedererkennen der Kamera.</div>
 
           <details class="advanced">
             <summary>Feinjustage</summary>
-            <div class="crop-grid" style="margin-top: 12px;">
-              <div class="field"><span class="lbl">Crop X</span><input aria-label="Crop X" v-model.number="cropX" type="number" min="0" max="99" /></div>
-              <div class="field"><span class="lbl">Crop Y</span><input aria-label="Crop Y" v-model.number="cropY" type="number" min="0" max="99" /></div>
+            <div class="crop-grid detail-gap">
+              <div class="field"><span class="lbl">Ausschnitt links %</span><input aria-label="Ausschnitt links %" v-model.number="cropX" type="number" min="0" max="99" /></div>
+              <div class="field"><span class="lbl">Ausschnitt oben %</span><input aria-label="Ausschnitt oben %" v-model.number="cropY" type="number" min="0" max="99" /></div>
               <div class="field"><span class="lbl">Breite %</span><input aria-label="Breite %" v-model.number="cropWidth" type="number" min="1" max="100" /></div>
               <div class="field"><span class="lbl">Höhe %</span><input aria-label="Höhe %" v-model.number="cropHeight" type="number" min="1" max="100" /></div>
+            </div>
+            <div class="btn-row detail-gap">
+              <button class="btn ghost" :disabled="busy || editDirty" title="Schreibt die gespeicherten Kamera-Einstellungen erneut für den Videodienst" @click="renderAfterDisplay">Videodienst-Einstellungen neu schreiben</button>
             </div>
           </details>
 
           <div class="btn-row">
             <button class="btn" :disabled="busy" @click="resetDisplay">Zurücksetzen</button>
-            <button class="btn ghost" :disabled="busy || editDirty" title="Verwendet die gespeicherten Kamera-Einstellungen" @click="renderAfterDisplay">go2rtc erzeugen</button>
           </div>
         </div>
       </div>
     </section>
 
     <template v-if="!editing && !uploadEditing">
-      <EditableSection title="Kamera-Zugang" :to="`/kamera/${device.id}/bearbeiten#zugang`"><dl class="spec"><div><dt>Benutzername</dt><dd>{{ username || 'Gemeinsame Identität' }}</dd></div><div><dt>Passwort</dt><dd>{{ credentials?.password_set ? 'Kameraspezifisch gespeichert' : identitySummary }}</dd></div><div><dt>Stream</dt><dd>{{ stream }}</dd></div></dl></EditableSection>
+      <EditableSection title="Kamera-Zugang" :to="`/kamera/${device.id}/bearbeiten#zugang`"><dl class="spec"><div><dt>Benutzername</dt><dd>{{ username || 'Gemeinsamer Kamera-Zugang' }}</dd></div><div><dt>Passwort</dt><dd>{{ credentials?.password_set ? 'Eigenes Passwort gespeichert' : identitySummary }}</dd></div><div><dt>Bildqualität</dt><dd>{{ streamLabel(stream) }}</dd></div></dl></EditableSection>
       <EditableSection title="Verbindung und Anzeige" :to="`/kamera/${device.id}/bearbeiten#anzeige`"><dl class="spec"><div><dt>Verbindung</dt><dd>{{ activePathLabel }}</dd></div><div><dt>Ausrichtung</dt><dd>{{ displaySummary }}</dd></div></dl><img v-if="previewImageSrc" :src="previewImageSrc" alt="Gespeichertes Referenzbild" class="device-reference" /></EditableSection>
       <EditableSection title="Bild-Upload" :to="`/kamera/${device.id}/bild-upload`"><p class="mono-mute">Bildausschnitt, Privatbereiche, Zeitangabe, Dateiname und Zeitplan für diese Kamera.</p></EditableSection>
       <RouterLink class="mobile-fab" aria-label="Kamera bearbeiten" :to="`/kamera/${device.id}/bearbeiten`"><AppIcon name="edit" /></RouterLink>
@@ -195,10 +194,24 @@
 
     <section v-if="!editing && !uploadEditing" class="panel">
       <details class="advanced">
-        <summary>Rohdaten · Diagnose</summary>
-        <pre class="code" style="margin-top: 10px;">{{ JSON.stringify(raw, null, 2) }}</pre>
+        <summary>Technische Details</summary>
+        <dl class="spec detail-gap">
+          <div><dt>MAC-Adresse</dt><dd>{{ device.mac_address || '—' }}</dd></div>
+          <div><dt>Seriennummer</dt><dd>{{ device.serial_number || '—' }}</dd></div>
+          <div><dt>Hostname</dt><dd>{{ device.hostname || '—' }}</dd></div>
+          <div><dt>Geräte-ID</dt><dd class="device-id">{{ device.id }}</dd></div>
+          <div><dt>Erkannte Dienste</dt><dd class="sig-row">
+            <span class="sig" :class="{ on: raw.rtsp_port_open }">RTSP</span>
+            <span class="sig" :class="{ on: raw.onvif_port_open }">ONVIF</span>
+            <span class="sig" :class="{ on: raw.http_signature }">HTTP</span>
+          </dd></div>
+        </dl>
+        <pre class="code detail-gap">{{ JSON.stringify(raw, null, 2) }}</pre>
       </details>
     </section>
+
+    <CameraNameDialog :open="renaming" :device="device" @close="renaming = false" @saved="onRenamed" />
+    <CameraVisibilityDialog :open="visibilityOpen" :name="title" :shown="shown" :busy="busyShow" :error="visibilityError" @close="closeVisibility" @confirm="confirmVisibility" />
   </template>
 </template>
 
@@ -210,6 +223,9 @@ import { useRoute, useRouter } from 'vue-router'
 import { api } from '../api/client'
 import { useDraftGuard } from '../composables/discardChanges'
 import SnapshotUpload from '../components/SnapshotUpload.vue'
+import CameraNameDialog from '../components/CameraNameDialog.vue'
+import CameraVisibilityDialog from '../components/CameraVisibilityDialog.vue'
+import { cameraName, changeCameraVisibility, countLabel, fitModeLabel, streamLabel } from '../composables/cameraLabels'
 import type { Binding, CredentialIdentity, Device, DeviceCredentials, FrameResult, ProbeResult, RelayStatus, Slot } from '../types'
 
 const route = useRoute(), router = useRouter()
@@ -239,6 +255,9 @@ async function saveAll() {
 const device = ref<Device>()
 const slots = ref<Slot[]>([])
 const busyShow = ref(false)
+const renaming = ref(false)
+const visibilityOpen = ref(false)
+const visibilityError = ref('')
 const ready = ref(false)
 let stopStagePan: (() => void) | null = null
 const loading = ref(true)
@@ -270,7 +289,7 @@ const relayStatuses = ref<RelayStatus[]>([])
 const relayPortBaseDefault = 18554
 const relayPortBaseSpacing = 20
 
-const title = computed(() => `${device.value?.manufacturer || 'Unbekannte'} ${device.value?.model || 'Kamera'}`.trim())
+const title = computed(() => cameraName(device.value))
 const relayIds = computed(() =>
   (settings.value['camera.relay.ids'] || '')
     .split(',')
@@ -283,7 +302,7 @@ const activePathLabel = computed(() => {
   const kind = settings.value[`camera.active_path.${deviceID}.kind`]
   if (kind === 'relay') {
     const relayId = settings.value[`camera.active_path.${deviceID}.relay_id`]
-    return relayId && relayId !== 'manual' ? `Relay ${relayNameFor(relayId)}` : 'Relay'
+    return relayId && relayId !== 'manual' ? `Über Weiterleitung ${relayNameFor(relayId)}` : 'Über Weiterleitung'
   }
   return kind === 'direct' ? 'Direkt' : '—'
 })
@@ -291,12 +310,12 @@ const shown = computed(() => !!device.value && bindings.value.some((b) => b.devi
 const canPan = computed(() => clamp(Number(cropWidth.value) || 100, 1, 100) < 100 || clamp(Number(cropHeight.value) || 100, 1, 100) < 100)
 const referenceImageUrl = computed(() => device.value ? api.referenceImageUrl(device.value.id, referenceRevision.value) : '')
 const canCapture = computed(() => Boolean((username.value && (password.value || credentials.value?.password_set)) || credentialIdentities.value.length))
-const identitySummary = computed(() => credentialIdentities.value.length ? `${credentialIdentities.value.length} Identität(en)` : 'kein Passwort')
+const identitySummary = computed(() => credentialIdentities.value.length ? countLabel(credentialIdentities.value.length, 'gemeinsamer Kamera-Zugang', 'gemeinsame Kamera-Zugänge') : 'kein Passwort')
 const previewImageSrc = computed(() => {
   if (frame.value) return `data:${frame.value.content_type};base64,${frame.value.image_base64}`
   return referenceMissing.value ? '' : referenceImageUrl.value
 })
-const displaySummary = computed(() => `${rotation.value}° · ${fitMode.value} · ${cropWidth.value}×${cropHeight.value}%`)
+const displaySummary = computed(() => `Drehung ${rotation.value}° · ${fitModeLabel(fitMode.value)} · Ausschnitt ${cropWidth.value} × ${cropHeight.value} %`)
 const displayPreviewStyle = computed(() => {
   const crop = normalizedCrop()
   const width = 10000 / crop.width
@@ -383,7 +402,7 @@ async function saveEndpointOverrides() {
     await api.saveSettings(values)
     await loadRelayStatuses()
   } catch (err) {
-    error.value = err instanceof Error ? err.message : 'Relay-Endpunkte konnten nicht gespeichert werden.'
+    error.value = err instanceof Error ? err.message : 'Weiterleitungen konnten nicht gespeichert werden.'
   } finally {
     busy.value = false
   }
@@ -458,7 +477,7 @@ async function renderAfterDisplay() {
   try {
     await api.renderGo2RTC()
   } catch (err) {
-    error.value = err instanceof Error ? err.message : 'go2rtc konnte nicht erzeugt werden.'
+    error.value = err instanceof Error ? err.message : 'Videodienst-Einstellungen konnten nicht geschrieben werden.'
   } finally {
     busy.value = false
   }
@@ -475,38 +494,39 @@ function resetDisplay() {
   cropHeight.value = 100
 }
 
-async function toggleShow() {
+function openVisibility() {
+  visibilityError.value = ''
+  visibilityOpen.value = true
+}
+function closeVisibility() {
+  if (!busyShow.value) visibilityOpen.value = false
+}
+async function confirmVisibility() {
   if (!device.value || busyShow.value) return
   busyShow.value = true
+  visibilityError.value = ''
   error.value = ''
   try {
-    const existing = bindings.value.find((b) => b.device_id === device.value!.id)
-    if (existing) {
-      await api.removeBinding(existing.slot_id)
-    } else {
-      const used = new Set(bindings.value.map((b) => b.slot_id))
-      const free = slots.value.find((slot) => !used.has(slot.id))
-      if (!free) {
-        error.value = 'Maximal ' + slots.value.length + ' Kameras gleichzeitig sichtbar. Blende zuerst eine andere aus.'
-        return
-      }
-      await api.saveBinding({
-        slot_id: free.id,
-        device_id: device.value.id,
-        label: title.value,
-        username: credentials.value?.username || username.value || '',
-        stream_name: credentials.value?.stream || stream.value || free.default_stream || 'stream2',
-        enabled: true
-      })
-    }
-    await api.renderGo2RTC()
-    await api.restartGo2RTC().catch(() => undefined)
+    const result = await changeCameraVisibility(api, {
+      deviceId: device.value.id,
+      label: title.value,
+      bindings: bindings.value,
+      slots: slots.value,
+      username: credentials.value?.username || username.value,
+      stream: credentials.value?.stream || stream.value
+    })
+    visibilityOpen.value = false
+    error.value = result.restartError
     bindings.value = await api.bindings()
   } catch (err) {
-    error.value = err instanceof Error ? err.message : 'Sichtbarkeit konnte nicht geändert werden.'
+    visibilityError.value = err instanceof Error ? err.message : 'Die Anzeige konnte nicht geändert werden.'
   } finally {
     busyShow.value = false
   }
+}
+
+function onRenamed(updated: Device) {
+  if (device.value?.id === updated.id) device.value = { ...device.value, name: updated.name }
 }
 
 function rotateStage() {
@@ -577,7 +597,7 @@ async function capture(save: boolean) {
       referenceRevision.value = Date.now()
     }
   } catch (err) {
-    error.value = err instanceof Error ? err.message : 'Bild konnte nicht gezogen werden.'
+    error.value = err instanceof Error ? err.message : 'Bild konnte nicht abgerufen werden.'
   } finally {
     busy.value = false
   }
@@ -665,11 +685,16 @@ async function loadDevice(id: string) {
 </script>
 
 <style scoped>
-.topline .meta.sig-row {
+.sig-row {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 6px;
 }
+.detail-gap { margin-top: 12px; }
+.detail-gap-sm { margin-top: 8px; }
+.relay-endpoints.centered { align-content: center; }
+.device-id { color: var(--ink-mute); overflow-wrap: anywhere; }
 .transform-preview-stage.grabbable { cursor: grab; }
 .transform-preview-stage.grabbable:active { cursor: grabbing; }
 .stage-tools {

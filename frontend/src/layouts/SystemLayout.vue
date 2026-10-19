@@ -18,7 +18,7 @@ import { useSystem } from '../composables/useSystem'
 const route = useRoute()
 const { error, toast, loadAll, credentialIdentities, relayName } = useSystem()
 
-const activeLabel = computed(() => route.params.id && route.path.includes('/identitaeten/') ? credentialIdentities.value.find(item => item.id === route.params.id)?.name || 'Identität' : route.params.id && route.path.includes('/relays/') ? relayName(String(route.params.id)) : String(route.meta.title || 'System'))
+const activeLabel = computed(() => route.params.id && route.path.includes('/identitaeten/') ? credentialIdentities.value.find(item => item.id === route.params.id)?.name || 'Kamera-Zugang' : route.params.id && route.path.includes('/relays/') ? relayName(String(route.params.id)) : String(route.meta.title || 'System'))
 
 onMounted(() => void loadAll())
 </script>

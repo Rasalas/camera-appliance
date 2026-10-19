@@ -46,8 +46,8 @@ const restartCooldownLabel = computed(() => {
   const watchdog = status.value?.watchdog
   if (!watchdog) return 'Noch kein Status.'
   if (watchdog.path_restart_pending) return `Ausstehend bis ${watchdogDate(watchdog.path_restart_cooldown_until)}`
-  if (watchdog.path_restart_last_at) return `Letzter Restart ${watchdogDate(watchdog.path_restart_last_at)}`
-  return 'Kein Cooldown aktiv.'
+  if (watchdog.path_restart_last_at) return `Letzter Neustart ${watchdogDate(watchdog.path_restart_last_at)}`
+  return 'Keine Wartezeit aktiv.'
 })
 const versionDetail = computed(() => {
   const info = status.value?.version
@@ -320,13 +320,13 @@ async function saveCredentialIdentity(form: { id?: string; name: string; usernam
     copy_password_from_id: form.copy_password_from_id || undefined
   })
   await loadCredentialIdentities()
-  showToast('Identität gespeichert')
+  showToast('Kamera-Zugang gespeichert')
 }
 
 async function deleteCredentialIdentity(id: string) {
   await api.deleteCredentialIdentity(id)
   await loadCredentialIdentities()
-  showToast('Identität entfernt')
+  showToast('Kamera-Zugang entfernt')
 }
 
 function addRelay(draft: { id: string; name: string; host: string; sshTarget: string }) {
@@ -363,12 +363,12 @@ async function relayAction(id: string, action: 'start' | 'stop' | 'restart') {
 
 async function createBackup() {
   backupResult.value = await api.backup()
-  showToast('Backup erstellt')
+  showToast('Sicherung erstellt')
 }
 
 async function restoreBackup(path: string) {
   backupResult.value = await api.restore(path)
-  showToast('Backup wiederhergestellt')
+  showToast('Sicherung wiederhergestellt')
 }
 
 async function createSupportBundle() {

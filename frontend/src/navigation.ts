@@ -8,11 +8,11 @@ export const systemPage: NavItem = { to: '/system', label: 'System', icon: 'syst
 export const maintenancePage: NavItem = { to: '/system/wartung', label: 'Wartung', icon: 'tools' }
 export const systemPages: NavItem[] = [
   { to: '/system/zugriff', label: 'Zugriff', icon: 'shield' },
-  { to: '/system/relays', label: 'Relays', icon: 'relay' },
-  { to: '/system/identitaeten', label: 'Identitäten', icon: 'identity' }
+  { to: '/system/relays', label: 'Weiterleitungen', icon: 'relay' },
+  { to: '/system/identitaeten', label: 'Kamera-Zugänge', icon: 'identity' }
 ]
 export const maintenancePages: NavItem[] = [
-  { to: '/system/wartung/watchdog', label: 'Watchdog', icon: 'activity' },
+  { to: '/system/wartung/watchdog', label: 'Überwachung', icon: 'activity' },
   { to: '/system/wartung/sicherung', label: 'Sicherung', icon: 'backup' },
   { to: '/system/wartung/support', label: 'Support', icon: 'support' }
 ]

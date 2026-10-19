@@ -44,12 +44,16 @@ damit verschachtelte Ecken parallel laufen.
 
 ## Bausteine
 
-- **Button** `.btn` (+ `.primary`/`.live`/`.danger`/`.ghost`, `.sm`/`.lg`/`.icon`): gefüllt (`--raised`), randlos, `--radius-sm`, UPPERCASE.
+- **Button** `.btn` (+ `.primary`/`.live`/`.danger`/`.ghost`, `.sm`/`.lg`/`.icon`): gefüllt (`--raised`), randlos, `--radius-sm`. Im Viewer UPPERCASE; in der Verwaltung (`admin.css`) normale Groß-/Kleinschreibung, 14 px, mindestens 44 px hoch.
+- **Aktion statt Status**: Schalter, die etwas auslösen, heißen nach der Aktion („Ausblenden“/„Einblenden“). Der Zustand steht daneben als `.pill` („In der Live-Ansicht“/„Ausgeblendet“). Aktionen, die die Live-Ansicht kurz unterbrechen, werden vorher bestätigt.
 - **Pill** `.pill` (+ `.live`/`.warn`/`.down`): Statusanzeige mit Punkt.
 - **Sektion** `.panel`: transparent, nur Überschrift + Inhalt. **Card** `.panel.card`: gefüllte Fläche für Gruppen.
 - **Feld** `.field` mit `.lbl` + Input; Inputs gefüllt, randlos, Fokus = grüner Rahmen.
 - **Liste** `.result-list`/`.ticker`: zebriert (`nth-child(odd)`), keine Zeilentrenner.
 - **Toggle** `.toggle-row`, **Hinweis** `.notice` (+ `.ok`/`.warn`/`.err`), **Modal** `.modal`.
+- **Fehler im Dialog**: Fehler eines offenen Dialogs erscheinen als `.notice.err` mit `role="alert"` im Dialog selbst; der Dialog bleibt offen und die Eingaben bleiben erhalten.
+- **Ladefehler**: Seiten zeigen bei fehlgeschlagenem Laden einen `.notice.err` mit „Erneut versuchen“ statt des leeren Zustands.
+- **Technische Details**: MAC, Seriennummer, Hostname, Geräte-ID, erkannte Dienste (RTSP/ONVIF) und Rohdaten liegen eingeklappt in `details.advanced` „Technische Details“.
 - **Stat/Service-Strip**: gleich große gefüllte Blöcke mit Gap (keine Innenlinien).
 
 ## Viewer-Chrome-Modell
@@ -62,9 +66,34 @@ Vier Zustände (siehe [013](decisions/013-viewer-redesign.md)):
 
 ## Navigation / IA
 
-- Drei Bereiche: **Kameras** (Viewer, full-bleed), **Geräte** (Kamera-Liste + Detailseite),
-  **System** (Unterseiten-Tabs: Allgemein · Zugriff · Netzwerk & Relays · Wartung).
-- Kameras sind das Zuhause; Slots werden automatisch im Hintergrund vergeben (kein Slot-UI).
+Seitenleiste (`frontend/src/navigation.ts`, `layouts/AppLayout.vue`):
+
+- **Live-Ansicht** (`/`, full-bleed Viewer).
+- **Kameras** (`/einrichtung`): Kameraliste, Detailseite `/kamera/:id`; darunter **Bild-Upload**
+  (`/kameras/bild-upload`).
+- **System** (`/system`, allgemeine Einstellungen); darunter **Zugriff** (`/system/zugriff`),
+  **Weiterleitungen** (`/system/relays`, SSH-Relays) und **Kamera-Zugänge**
+  (`/system/identitaeten`, gemeinsame Kamera-Logins).
+- **Wartung** (`/system/wartung`, Übersicht); darunter **Überwachung** (`/system/wartung/watchdog`),
+  **Sicherung** und **Support**.
+- **Über Watchdeck** (`/system/ueber`, inklusive Updates).
+- Mobil: Bottom-Navigation (Home `/verwaltung`, Kameras, Live-Ansicht); Suche unter dem Logo
+  (Cmd/Ctrl+K).
+
+Die Routen behalten ihre bisherigen Pfade, damit Lesezeichen und Anleitungen gültig bleiben;
+umbenannt wurden nur die Beschriftungen. Slots werden automatisch im Hintergrund vergeben
+(kein Slot-UI).
+
+### Begriffe
+
+- Kameras tragen einen frei wählbaren **Namen** (max. 40 Zeichen), gespeichert zur stabilen
+  Geräte-ID. Ohne Namen wird „Hersteller Modell“ angezeigt.
+- **Gerätedaten** = Hersteller, Modell, IP-Adresse einer Kamera. **Kamera-Zugang** = gespeicherter
+  Login (früher „Identität“).
+- **Videodienst** statt „go2rtc“, **Bildqualität** „Standard (empfohlen)“/„Hohe Auflösung“ statt
+  `stream2`/`stream1`, **Einpassen**/**Ausfüllen** statt `contain`/`cover`, **Weiterleitung**
+  statt „Relay“, **Überwachung** statt „Watchdog“, **Sicherung** statt „Backup“.
+- Zählwörter mit Singular/Plural („1 Kamera“, „3 Kameras“), keine „Gerät(e)“-Klammern.
 
 ## Offene Punkte / To-do
 
@@ -74,5 +103,9 @@ Hier sammeln, was am Design noch nicht passt, damit es nicht verloren geht:
 - [erledigt] Verwaltung: große Serifen-Titel durch kompakte Mono-Header ersetzt.
 - [erledigt] **Einrichtung → „Geräte"**: Kamera-Liste + Anzeigen-Schalter, Detailseite mit
   Konfiguration und Zuschnitt direkt am Bild; Slot-Bedienung entfernt (siehe
-  [014](decisions/014-device-centric-ui.md)).
-- [erledigt] **System** in Unterseiten geteilt: Allgemein · Zugriff · Netzwerk & Relays · Wartung.
+  [014](decisions/014-device-centric-ui.md)). Der Schalter heißt jetzt „Ausblenden“/„Einblenden“ mit Bestätigung.
+- [erledigt] **System** in Unterseiten geteilt: Allgemein · Zugriff · Weiterleitungen · Kamera-Zugänge; Wartung eigener Bereich.
+- [offen] Die Verwaltung (`admin.css`) trennt Listenzeilen (`.device-card`, `.relay-row`, `.result-row`)
+  und Bearbeiten-Sektionen noch mit Hairlines. Das weicht von Prinzip 1 ab; Wartungsübersicht,
+  Support-Protokoll und Über-Seite nutzen bereits Abstand und Flächen statt Linien.
+- [offen] System → Allgemein enthält noch Fachbegriffe („go2rtc-URL“, „Capture-Hop per SSH“).
