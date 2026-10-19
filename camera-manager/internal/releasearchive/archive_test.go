@@ -6,8 +6,6 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"net/http"
-	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -104,10 +102,9 @@ func TestPrepareOwnsDownloadAndStagingLifetime(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { _, _ = w.Write(payload) }))
-	defer server.Close()
+	server := releaseServer(t, payload, sha256Line(payload, "release.tar.gz"), nil)
 	workspace := t.TempDir()
-	release, err := Prepare(context.Background(), Source{URL: server.URL, AllowInsecureURL: true}, workspace, server.Client())
+	release, err := Prepare(context.Background(), Source{URL: server.URL + "/v1/release.tar.gz", AllowInsecureURL: true}, workspace, server.Client())
 	if err != nil {
 		t.Fatal(err)
 	}
