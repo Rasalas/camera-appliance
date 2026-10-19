@@ -24,7 +24,8 @@ type Result struct {
 }
 
 func Create(ctx context.Context, cfg config.Config, out string, includeSecrets bool) (Result, error) {
-	if out == "" {
+	defaultPath := out == ""
+	if defaultPath {
 		out = filepath.Join(cfg.BackupDir(), "camera-appliance-"+time.Now().UTC().Format("20060102-150405.000000000")+".tar.gz")
 	}
 	if err := os.MkdirAll(filepath.Dir(out), 0o750); err != nil {
@@ -96,6 +97,10 @@ func Create(ctx context.Context, cfg config.Config, out string, includeSecrets b
 	}
 	if err := os.Rename(file.Name(), out); err != nil {
 		return Result{}, err
+	}
+	if defaultPath {
+		// Retention is best effort; a failed cleanup must not fail the backup.
+		_, _ = Prune(cfg.BackupDir(), BackupArchives, KeepBackups, out)
 	}
 	return Result{Path: out, Files: included, Warning: warning}, nil
 }
