@@ -16,9 +16,10 @@
    ```
 
    - The bootstrap installs missing apt bootstrap dependencies where possible: `ca-certificates`, `tar`, `docker.io`, and `docker-compose-plugin`.
-   - If the distro package does not provide `docker compose`, it downloads the official Docker Compose v2 plugin for the local CPU architecture.
-   - On a fresh laptop it downloads the release and calls `camera-appliance install`.
-   - On an existing appliance it calls `camera-appliance update`.
+   - If the distro package does not provide `docker compose`, it downloads the official Docker Compose v2 plugin for the local CPU architecture. The plugin is installed only after it matches Docker's `checksums.txt`.
+   - It verifies the release archive against the `SHA256SUMS` asset of the same release and aborts if the file is missing or the digest differs. For a self-hosted archive, pass `--url URL --sha256 HEX`.
+   - On a fresh laptop it downloads the release, builds the Docker images and calls `camera-appliance install`. `camera-appliance.service` later starts these images without rebuilding them.
+   - On an existing appliance it calls `camera-appliance update` and refreshes installed copies of `camera-appliance.service` and `camera-kiosk.service`; the new units apply at the next start.
    - It auto-detects the desktop user and enables the kiosk browser service by default.
    - `--user USER` overrides the detected desktop/kiosk user.
    - `--no-kiosk` skips the kiosk browser user service.
