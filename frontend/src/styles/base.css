@@ -15,8 +15,8 @@
   /* ink */
   --ink:       #EDEAE0;
   --ink-soft:  #B7B5AC;
-  --ink-mute:  #7A7A82;
-  --ink-dim:   #4E4E55;
+  --ink-mute:  #9A9AA2;   /* 7:1 on --bg */
+  --ink-dim:   #7E7E86;   /* 4.9:1 on --bg, 4.3:1 on --raised (disabled) */
 
   /* signal */
   --live:      #B5E853;       /* phosphor green — primary on-air */

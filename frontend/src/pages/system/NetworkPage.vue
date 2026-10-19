@@ -4,7 +4,7 @@
     <div class="panel-head">
       <h2>Relays</h2>
       <div class="device-head-actions">
-        <div class="right">{{ relayIds.length ? `${relayIds.length} eingerichtet` : 'nicht eingerichtet' }}</div>
+        <div v-if="settingsLoaded" class="right">{{ relayIds.length ? `${relayIds.length} eingerichtet` : 'nicht eingerichtet' }}</div>
 
       </div>
     </div>
@@ -15,7 +15,8 @@
       Ob eine Kamera das Relay nutzen <i>muss</i>, legst du auf ihrer Detailseite unter „Verbindung“ fest.
     </div>
 
-    <div v-if="!relayIds.length" class="empty">Kein Relay eingerichtet. Direkt erreichbare Kameras funktionieren auch ohne.</div>
+    <div v-if="!settingsLoaded" role="status">{{ loadError ? 'Relays konnten nicht geladen werden.' : 'Wird geladen…' }}</div>
+    <div v-else-if="!relayIds.length" class="empty">Kein Relay eingerichtet. Direkt erreichbare Kameras funktionieren auch ohne.</div>
     <div v-else class="relay-list">
       <RouterLink v-for="relayId in relayIds" :key="relayId" :to="`/system/relays/${relayId}`" class="relay-row">
         <span class="state-dot" :class="relayStateClass(relayId)"></span>
@@ -61,7 +62,7 @@ import { relaySettingKeys } from '../../composables/settingsDraft'
 
 const router = useRouter()
 const {
-  settings, relayIds, error,
+  settings, relayIds, error, settingsLoaded, loadError,
   loadAll, saveSettings, addRelay, relayAction, sanitizeID,
   relaySettingKey, relayName, relayStatusFor, relayStateLabel, relayStateClass
 } = useSystem()
