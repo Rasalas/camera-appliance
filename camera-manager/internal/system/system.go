@@ -29,9 +29,20 @@ type ServiceStatus struct {
 	Message string `json:"message,omitempty"`
 }
 
+const (
+	go2rtcRestartTimeout = 90 * time.Second
+	// Covers image builds triggered by "up --build".
+	stackRestartTimeout = 20 * time.Minute
+	composeProbeTimeout = 10 * time.Second
+)
+
+// commandWaitDelay bounds how long Wait blocks on pipes held open by
+// background children after the command exited or its context ended.
+var commandWaitDelay = 5 * time.Second
+
 func Check(ctx context.Context, cfg config.Config) Status {
 	status := Status{
-		Go2RTC:          httpStatus(ctx, "go2rtc", cfg.Go2RTCURL),
+		Go2RTC:          Go2RTCStatus(ctx, cfg),
 		CameraAppliance: ServiceStatus{Name: "camera-appliance", Online: true, Message: "läuft"},
 		Systemd:         systemdStatuses(ctx, "camera-appliance.service"),
 		Docker:          dockerComposeStatuses(ctx, cfg, "go2rtc", "camera-manager"),
@@ -43,10 +54,17 @@ func Check(ctx context.Context, cfg config.Config) Status {
 	return status
 }
 
+// Go2RTCStatus only probes the go2rtc HTTP endpoint. Unlike Check it spawns no
+// docker or systemctl processes, so it is cheap enough for periodic checks.
+func Go2RTCStatus(ctx context.Context, cfg config.Config) ServiceStatus {
+	return httpStatus(ctx, "go2rtc", cfg.Go2RTCURL)
+}
+
 func RestartGo2RTC(ctx context.Context, cfg config.Config) error {
+	ctx, cancel := context.WithTimeout(ctx, go2rtcRestartTimeout)
+	defer cancel()
 	if cfg.Go2RTCRestart != "" {
-		cmd := exec.CommandContext(ctx, cfg.Go2RTCRestart)
-		out, err := cmd.CombinedOutput()
+		out, err := combinedOutput(command(ctx, cfg.Go2RTCRestart))
 		if err != nil {
 			return fmt.Errorf("go2rtc restart command failed: %w: %s", err, string(out))
 		}
@@ -59,6 +77,8 @@ func RestartGo2RTC(ctx context.Context, cfg config.Config) error {
 }
 
 func RestartStack(ctx context.Context, cfg config.Config) error {
+	ctx, cancel := context.WithTimeout(ctx, stackRestartTimeout)
+	defer cancel()
 	return ApplyStack(ctx, cfg)
 }
 
@@ -83,8 +103,7 @@ func ApplyStack(ctx context.Context, cfg config.Config) error {
 // their independent supervisor instead.
 func applyStackSystemd(ctx context.Context, cfg config.Config) error {
 	if cfg.Go2RTCRestart != "" {
-		cmd := exec.CommandContext(ctx, cfg.Go2RTCRestart)
-		out, err := cmd.CombinedOutput()
+		out, err := combinedOutput(command(ctx, cfg.Go2RTCRestart))
 		if err != nil {
 			return fmt.Errorf("go2rtc restart command failed: %w: %s", err, string(out))
 		}
@@ -96,8 +115,7 @@ func applyStackSystemd(ctx context.Context, cfg config.Config) error {
 
 func systemctlTry(ctx context.Context, user bool, args ...string) error {
 	args = systemctlArgs(user, args...)
-	cmd := exec.CommandContext(ctx, "systemctl", args...)
-	out, err := cmd.CombinedOutput()
+	out, err := combinedOutput(command(ctx, "systemctl", args...))
 	if err != nil {
 		return fmt.Errorf("systemctl %s failed: %w: %s", strings.Join(args, " "), err, string(out))
 	}
@@ -144,8 +162,7 @@ func currentContainerImage(ctx context.Context) (string, error) {
 func launchDetachedCompose(ctx context.Context, cfg config.Config, image string, composeCommand ...string) error {
 	name := fmt.Sprintf("camera-appliance-stack-updater-%d", time.Now().UnixNano())
 	args := detachedComposeArgs(cfg, image, name, composeCommand...)
-	cmd := exec.CommandContext(ctx, "docker", args...)
-	out, err := cmd.CombinedOutput()
+	out, err := combinedOutput(command(ctx, "docker", args...))
 	if err != nil {
 		return fmt.Errorf("docker %v failed: %w: %s", args, err, string(out))
 	}
@@ -173,7 +190,7 @@ func httpStatus(ctx context.Context, name, rawURL string) ServiceStatus {
 	defer cancel()
 	req, err := http.NewRequestWithContext(reqCtx, http.MethodGet, rawURL, nil)
 	if err != nil {
-		return ServiceStatus{Name: name, Online: false, Message: err.Error()}
+		return ServiceStatus{Name: name, Online: false, Message: redaction.Text(err.Error())}
 	}
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
@@ -186,25 +203,23 @@ func httpStatus(ctx context.Context, name, rawURL string) ServiceStatus {
 
 func dockerCompose(ctx context.Context, cfg config.Config, args ...string) error {
 	full := composeArgs(cfg, args...)
-	command := "docker"
+	name := "docker"
 	commandArgs := full
-	if err := exec.CommandContext(ctx, "docker", "compose", "version").Run(); err != nil {
+	if _, err := commandOutput(ctx, composeProbeTimeout, "docker", "compose", "version"); err != nil {
 		if _, lookupErr := exec.LookPath("docker-compose"); lookupErr == nil {
-			command = "docker-compose"
+			name = "docker-compose"
 			commandArgs = full[1:]
 		}
 	}
-	cmd := exec.CommandContext(ctx, command, commandArgs...)
-	out, err := cmd.CombinedOutput()
+	out, err := combinedOutput(command(ctx, name, commandArgs...))
 	if err != nil {
-		return fmt.Errorf("%s %v failed: %w: %s", command, commandArgs, err, string(out))
+		return fmt.Errorf("%s %v failed: %w: %s", name, commandArgs, err, string(out))
 	}
 	return nil
 }
 
 func restartNativeDevGo2RTC(ctx context.Context, cfg config.Config) error {
-	cmd := exec.CommandContext(ctx, "make", "-C", cfg.ConfigDir, "dev-go2rtc")
-	out, err := cmd.CombinedOutput()
+	out, err := combinedOutput(command(ctx, "make", "-C", cfg.ConfigDir, "dev-go2rtc"))
 	if err != nil {
 		return fmt.Errorf("make dev-go2rtc failed: %w: %s", err, string(out))
 	}
@@ -310,12 +325,27 @@ func composeArgs(cfg config.Config, args ...string) []string {
 func commandOutput(ctx context.Context, timeout time.Duration, name string, args ...string) (string, error) {
 	cmdCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	cmd := exec.CommandContext(cmdCtx, name, args...)
-	out, err := cmd.CombinedOutput()
+	out, err := combinedOutput(command(cmdCtx, name, args...))
 	if cmdCtx.Err() != nil {
 		return string(out), cmdCtx.Err()
 	}
 	return string(out), err
+}
+
+func command(ctx context.Context, name string, args ...string) *exec.Cmd {
+	cmd := exec.CommandContext(ctx, name, args...)
+	cmd.WaitDelay = commandWaitDelay
+	return cmd
+}
+
+// combinedOutput treats a successful exit as success even when a detached
+// child kept the output pipe open past WaitDelay.
+func combinedOutput(cmd *exec.Cmd) ([]byte, error) {
+	out, err := cmd.CombinedOutput()
+	if errors.Is(err, exec.ErrWaitDelay) {
+		err = nil
+	}
+	return out, err
 }
 
 func pathExists(path string) bool {
