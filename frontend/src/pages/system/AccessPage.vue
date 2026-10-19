@@ -1,6 +1,23 @@
 <template>
   <p class="mono-mute">Lege fest, wo die Station erreichbar ist und wer Einstellungen oder Kamerabilder öffnen darf.</p>
-  <SettingsForm title="Netzwerk" :setting-keys="['network.lan_access_enabled']" :after-save="applyNetwork">
+  <div v-if="restart === 'running'" class="notice restart-notice" role="status" aria-live="polite">
+    <span class="tag">NEUSTART</span>
+    <div class="restart-body">
+      <div>Station startet neu… {{ restartSeconds }} s</div>
+      <div class="mono-mute">Die Seite lädt automatisch neu, sobald die Station wieder antwortet. Das kann bis zu drei Minuten dauern.</div>
+      <div class="progress" />
+    </div>
+  </div>
+  <div v-else-if="restart === 'timeout'" class="notice err" role="alert">
+    <span class="tag">FEHLER</span>
+    <div class="restart-body">
+      <div>Die Station antwortet nach drei Minuten noch nicht.</div>
+      <div>Prüfe, ob das Gerät eingeschaltet und mit dem Netzwerk verbunden ist, und lade die Seite dann neu. Hilft das nicht, schalte das Gerät aus und wieder ein.</div>
+      <div><button class="btn" type="button" @click="reloadPage">Seite neu laden</button></div>
+    </div>
+  </div>
+  <div v-else-if="restart === 'failed'" class="notice err" role="alert"><span class="tag">FEHLER</span>Neustart fehlgeschlagen ({{ restartError }}). Die Einstellung ist gespeichert und wird beim nächsten Neustart der Station wirksam.</div>
+  <SettingsForm title="Netzwerk" :setting-keys="['network.lan_access_enabled']" :after-save="startNetworkRestart">
     <template #summary><p>{{ settings['network.lan_access_enabled'] === 'true' ? 'Die Station ist im lokalen Netzwerk erreichbar.' : 'Zugriff ist auf dieses Gerät beschränkt.' }}</p><p class="mono-mute">Eine Änderung startet den Dienst neu.</p></template>
     <label class="toggle-row"><input type="checkbox" :checked="settings['network.lan_access_enabled'] === 'true'" :disabled="settings.auth_admin_password_set !== 'true'" @change="setBool('network.lan_access_enabled',$event)" /><span>Zugriff aus dem lokalen Netzwerk erlauben</span></label>
     <p v-if="settings.auth_admin_password_set !== 'true'" class="notice warn">Setze zuerst unter Administration ein Admin-Passwort, um den Netzwerkzugriff freizugeben.</p>
@@ -22,10 +39,11 @@
   </AdminDialog>
 </template>
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { onBeforeUnmount, onMounted, ref } from 'vue'
 import { api } from '../../api/client'
 import { useSystem } from '../../composables/useSystem'
 import { useDraftGuard } from '../../composables/discardChanges'
+import { restartStation } from '../../composables/stationRestart'
 import SettingsForm from '../../components/SettingsForm.vue'
 import AdminDialog from '../../components/AdminDialog.vue'
 import type { AuthRole } from '../../types'
@@ -43,6 +61,30 @@ async function savePassword() {
   catch (err) { passwordError.value = err instanceof Error ? err.message : 'Passwort konnte nicht gespeichert werden.' }
   finally { saving.value = false }
 }
-async function applyNetwork() { void api.restartStack().catch(() => undefined); window.setTimeout(() => window.location.reload(), 10000) }
+const restart = ref<'idle' | 'running' | 'timeout' | 'failed'>('idle'), restartSeconds = ref(0), restartError = ref('')
+let disposed = false
+function reloadPage() { window.location.reload() }
+async function applyNetwork() {
+  if (restart.value === 'running') return
+  restart.value = 'running'; restartSeconds.value = 0; restartError.value = ''
+  const outcome = await restartStation({
+    trigger: () => api.restartStack(),
+    probe: () => api.health({ timeoutMs: 3000 }).then(() => true, () => false),
+    sleep: ms => new Promise(resolve => window.setTimeout(resolve, ms)),
+    now: () => Date.now(),
+    onProgress: seconds => { restartSeconds.value = seconds }
+  })
+  if (disposed) return
+  if (outcome.kind === 'ready') return reloadPage()
+  if (outcome.kind === 'failed') restartError.value = outcome.message
+  restart.value = outcome.kind
+}
+// Returns at once so the dialog closes; progress is shown on the page.
+async function startNetworkRestart() { void applyNetwork() }
 onMounted(() => void loadAll())
+onBeforeUnmount(() => { disposed = true })
 </script>
+<style scoped>
+.restart-body { display: grid; gap: 8px; flex: 1; }
+.restart-notice .progress { margin-top: 4px; }
+</style>
