@@ -1,8 +1,8 @@
 <template>
-  <Teleport defer to="#system-page-actions"><button class="btn primary desktop-primary" type="button" @click="openRelayModal"><AppIcon name="plus" />Relay hinzufügen</button></Teleport>
+  <Teleport defer to="#system-page-actions"><button class="btn primary desktop-primary" type="button" @click="openRelayModal"><AppIcon name="plus" />Weiterleitung hinzufügen</button></Teleport>
   <section class="panel">
     <div class="panel-head">
-      <h2>Relays</h2>
+      <h2>Weiterleitungen</h2>
       <div class="device-head-actions">
         <div v-if="settingsLoaded" class="right">{{ relayIds.length ? `${relayIds.length} eingerichtet` : 'nicht eingerichtet' }}</div>
 
@@ -10,13 +10,13 @@
     </div>
 
     <div class="mono-mute">
-      Ein Relay leitet Kamera-Streams per SSH über einen anderen Host. Einmal eingerichtet, steht es jeder Kamera
-      automatisch als Ersatzpfad zur Verfügung — der Watchdog wechselt bei Verbindungsproblemen von selbst.
-      Ob eine Kamera das Relay nutzen <i>muss</i>, legst du auf ihrer Detailseite unter „Verbindung“ fest.
+      Eine Weiterleitung holt Kamerabilder per SSH über einen anderen Rechner, zum Beispiel ein NAS. Einmal eingerichtet,
+      steht sie jeder Kamera automatisch als Ersatzweg zur Verfügung — die Überwachung wechselt bei Verbindungsproblemen von selbst.
+      Ob eine Kamera die Weiterleitung nutzen <i>muss</i>, legst du auf ihrer Detailseite unter „Verbindung“ fest.
     </div>
 
-    <div v-if="!settingsLoaded" role="status">{{ loadError ? 'Relays konnten nicht geladen werden.' : 'Wird geladen…' }}</div>
-    <div v-else-if="!relayIds.length" class="empty">Kein Relay eingerichtet. Direkt erreichbare Kameras funktionieren auch ohne.</div>
+    <div v-if="!settingsLoaded" role="status">{{ loadError ? 'Weiterleitungen konnten nicht geladen werden.' : 'Wird geladen…' }}</div>
+    <div v-else-if="!relayIds.length" class="empty">Keine Weiterleitung eingerichtet. Direkt erreichbare Kameras funktionieren auch ohne.</div>
     <div v-else class="relay-list">
       <RouterLink v-for="relayId in relayIds" :key="relayId" :to="`/system/relays/${relayId}`" class="relay-row">
         <span class="state-dot" :class="relayStateClass(relayId)"></span>
@@ -31,13 +31,13 @@
     </div>
   </section>
 
-  <button class="mobile-fab" aria-label="Relay hinzufügen" @click="openRelayModal"><AppIcon name="plus" /></button>
-  <AdminDialog ref="relayDialog" :open="showRelayModal" title="Relay hinzufügen" :dirty="relayDirty" :busy="savingRelay" @close="showRelayModal=false">
+  <button class="mobile-fab" aria-label="Weiterleitung hinzufügen" @click="openRelayModal"><AppIcon name="plus" /></button>
+  <AdminDialog ref="relayDialog" :open="showRelayModal" title="Weiterleitung hinzufügen" :dirty="relayDirty" :busy="savingRelay" @close="showRelayModal=false">
     <form @submit.prevent="onAddRelay">
       <div class="split">
-        <label class="field"><span class="lbl">Name</span><input aria-label="Name" v-model="relayDraft.name" placeholder="NAS Relay" required autofocus /></label>
+        <label class="field"><span class="lbl">Name</span><input aria-label="Name" v-model="relayDraft.name" placeholder="NAS" required autofocus /></label>
         <label class="field"><span class="lbl">SSH-Ziel</span><input aria-label="SSH-Ziel" v-model="relayDraft.sshTarget" required placeholder="nas oder user@nas" /></label>
-        <label class="field"><span class="lbl">Host aus go2rtc-Docker</span><input aria-label="Host aus go2rtc-Docker" v-model="relayDraft.host" placeholder="host.docker.internal" /></label>
+        <label class="field"><span class="lbl">Rechnername aus Sicht des Videodienstes</span><input aria-label="Rechnername aus Sicht des Videodienstes" v-model="relayDraft.host" placeholder="host.docker.internal" /></label>
       </div>
       <p v-if="error" class="notice err" role="alert">{{ error }}</p>
       <div class="modal-foot">
@@ -82,7 +82,7 @@ function forwardSummary(relayId: string) {
 }
 
 function openRelayModal() {
-  relayDraft.name = relayIds.value.length ? '' : 'NAS Relay'
+  relayDraft.name = relayIds.value.length ? '' : 'NAS'
   relayDraft.sshTarget = ''
   relayDraft.host = 'host.docker.internal'
   relayBaseline.value=JSON.stringify(relayDraft)
@@ -101,7 +101,7 @@ async function onAddRelay() {
     if (!await saveSettings(['camera.relay.ids', ...relaySettingKeys(id)])) return
     showRelayModal.value = false
     await relayAction(id, 'start').catch((err) => {
-      error.value = err instanceof Error ? err.message : 'Relay konnte nicht gestartet werden.'
+      error.value = err instanceof Error ? err.message : 'Weiterleitung konnte nicht gestartet werden.'
     })
     await router.push(`/system/relays/${id}`)
   } finally {

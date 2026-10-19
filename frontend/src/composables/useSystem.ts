@@ -350,7 +350,7 @@ async function deleteCredentialIdentity(id: string) {
 function addRelay(draft: { id: string; name: string; host: string; sshTarget: string }) {
   const id = sanitizeID(draft.id)
   if (!id) {
-    error.value = 'Relay-ID fehlt.'
+    error.value = 'Name der Weiterleitung fehlt.'
     return ''
   }
   const ids = relayIds.value.includes(id) ? relayIds.value : [...relayIds.value, id]
@@ -376,7 +376,7 @@ async function relayAction(id: string, action: 'start' | 'stop' | 'restart') {
   if (action === 'stop') await api.stopRelay(id)
   if (action === 'restart') await api.restartRelay(id)
   await refreshStatus()
-  showToast(`Relay ${action === 'restart' ? 'neu gestartet' : action === 'start' ? 'gestartet' : 'gestoppt'}`)
+  showToast(`Weiterleitung ${action === 'restart' ? 'neu gestartet' : action === 'start' ? 'gestartet' : 'gestoppt'}`)
 }
 
 async function createBackup() {

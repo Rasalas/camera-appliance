@@ -108,4 +108,4 @@ Hier sammeln, was am Design noch nicht passt, damit es nicht verloren geht:
 - [offen] Die Verwaltung (`admin.css`) trennt Listenzeilen (`.device-card`, `.relay-row`, `.result-row`)
   und Bearbeiten-Sektionen noch mit Hairlines. Das weicht von Prinzip 1 ab; Wartungsübersicht,
   Support-Protokoll und Über-Seite nutzen bereits Abstand und Flächen statt Linien.
-- [offen] System → Allgemein enthält noch Fachbegriffe („go2rtc-URL“, „Capture-Hop per SSH“).
+- [erledigt] System → Allgemein, Weiterleitungen, Sicherung und Update-Hinweis nutzen dieselben Begriffe (Videodienst, Weiterleitung, Sicherung).
