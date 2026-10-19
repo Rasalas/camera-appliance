@@ -157,7 +157,7 @@ func (a *App) viewerSlot(ctx context.Context, slot config.Slot, binding state.Bi
 	// public; never expose RTSP usernames there.
 	localBinding.Username = ""
 	item.Binding = &localBinding
-	item.Label = displaySlotLabel(slot, binding)
+	item.Label = viewerSlotLabel(slot, binding)
 	if binding.Device != nil {
 		device := *binding.Device
 		item.Device = &device
@@ -431,13 +431,6 @@ func (a *App) generatedGo2RTCAliases() (map[string]bool, string) {
 		aliases[alias] = true
 	}
 	return aliases, configPath
-}
-
-func displaySlotLabel(slot config.Slot, binding state.Binding) string {
-	if strings.TrimSpace(binding.Label) != "" {
-		return strings.TrimSpace(binding.Label)
-	}
-	return slot.Label
 }
 
 func credentialDiagnosticMessage(username string, passwordSet bool) string {

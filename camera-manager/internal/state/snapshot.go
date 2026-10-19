@@ -50,7 +50,16 @@ func RestoreSnapshot(ctx context.Context, dbPath, source string) error {
 	if err := prepareDatabaseFile(dbPath); err != nil {
 		return err
 	}
-	return copyDatabase(ctx, dbPath, source, true)
+	if err := copyDatabase(ctx, dbPath, source, true); err != nil {
+		return err
+	}
+	// Older backups lack newer columns that open stores already query.
+	db, err := sql.Open("sqlite", sqliteURI(dbPath, "rw"))
+	if err != nil {
+		return err
+	}
+	defer db.Close()
+	return migrate(ctx, db)
 }
 
 func prepareDatabaseFile(path string) error {
