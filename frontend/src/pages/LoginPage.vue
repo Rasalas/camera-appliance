@@ -1,23 +1,16 @@
 <template>
   <header class="topline">
-    <div>
-      <h1 class="headline">Login.</h1>
-    </div>
-    <div class="meta">
-      <div>Viewer · <b>{{ auth?.viewer_public ? 'öffentlich' : 'geschützt' }}</b></div>
-      <div>Session · <b>{{ auth?.session_hours || 12 }} h</b></div>
-    </div>
+    <h1 class="headline">{{ initialSetup ? 'Admin-Passwort festlegen' : 'Anmelden' }}</h1>
   </header>
 
+  <div v-if="unreachable" class="notice warn" role="status"><span class="tag">VERBINDUNG</span>Station nicht erreichbar – neuer Versuch läuft.</div>
   <div v-if="error" class="notice err"><span class="tag">FEHLER</span>{{ error }}</div>
 
   <section class="panel card login-panel">
-    <div class="panel-head">
-      <h2>{{ initialSetup ? 'Admin-Passwort setzen' : 'Anmelden' }}</h2>
-      <div class="right">{{ authLabel }}</div>
-    </div>
+    <p v-if="statusLine" class="mono-mute">{{ statusLine }}</p>
 
     <form v-if="initialSetup" class="login-form" @submit.prevent="setInitialPassword">
+      <p class="mono-mute">Lege ein Passwort für die Verwaltung fest. Danach ist die Verwaltung nur noch mit Anmeldung erreichbar.</p>
       <div class="field">
         <span class="lbl">Neues Admin-Passwort</span>
         <input aria-label="Neues Admin-Passwort" v-model="newPassword" type="password" autocomplete="new-password" autofocus />
@@ -30,38 +23,40 @@
         <button class="btn primary" type="submit" :disabled="busy || !newPassword || !confirmPassword">
           {{ busy ? 'Speichert…' : 'Passwort setzen' }}
         </button>
+        <RouterLink class="btn ghost" to="/">Kameras öffnen</RouterLink>
       </div>
     </form>
 
     <form v-else class="login-form" @submit.prevent="login">
-      <div class="field">
-        <span class="lbl">Rolle</span>
-        <select aria-label="Rolle" v-model="username" name="username" autocomplete="username">
-          <option value="admin">Admin</option>
-          <option value="viewer" :disabled="!auth?.viewer_password_set">Viewer</option>
+      <div v-if="auth?.viewer_password_set" class="field">
+        <span class="lbl">Zugang</span>
+        <select aria-label="Zugang" v-model="username" name="username" autocomplete="username">
+          <option value="admin">Verwaltung (Admin)</option>
+          <option value="viewer">Nur Kameras ansehen (Viewer)</option>
         </select>
       </div>
       <div class="field">
-        <span class="lbl">Passwort</span>
+        <span class="lbl">{{ auth?.viewer_password_set ? 'Passwort' : 'Admin-Passwort' }}</span>
         <input aria-label="Passwort" v-model="password" name="password" type="password" autocomplete="current-password" autofocus />
       </div>
       <label class="toggle-row compact">
         <input v-model="remember" type="checkbox" />
-        <div><div class="lbl-main">Angemeldet bleiben</div><div class="lbl-sub">Login auf diesem Gerät 30 Tage lang merken.</div></div></label>
+        <div><div class="lbl-main">Angemeldet bleiben</div><div class="lbl-sub">{{ rememberHint }}</div></div></label>
       <div class="btn-row">
         <button class="btn primary" type="submit" :disabled="busy || !password">
-          {{ busy ? 'Prüft…' : 'Einloggen' }}
+          {{ busy ? 'Prüft…' : 'Anmelden' }}
         </button>
-        <RouterLink v-if="auth?.viewer_public" class="btn ghost" to="/">Kameras öffnen</RouterLink>
+        <RouterLink class="btn ghost" to="/">Kameras öffnen</RouterLink>
       </div>
     </form>
   </section>
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { api } from '../api/client'
+import { authDecision, loginTarget } from '../router/authGuard'
 import type { AuthRole, AuthStatus } from '../types'
 
 const route = useRoute()
@@ -74,30 +69,55 @@ const newPassword = ref('')
 const confirmPassword = ref('')
 const busy = ref(false)
 const error = ref('')
+const unreachable = ref(false)
+let retryTimer: number | undefined
+let attempts = 0
+let disposed = false
 
 const initialSetup = computed(() => !!auth.value && !auth.value.admin_password_set)
-const authLabel = computed(() => {
-  if (!auth.value) return 'Lädt'
-  if (!auth.value.enabled) return 'Noch offen'
-  if (auth.value.role === 'admin') return 'Admin aktiv'
-  if (auth.value.role === 'viewer') return 'Viewer aktiv'
-  return 'Login erforderlich'
+const statusLine = computed(() => {
+  if (!auth.value) return unreachable.value ? '' : 'Anmeldestatus wird geladen…'
+  if (auth.value.role === 'admin') return 'Du bist bereits als Admin angemeldet.'
+  if (auth.value.role === 'viewer') return 'Du bist als Viewer angemeldet. Für die Verwaltung bitte als Admin anmelden.'
+  if (auth.value.viewer_public) return 'Die Kameras sind auch ohne Anmeldung sichtbar. Die Anmeldung ist nur für die Verwaltung nötig.'
+  return ''
 })
+const rememberHint = computed(() => `Auf diesem Gerät 30 Tage lang angemeldet bleiben. Sonst endet die Anmeldung nach ${auth.value?.session_hours || 12} Stunden.`)
 
 function nextPathFor(role: AuthRole) {
-  const next = typeof route.query.next === 'string' ? route.query.next : '/'
+  const next = loginTarget(route.query.next) ?? '/'
   if (role !== 'admin' && isAdminPath(next)) return '/'
-  return next || '/'
+  return next
 }
 
 function isAdminPath(path: string) {
   return ['/einrichtung', '/uebersicht', '/system', '/kamera', '/setup', '/overview', '/settings', '/events', '/backup'].some((prefix) => path === prefix || path.startsWith(prefix + '/'))
 }
 
+// Pages reached via a redirect go back on their own once access is possible again.
+function returnIfAllowed(status: AuthStatus) {
+  const next = loginTarget(route.query.next)
+  if (!next) return false
+  if (authDecision(router.resolve(next).meta, next, status) !== true) return false
+  void router.replace(next)
+  return true
+}
+
 async function loadAuth() {
-  auth.value = await api.authStatus()
-  if (!auth.value.viewer_password_set && username.value === 'viewer') {
-    username.value = 'admin'
+  retryTimer = undefined
+  try {
+    const status = await api.authStatus()
+    if (disposed) return
+    auth.value = status
+    unreachable.value = false
+    attempts = 0
+    if (!status.viewer_password_set && username.value === 'viewer') username.value = 'admin'
+    returnIfAllowed(status)
+  } catch {
+    if (disposed) return
+    unreachable.value = true
+    attempts++
+    retryTimer = window.setTimeout(loadAuth, Math.min(1000 * 2 ** (attempts - 1), 15000))
   }
 }
 
@@ -110,7 +130,7 @@ async function login() {
     window.dispatchEvent(new Event('auth-changed'))
     await router.push(nextPathFor(result.role))
   } catch (err) {
-    error.value = err instanceof Error ? err.message : 'Login fehlgeschlagen.'
+    error.value = err instanceof Error ? err.message : 'Anmeldung fehlgeschlagen.'
   } finally {
     busy.value = false
   }
@@ -137,12 +157,10 @@ async function setInitialPassword() {
   }
 }
 
-onMounted(async () => {
-  try {
-    await loadAuth()
-  } catch (err) {
-    error.value = err instanceof Error ? err.message : 'Login-Status konnte nicht geladen werden.'
-  }
+onMounted(() => void loadAuth())
+onBeforeUnmount(() => {
+  disposed = true
+  if (retryTimer !== undefined) window.clearTimeout(retryTimer)
 })
 </script>
 
@@ -150,6 +168,8 @@ onMounted(async () => {
 .login-panel {
   max-width: 560px;
 }
+
+.login-panel > p:first-child { margin-top: 0; }
 
 .login-form {
   display: grid;

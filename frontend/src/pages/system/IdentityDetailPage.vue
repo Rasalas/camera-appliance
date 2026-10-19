@@ -1,6 +1,6 @@
 <template>
   <RouterLink to="/system/identitaeten" class="mono-mute">← Kamera-Zugänge</RouterLink>
-  <div v-if="!settingsLoaded" role="status">Wird geladen…</div>
+  <div v-if="!sectionsLoaded.identities" role="status">{{ loadError ? 'Kamera-Zugänge konnten nicht geladen werden.' : 'Wird geladen…' }}</div>
   <template v-else-if="identity">
     <EditableSection title="Kamera-Login" @edit="editing=true"><dl class="spec"><div><dt>Name</dt><dd>{{ identity.name }}</dd></div><div><dt>Benutzername</dt><dd>{{ identity.username }}</dd></div><div><dt>Passwort</dt><dd>{{ identity.password_set ? 'Gespeichert' : 'Nicht gesetzt' }}</dd></div></dl></EditableSection>
     <button class="btn danger remove-action" @click="deleting=true">Kamera-Zugang entfernen</button>
@@ -19,7 +19,7 @@ import { useSystem } from '../../composables/useSystem'
 import IdentityEditor from '../../components/IdentityEditor.vue'
 import AdminDialog from '../../components/AdminDialog.vue'
 const route=useRoute(),router=useRouter()
-const {credentialIdentities,settingsLoaded,loadAll,deleteCredentialIdentity}=useSystem()
+const {credentialIdentities,sectionsLoaded,loadError,loadAll,deleteCredentialIdentity}=useSystem()
 const identity=computed(()=>credentialIdentities.value.find(item=>item.id===route.params.id))
 const editing=ref(false),deleting=ref(false),busy=ref(false),error=ref('')
 async function remove() { if(!identity.value)return;busy.value=true;try {await deleteCredentialIdentity(identity.value.id);deleting.value=false;await router.push('/system/identitaeten')} catch(err){error.value=err instanceof Error?err.message:'Entfernen fehlgeschlagen.'}finally{busy.value=false} }
