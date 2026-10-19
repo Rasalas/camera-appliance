@@ -7,14 +7,21 @@ import (
 	"net/http"
 	neturl "net/url"
 	"strings"
+	"time"
 
 	"camera-appliance/camera-manager/internal/backup"
 	"camera-appliance/camera-manager/internal/system"
 	updater "camera-appliance/camera-manager/internal/update"
 )
 
+// restartStackFunc is replaced in tests.
+var restartStackFunc = system.RestartStack
+
 func (s *Server) restartStack(w http.ResponseWriter, r *http.Request) {
-	err := system.RestartStack(r.Context(), s.app.Config)
+	// system.RestartStack applies its own, shorter deadline.
+	ctx, cancel := detachedContext(r, 25*time.Minute)
+	defer cancel()
+	err := restartStackFunc(ctx, s.app.Config)
 	writeResult(w, map[string]string{"status": "ok"}, err)
 }
 
