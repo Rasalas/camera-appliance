@@ -159,13 +159,14 @@ func RunJob(ctx context.Context, path, expectedID string) error {
 	}
 	defer cleanupJob(f)
 	restart := func(ctx context.Context) error { return system.ApplyStackAndWait(ctx, f.Config) }
+	stack := workerStack(f.Config)
 	if f.Request.Rollback {
-		f.Result, err = rollback(ctx, RollbackOptions{Config: f.Config, InstallDir: f.Config.InstallDir, NoRestart: f.Request.NoRestart, Restart: restart})
+		f.Result, err = rollback(ctx, RollbackOptions{Config: f.Config, InstallDir: f.Config.InstallDir, NoRestart: f.Request.NoRestart, Restart: restart, Stack: stack})
 	} else {
 		f.Result, err = apply(ctx, Options{Config: f.Config, InstallDir: f.Config.InstallDir,
 			Archive: f.Request.Archive, URL: f.Request.URL, Digest: f.Request.Digest,
 			NoRestart: f.Request.NoRestart, AutoRollback: f.Request.AutoRollback,
-			AllowInsecureURL: f.Request.AllowInsecureURL, Restart: restart})
+			AllowInsecureURL: f.Request.AllowInsecureURL, Restart: restart, Stack: stack})
 	}
 	f.Phase, f.UpdatedAt = "complete", time.Now().UTC()
 	if err != nil {
@@ -182,6 +183,17 @@ func RunJob(ctx context.Context, path, expectedID string) error {
 		_ = store.Close()
 	}
 	return errors.Join(err, persistErr)
+}
+
+func workerStack(cfg config.Config) StackOps {
+	return StackOps{
+		Build:    func(ctx context.Context) error { return system.BuildStack(ctx, cfg) },
+		Preserve: func(ctx context.Context) (string, error) { return system.PreserveManagerImage(ctx, cfg) },
+		RestorePrevious: func(ctx context.Context, image string) error {
+			return system.RestorePreviousStackAndWait(ctx, cfg, image)
+		},
+		PruneImages: func(ctx context.Context) error { return system.PruneManagerImages(ctx, cfg) },
+	}
 }
 
 func cleanupJob(f jobFile) {

@@ -44,6 +44,7 @@ type Options struct {
 	AutoRollback   bool
 	Restart        func(context.Context) error
 	Healthcheck    func(context.Context) error
+	Stack          StackOps
 	HTTPClient     *http.Client
 	Now            func() time.Time
 	BackupOverride string
@@ -77,6 +78,21 @@ type RollbackOptions struct {
 	NoRestart   bool
 	Restart     func(context.Context) error
 	Healthcheck func(context.Context) error
+	Stack       StackOps
+}
+
+// StackOps are optional container hooks used only when services restart.
+// Nil hooks keep the plain Restart behaviour.
+type StackOps struct {
+	// Build runs before frontend/dist is swapped, so the old backend keeps
+	// serving its own UI during a long build.
+	Build func(context.Context) error
+	// Preserve tags the running manager image and returns its reference.
+	Preserve func(context.Context) (string, error)
+	// RestorePrevious recreates the stack from the preserved image without building.
+	RestorePrevious func(ctx context.Context, image string) error
+	// PruneImages removes superseded images after a verified update.
+	PruneImages func(context.Context) error
 }
 
 func manifestFromVersion(info version.Info) Manifest {
