@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"strings"
 	"sync"
 	"time"
@@ -19,6 +20,9 @@ const (
 
 	relayDefaultTargetPort = "554"
 	relayBackoffDuration   = 60 * time.Second
+	// A relay that exits sooner counts as a failed start and enters backoff.
+	relayMinUptime   = 60 * time.Second
+	relayLogMaxBytes = 1 << 20
 )
 
 func (a *Manager) Statuses(ctx context.Context) ([]Status, error) {
@@ -51,8 +55,9 @@ func (a *Manager) Stop(ctx context.Context, id string) (Status, error) {
 		return Status{}, err
 	}
 	status := a.relayStatus(ctx, relay, settings)
-	if status.PID <= 0 || !processAlive(status.PID) {
+	if status.PID <= 0 || !a.relayRunning(relay.ID, status.PID) {
 		_ = os.Remove(a.relayPIDPath(relay.ID))
+		a.forgetChild(relay.ID)
 		status.PID = 0
 		status.ProcessState = "stopped"
 		status.Message = "Kein verwalteter Relay-Prozess läuft."
@@ -70,12 +75,13 @@ func (a *Manager) Stop(ctx context.Context, id string) (Status, error) {
 	if a.StopProcess != nil {
 		err = a.StopProcess(ctx, status)
 	} else {
-		err = stopProcess(ctx, status.PID)
+		err = stopProcess(ctx, status.PID, func() bool { return a.relayRunning(relay.ID, status.PID) })
 	}
 	if err != nil {
 		return status, err
 	}
 	_ = os.Remove(a.relayPIDPath(relay.ID))
+	a.forgetChild(relay.ID)
 	_ = a.store.PutSettings(ctx, map[string]string{
 		relayRuntimeKey(relay.ID, "last_stopped_at"): time.Now().UTC().Format(time.RFC3339),
 	})
@@ -105,6 +111,9 @@ func (a *Manager) Ensure(ctx context.Context) ([]Status, error) {
 	var failures []string
 	for _, relay := range relays {
 		status := a.relayStatus(ctx, relay, settings)
+		if message := a.recordChildExit(ctx, relay.ID, status.PID, settings); message != "" {
+			status.LastError = message
+		}
 		if !relay.AutoStart || status.ProcessState == "running" || status.ProcessState == "external" || status.ProcessState == "disabled" || status.ProcessState == "unsupported" || status.ProcessState == "not_configured" {
 			statuses = append(statuses, status)
 			continue
@@ -141,6 +150,34 @@ func (a *Manager) Ensure(ctx context.Context) ([]Status, error) {
 	return statuses, nil
 }
 
+// recordChildExit persists the first observation of an exited relay child.
+// A quick exit gets backoff, so a failing ssh is not restarted every tick.
+func (a *Manager) recordChildExit(ctx context.Context, relayID string, pid int, settings map[string]string) string {
+	child, ok := a.trackedChild(relayID, pid)
+	if !ok || !child.exited || child.reported {
+		return ""
+	}
+	a.markChildReported(relayID, pid)
+	message := childExitMessage(child)
+	values := map[string]string{
+		relayRuntimeKey(relayID, "last_error"):     message,
+		relayRuntimeKey(relayID, "last_exited_at"): child.exitedAt.Format(time.RFC3339),
+	}
+	level := "warning"
+	quick := child.exitedAt.Sub(child.startedAt) < relayMinUptime
+	if quick {
+		backoffUntil := child.exitedAt.Add(relayBackoffDuration).Format(time.RFC3339)
+		values[relayRuntimeKey(relayID, "backoff_until")] = backoffUntil
+		level = "error"
+	}
+	for key, value := range values {
+		settings[key] = value
+	}
+	_ = a.store.PutSettings(ctx, values)
+	_ = a.store.AddEvent(ctx, level, "relay.exited", "Relay "+relayID+" wurde unerwartet beendet", map[string]any{"relay_id": relayID, "pid": pid, "exit_code": child.exitCode})
+	return message
+}
+
 func (a *Manager) startManagedRelay(ctx context.Context, relay ManagedRelay, settings map[string]string) (Status, error) {
 	status := a.relayStatus(ctx, relay, settings)
 	if status.ProcessState == "running" {
@@ -163,6 +200,7 @@ func (a *Manager) startManagedRelay(ctx context.Context, relay ManagedRelay, set
 	}
 	if status.ProcessState == "stale" {
 		_ = os.Remove(a.relayPIDPath(relay.ID))
+		a.forgetChild(relay.ID)
 	}
 	var (
 		pid int
@@ -171,7 +209,7 @@ func (a *Manager) startManagedRelay(ctx context.Context, relay ManagedRelay, set
 	if a.StartProcess != nil {
 		pid, err = a.StartProcess(ctx, relay)
 	} else {
-		pid, err = startSSHRelayProcess(ctx, relay, a.relayLogPath(relay.ID))
+		pid, err = a.startSSHRelayProcess(ctx, relay)
 	}
 	if err != nil {
 		return status, err
@@ -204,6 +242,10 @@ type Manager struct {
 	Probe        func(context.Context, string, string) error
 	StartProcess func(context.Context, ManagedRelay) (int, error)
 	StopProcess  func(context.Context, Status) error
+	// newCommand builds the relay process from ssh arguments; tests swap the binary.
+	newCommand func(args []string) (*exec.Cmd, error)
+	childMu    sync.Mutex
+	children   map[string]*relayChild
 }
 
 func New(cfg config.Config, store *state.Store, slots []config.Slot, probe func(context.Context, string, string) error) *Manager {
