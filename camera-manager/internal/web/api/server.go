@@ -32,6 +32,7 @@ func New(a *app.App) *Server {
 		startUpdateJob: updater.StartJob,
 		updates:        newUpdateFlow(filepath.Join(a.Config.StateDir, "updates")),
 	}
+	s.cameras.Restream = a.Go2RTCFrameURL
 	s.cameras.CredentialsChanged = a.InvalidateCredentialPresence
 	s.uploads = snapshotupload.New(a.Store, a.Config.ConfigDir, func(ctx context.Context, id string, input cameraaccess.CredentialsInput) (cameraaccess.Frame, error) {
 		return s.cameras.Frame(ctx, id, cameraaccess.FrameInput{CredentialsInput: input})
