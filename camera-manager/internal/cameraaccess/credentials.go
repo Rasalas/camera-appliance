@@ -115,6 +115,7 @@ func (s *Service) rememberIdentityForDevice(ctx context.Context, deviceID string
 		return err
 	}
 	_, err := secrets.SaveCamera(s.config.ConfigDir, deviceID, candidate.Password)
+	s.credentialsChanged(deviceID)
 	return err
 }
 
@@ -151,6 +152,7 @@ func (s *Service) SaveCredentials(ctx context.Context, deviceID string, req Cred
 		// Persist the password first: a failure here must not leave a saved
 		// username that silently pairs with no credentials.
 		source, err = secrets.SaveCamera(s.config.ConfigDir, deviceID, req.Password)
+		s.credentialsChanged(deviceID)
 		if err != nil {
 			return Credentials{}, err
 		}

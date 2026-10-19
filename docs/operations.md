@@ -68,6 +68,8 @@ Settings:
 
 On camera checks, the watchdog evaluates direct and relay paths with the same path policy used by render and viewer diagnostics. It stores per-camera/path success and failure counters under `camera.path_state.*`. A single timeout does not switch away from the active path. Preferred paths are used again only after the recovery threshold is reached.
 
+`GET /api/viewer` reads these counters instead of dialing cameras. A path result counts as current for three camera intervals. Without a current result (fresh install, watchdog disabled), the viewer probes all cameras concurrently and reuses results for 10 s. Viewer reads never write counters. The viewer reports go2rtc as unavailable only after three failed checks in a row or 30 s of failures, so players keep running through a slow health response.
+
 A real active-path change updates `camera.active_path.*`, renders go2rtc, restarts go2rtc when enabled and outside the cooldown, and writes a `watchdog.path_switched` event with the switch reason. If a restart is inside the cooldown, the watchdog writes `watchdog.path_restart_cooldown`, marks a pending restart, and performs it after the cooldown with `watchdog.path_restart_after_cooldown`. A failed render or restart also marks the restart as pending; the watchdog re-renders and retries it with the same backoff.
 
 ## Updates and Rollback

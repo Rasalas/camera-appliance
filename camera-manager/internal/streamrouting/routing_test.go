@@ -62,3 +62,29 @@ func TestAssessHonorsPolicyBeforeProbing(t *testing.T) {
 		t.Fatalf("policy %+v calls=%d", got, calls)
 	}
 }
+
+func TestLastObservationReadsPersistedWatchdogCounters(t *testing.T) {
+	checkedAt := time.Date(2026, 9, 5, 1, 0, 0, 0, time.UTC)
+	paths := []routing.StreamPath{{ID: "direct", Kind: routing.PathKindDirect, Host: "camera", Port: "554"}, {ID: "relay:nas", Kind: routing.PathKindRelay, Host: "relay", Port: "1234"}}
+	settings := map[string]string{}
+	if _, ok := routing.LastObservation(settings, "device", "direct"); ok {
+		t.Fatal("expected no observation before the first watchdog check")
+	}
+	_, values := routing.Assess(context.Background(), routing.Input{DeviceID: "device", Paths: paths, Settings: settings, UpdateState: true, CheckedAt: checkedAt}, func(_ context.Context, host, _ string) error {
+		if host == "camera" {
+			return errors.New("refused")
+		}
+		return nil
+	})
+	for k, v := range values {
+		settings[k] = v
+	}
+	direct, ok := routing.LastObservation(settings, "device", "direct")
+	if !ok || direct.OK || !direct.At.Equal(checkedAt) {
+		t.Fatalf("direct observation = %+v, %v", direct, ok)
+	}
+	relay, ok := routing.LastObservation(settings, "device", "relay:nas")
+	if !ok || !relay.OK || !relay.At.Equal(checkedAt) {
+		t.Fatalf("relay observation = %+v, %v", relay, ok)
+	}
+}

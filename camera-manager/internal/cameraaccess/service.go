@@ -15,10 +15,18 @@ type Service struct {
 	config   config.Config
 	endpoint func(context.Context, state.Device) (go2rtcrender.StreamEndpoint, error)
 	Capture  func(context.Context, string, string) ([]byte, error)
+	// CredentialsChanged is called after a camera password is written.
+	CredentialsChanged func(deviceID string)
 }
 
 func New(store *state.Store, cfg config.Config, endpoint func(context.Context, state.Device) (go2rtcrender.StreamEndpoint, error)) *Service {
 	return &Service{store: store, config: cfg, endpoint: endpoint, Capture: captureFrame}
+}
+
+func (s *Service) credentialsChanged(deviceID string) {
+	if s.CredentialsChanged != nil {
+		s.CredentialsChanged(deviceID)
+	}
 }
 
 type FailureKind int

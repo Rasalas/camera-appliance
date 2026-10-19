@@ -10,11 +10,11 @@ import (
 	"net/url"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"camera-appliance/camera-manager/internal/config"
 	"camera-appliance/camera-manager/internal/display"
-	"camera-appliance/camera-manager/internal/secrets"
 	"camera-appliance/camera-manager/internal/state"
 	"camera-appliance/camera-manager/internal/streamrouting"
 	"camera-appliance/camera-manager/internal/system"
@@ -108,12 +108,15 @@ func (a *App) Viewer(ctx context.Context) (Viewer, error) {
 	}
 	bindings = attachSlots(bindings, a.Slots)
 	settings, _ := a.Store.Settings(ctx)
-	go2rtcStatus := system.Check(ctx, a.Config).Go2RTC
+	now := time.Now().UTC()
+	go2rtcStatus := system.Go2RTCStatus(ctx, a.Config)
+	go2rtcUnavailable := a.viewerGo2RTC.observe(go2rtcStatus.Online, now)
 	aliases, generatedPath := a.generatedGo2RTCAliases()
 	streams := a.go2rtcStreamStatuses(ctx, go2rtcStatus)
+	pathAssessments := a.viewerPathAssessments(ctx, bindings, settings, now)
 
 	viewer := Viewer{
-		CheckedAt:       time.Now().UTC(),
+		CheckedAt:       now,
 		Go2RTC:          go2rtcStatus,
 		GeneratedConfig: generatedPath,
 		StreamCount:     len(aliases),
@@ -126,12 +129,13 @@ func (a *App) Viewer(ctx context.Context) (Viewer, error) {
 		bindingBySlot[binding.SlotID] = binding
 	}
 	for _, slot := range a.Slots {
-		viewer.Slots = append(viewer.Slots, a.viewerSlot(ctx, slot, bindingBySlot[slot.ID], settings, aliases, go2rtcStatus, streams[slot.ID]))
+		binding := bindingBySlot[slot.ID]
+		viewer.Slots = append(viewer.Slots, a.viewerSlot(slot, binding, settings, aliases, go2rtcStatus, go2rtcUnavailable, streams[slot.ID], pathAssessments[binding.DeviceID]))
 	}
 	return viewer, nil
 }
 
-func (a *App) viewerSlot(ctx context.Context, slot config.Slot, binding state.Binding, settings map[string]string, aliases map[string]bool, go2rtcStatus system.ServiceStatus, streamStatus ViewerStreamStatus) ViewerSlot {
+func (a *App) viewerSlot(slot config.Slot, binding state.Binding, settings map[string]string, aliases map[string]bool, go2rtcStatus system.ServiceStatus, go2rtcUnavailable bool, streamStatus ViewerStreamStatus, pathAssessment streamrouting.StreamPathAssessment) ViewerSlot {
 	if streamStatus.Alias == "" {
 		streamStatus = ViewerStreamStatus{Alias: slot.ID}
 	}
@@ -177,7 +181,6 @@ func (a *App) viewerSlot(ctx context.Context, slot config.Slot, binding state.Bi
 		}
 		return item
 	}
-	pathAssessment := a.assessStreamPaths(ctx, binding, settings)
 	item.Paths = pathAssessment.Paths
 	if pathAssessment.Selected != nil {
 		selected := *pathAssessment.Selected
@@ -197,11 +200,7 @@ func (a *App) viewerSlot(ctx context.Context, slot config.Slot, binding state.Bi
 	if username == "" {
 		username = strings.TrimSpace(settings["camera.credentials."+binding.DeviceID+".username"])
 	}
-	activePassword, _ := a.CameraCredentials()
-	passwordSet := activePassword != ""
-	if binding.DeviceID != "" && secrets.LoadCamera(a.Config.ConfigDir, binding.DeviceID).Value != "" {
-		passwordSet = true
-	}
+	passwordSet := a.cameraPasswordPresent(binding.DeviceID)
 	if username == "" || !passwordSet {
 		item.State = ViewerStateCredentialsFailed
 		item.Message = "Kamera-Zugangsdaten fehlen."
@@ -225,7 +224,7 @@ func (a *App) viewerSlot(ctx context.Context, slot config.Slot, binding state.Bi
 		}
 		return item
 	}
-	if !go2rtcStatus.Online {
+	if go2rtcUnavailable {
 		item.State = ViewerStateStreamUnavailable
 		item.Message = "go2rtc ist nicht erreichbar."
 		item.Diagnostics = []ViewerDiagnostic{
@@ -250,6 +249,14 @@ func (a *App) viewerSlot(ctx context.Context, slot config.Slot, binding state.Bi
 		{Key: "credentials", Status: "ok", Message: "Zugangsdaten sind hinterlegt."},
 		{Key: "go2rtc", Status: "ok", Message: "Alias " + slot.ID + " ist konfiguriert."},
 		go2rtcStreamDiagnostic(streamStatus),
+	}
+	if !go2rtcStatus.Online {
+		// Keep playback during short outages; go2rtc players reconnect on their own.
+		for i := range item.Diagnostics {
+			if item.Diagnostics[i].Key == "go2rtc" {
+				item.Diagnostics[i] = ViewerDiagnostic{Key: "go2rtc", Status: "warn", Message: "go2rtc antwortet gerade nicht; laufende Streams werden weiter versucht."}
+			}
+		}
 	}
 	if item.Playback.PageURL == "" {
 		item.State = ViewerStateStreamUnavailable
@@ -468,4 +475,33 @@ func go2rtcStreamPageURL(baseURL, alias string) string {
 
 func viewerProfileAlias(slotID, stream string) string {
 	return slotID + "_" + strings.Trim(strings.TrimSpace(stream), "/")
+}
+
+const (
+	viewerGo2RTCFailureLimit = 3
+	viewerGo2RTCFailureGrace = 30 * time.Second
+)
+
+// go2rtcAvailability debounces viewer health checks so one slow response does not stop all players.
+type go2rtcAvailability struct {
+	mu           sync.Mutex
+	seenOnline   bool
+	failures     int
+	failingSince time.Time
+}
+
+// observe records one health check and reports whether go2rtc counts as unavailable.
+func (g *go2rtcAvailability) observe(online bool, now time.Time) bool {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if online {
+		g.seenOnline, g.failures, g.failingSince = true, 0, time.Time{}
+		return false
+	}
+	if g.failures == 0 {
+		g.failingSince = now
+	}
+	g.failures++
+	// Without an earlier success there are no running players to protect.
+	return !g.seenOnline || g.failures >= viewerGo2RTCFailureLimit || now.Sub(g.failingSince) >= viewerGo2RTCFailureGrace
 }
