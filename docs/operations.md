@@ -32,8 +32,8 @@ sudo ./bin/camera-appliance install --archive /path/to/camera-appliance-latest.t
 
 Install sets up:
 
-- `camera-appliance.service`: starts the Docker Compose stack after Docker and network-online.
-- `camera-kiosk.service`: user service that waits for `http://127.0.0.1:8091/api/status` before opening the viewer.
+- `camera-appliance.service`: starts the Docker Compose stack after Docker and network-online with the existing images (`up -d`, no `--build`), so boot does not depend on a successful image build. Stopping the unit stops the containers without removing them. Images are built by the bootstrap installer and by every update; if they are missing, Compose builds them once.
+- `camera-kiosk.service`: user service that waits for `http://127.0.0.1:8091/api/health` before opening the viewer at `/?kiosk=1`. The browser is restarted 10 seconds after it exits, including a normal close; after 10 starts within 10 minutes the unit gives up until `systemctl --user restart camera-kiosk.service` or the next login. Without Chromium/Chrome it opens the default browser once and cannot detect that browser closing.
 - Desktop launchers for manual open, status, rediscovery, and restart.
 - `/etc/camera-appliance/secrets.env`, only when it does not already exist.
 - `/var/lib/camera-appliance/generated/go2rtc.yaml`, only when it does not already exist.
@@ -61,14 +61,14 @@ Settings:
 - `watchdog.fast_interval_seconds`: go2rtc health interval, default `30`.
 - `watchdog.camera_interval_seconds`: camera path interval, default `120`.
 - `watchdog.restart_on_change`: restart go2rtc after an automatic path switch, default `true`.
-- `watchdog.restart_go2rtc_on_failure`: restart go2rtc when its API is unavailable, default `true`.
+- `watchdog.restart_go2rtc_on_failure`: restart go2rtc after three consecutive failed health checks, default `true`. Repeated restarts back off from 1 to at most 10 minutes until go2rtc is healthy again (`watchdog.go2rtc.*` counters).
 - `camera.path.fail_threshold`: failed checks required before leaving the active path, default `2`.
 - `camera.path.recovery_threshold`: successful checks required before returning to a preferred non-active path, default `2`.
 - `camera.path.restart_cooldown_seconds`: minimum seconds between go2rtc restarts caused by path changes, default `120`.
 
 On camera checks, the watchdog evaluates direct and relay paths with the same path policy used by render and viewer diagnostics. It stores per-camera/path success and failure counters under `camera.path_state.*`. A single timeout does not switch away from the active path. Preferred paths are used again only after the recovery threshold is reached.
 
-A real active-path change updates `camera.active_path.*`, renders go2rtc, restarts go2rtc when enabled and outside the cooldown, and writes a `watchdog.path_switched` event with the switch reason. If a restart is inside the cooldown, the watchdog writes `watchdog.path_restart_cooldown`, marks a pending restart, and performs it after the cooldown with `watchdog.path_restart_after_cooldown`.
+A real active-path change updates `camera.active_path.*`, renders go2rtc, restarts go2rtc when enabled and outside the cooldown, and writes a `watchdog.path_switched` event with the switch reason. If a restart is inside the cooldown, the watchdog writes `watchdog.path_restart_cooldown`, marks a pending restart, and performs it after the cooldown with `watchdog.path_restart_after_cooldown`. A failed render or restart also marks the restart as pending; the watchdog re-renders and retries it with the same backoff.
 
 ## Updates and Rollback
 
@@ -84,14 +84,20 @@ When `VERSION` is not passed explicitly, `make release` asks `tagger bump --dry-
 make release VERSION=0.1.0
 ```
 
+`bin/camera-appliance` in the release is always built for `linux/amd64`, also on a Mac; use `make release RELEASE_GOARCH=arm64` for ARM appliances. Install and update refuse an archive whose CLI is built for another OS or CPU.
+
 The archive is written to `.release/` and contains the install tree, `bin/camera-appliance`, `frontend/dist`, `compose.yaml`, `systemd/`, `install.sh`, and `manifest.json`. The release target also writes `.release/camera-appliance-latest.tar.gz` for the bootstrap URL. It excludes `.private`, `.git`, `data`, `node_modules`, `.env`, `local.env`, and `secrets.env`.
 
 Publishing a tag `vX.Y.Z` triggers the GitHub Actions release workflow. The workflow builds the same archive with `VERSION=X.Y.Z` and uploads these assets to the GitHub Release:
 
 - `camera-appliance-X.Y.Z-COMMIT.tar.gz`
 - `camera-appliance-latest.tar.gz`
+- `repair-update.sh`
+- `SHA256SUMS`, listing the SHA-256 of the three files above
 
-The bootstrap installer downloads `camera-appliance-latest.tar.gz` from the latest GitHub Release by default.
+The bootstrap installer downloads `camera-appliance-latest.tar.gz` from the latest GitHub Release by default and verifies it against that release's `SHA256SUMS`.
+
+Every download from a URL is verified before it is used: the bootstrap installer, `camera-appliance install|update --url` and the **Update** button load `SHA256SUMS` from the same release directory and fail if the file is missing, the archive is not listed or its digest differs. Releases published before `SHA256SUMS` existed are refused. An operator can still install such a release from the command line by passing the expected digest explicitly with `--digest sha256:<hex>`. Local `--archive` files are checked only when `--digest` is given.
 
 Apply a local archive on the customer appliance:
 

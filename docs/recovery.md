@@ -105,8 +105,10 @@ license imported by the UI. CI builds the actual Docker frontend stage and
 builds the frontend after upgrading from 0.1.9 and after restoring its snapshot.
 
 Run the same downloaded `repair-update.sh` again after 0.5.4 is published. It
-always downloads the latest release and uses that release's updater, so it can
-repair the source mixture without manual file removal.
+resolves the latest release tag once, then runs that tag's `install.sh` and
+updater against that tag's archive, so it can repair the source mixture without
+manual file removal. Later changes on `main` cannot alter a repair. Releases
+with `SHA256SUMS` are verified before anything is installed.
 
 ### Independent update worker
 

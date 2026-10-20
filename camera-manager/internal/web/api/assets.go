@@ -10,25 +10,108 @@ import (
 	neturl "net/url"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 )
 
+// Files with these extensions may have a build-time .gz sibling (see frontend/precompress.ts).
+// Explicit types avoid sniffing gzip bytes and cover extensions Go's table lacks.
+var compressibleTypes = map[string]string{
+	".html":        "text/html; charset=utf-8",
+	".js":          "text/javascript; charset=utf-8",
+	".mjs":         "text/javascript; charset=utf-8",
+	".css":         "text/css; charset=utf-8",
+	".svg":         "image/svg+xml",
+	".json":        "application/json",
+	".webmanifest": "application/manifest+json",
+	".txt":         "text/plain; charset=utf-8",
+	".xml":         "text/xml; charset=utf-8",
+	".map":         "application/json",
+}
+
 func (s *Server) static(w http.ResponseWriter, r *http.Request) {
 	dist := s.app.Config.FrontendDist
-	path := filepath.Join(dist, filepath.Clean(r.URL.Path))
+	clean := filepath.Clean(r.URL.Path)
+	path := filepath.Join(dist, clean)
 	if info, err := os.Stat(path); err == nil && !info.IsDir() {
-		http.ServeFile(w, r, path)
+		// Vite content-hashes everything under /assets; other files keep stable names.
+		if strings.HasPrefix(clean, "/assets/") {
+			w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+		} else {
+			w.Header().Set("Cache-Control", "no-cache")
+		}
+		serveStaticFile(w, r, path, info)
 		return
 	}
 	index := filepath.Join(dist, "index.html")
-	if _, err := os.Stat(index); err == nil {
-		http.ServeFile(w, r, index)
+	if info, err := os.Stat(index); err == nil {
+		w.Header().Set("Cache-Control", "no-cache")
+		serveStaticFile(w, r, index, info)
 		return
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write([]byte(`<html><body><h1>camera-appliance</h1><p>Frontend wurde noch nicht gebaut. Bitte npm run build im frontend-Verzeichnis ausführen.</p></body></html>`))
+}
+
+func serveStaticFile(w http.ResponseWriter, r *http.Request, path string, info os.FileInfo) {
+	ctype, ok := compressibleTypes[strings.ToLower(filepath.Ext(path))]
+	// ServeFile redirects explicit /index.html requests to "./"; keep that behaviour.
+	if !ok || strings.HasSuffix(r.URL.Path, "/index.html") {
+		http.ServeFile(w, r, path)
+		return
+	}
+	w.Header().Set("Content-Type", ctype)
+	gz, err := os.Open(path + ".gz")
+	if err != nil {
+		http.ServeFile(w, r, path)
+		return
+	}
+	defer gz.Close()
+	gzInfo, err := gz.Stat()
+	// A .gz older than its source is stale (e.g. a hand-edited dist file); ignore it.
+	if err != nil || !gzInfo.Mode().IsRegular() || gzInfo.ModTime().Truncate(time.Second).Before(info.ModTime().Truncate(time.Second)) {
+		http.ServeFile(w, r, path)
+		return
+	}
+	w.Header().Add("Vary", "Accept-Encoding")
+	// Byte ranges always address the identity file so partial responses stay consistent.
+	if r.Header.Get("Range") != "" || !acceptsGzip(r.Header.Get("Accept-Encoding")) {
+		http.ServeFile(w, r, path)
+		return
+	}
+	w.Header().Set("Content-Encoding", "gzip")
+	// ServeContent omits the length once Content-Encoding is set; ranges never reach here.
+	w.Header().Set("Content-Length", strconv.FormatInt(gzInfo.Size(), 10))
+	http.ServeContent(w, r, filepath.Base(path), info.ModTime(), gz)
+}
+
+// acceptsGzip reports whether an Accept-Encoding header allows gzip, honouring q=0.
+func acceptsGzip(header string) bool {
+	gzipQ, anyQ := -1.0, -1.0
+	for _, part := range strings.Split(header, ",") {
+		coding, params, _ := strings.Cut(part, ";")
+		q := 1.0
+		for _, param := range strings.Split(params, ";") {
+			key, value, found := strings.Cut(strings.TrimSpace(param), "=")
+			if found && strings.EqualFold(strings.TrimSpace(key), "q") {
+				if parsed, err := strconv.ParseFloat(strings.TrimSpace(value), 64); err == nil {
+					q = parsed
+				}
+			}
+		}
+		switch strings.ToLower(strings.TrimSpace(coding)) {
+		case "gzip", "x-gzip":
+			gzipQ = q
+		case "*":
+			anyQ = q
+		}
+	}
+	if gzipQ >= 0 {
+		return gzipQ > 0
+	}
+	return anyQ > 0
 }
 
 func (s *Server) getGo2RTCAsset(w http.ResponseWriter, r *http.Request) {
@@ -65,7 +148,8 @@ func (s *Server) getGo2RTCAsset(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "text/javascript; charset=utf-8")
-	w.Header().Set("Cache-Control", "no-store")
+	// Every viewer iframe loads these; a short cache still picks up go2rtc upgrades.
+	w.Header().Set("Cache-Control", "private, max-age=300")
 	w.WriteHeader(http.StatusOK)
 	_, _ = io.Copy(w, resp.Body)
 }

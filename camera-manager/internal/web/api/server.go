@@ -84,6 +84,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("PUT /api/settings", s.putSettings)
 	s.mux.HandleFunc("GET /api/snapshot-upload", s.getUploadSettings)
 	s.mux.HandleFunc("PUT /api/snapshot-upload", s.putUploadSettings)
+	s.mux.HandleFunc("PUT /api/devices/{id}/name", s.putDeviceName)
 	s.mux.HandleFunc("GET /api/devices/{id}/upload-crop", s.getUploadCrop)
 	s.mux.HandleFunc("PUT /api/devices/{id}/upload-crop", s.putUploadCrop)
 	s.mux.HandleFunc("POST /api/devices/{id}/upload-snapshot", s.uploadSnapshot)

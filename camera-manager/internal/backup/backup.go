@@ -239,6 +239,44 @@ func Restore(ctx context.Context, cfg config.Config, in string) (Result, error) 
 	return Result{Path: in, Files: restored, Warning: "Restore abgeschlossen. Dienste neu starten, um Zugangsdaten und Streams neu zu laden."}, nil
 }
 
+// ErrUploadTooLarge reports an uploaded archive above the caller's limit.
+var ErrUploadTooLarge = errors.New("Die Sicherungsdatei ist zu groß.")
+
+// ErrInvalidUpload reports an upload that is not a readable backup archive.
+var ErrInvalidUpload = errors.New("Die Datei ist keine gültige Sicherung.")
+
+// RestoreUpload stages an uploaded archive in the state directory, runs Restore
+// on it and always removes the staged copy.
+func RestoreUpload(ctx context.Context, cfg config.Config, src io.Reader, name string, limit int64) (Result, error) {
+	if err := os.MkdirAll(cfg.StateDir, 0o750); err != nil {
+		return Result{}, err
+	}
+	staged, err := os.CreateTemp(cfg.StateDir, ".restore-upload-*.tar.gz")
+	if err != nil {
+		return Result{}, err
+	}
+	defer os.Remove(staged.Name())
+	written, copyErr := io.Copy(staged, io.LimitReader(src, limit+1))
+	if err := errors.Join(copyErr, staged.Close()); err != nil {
+		return Result{}, err
+	}
+	if written > limit {
+		return Result{}, ErrUploadTooLarge
+	}
+	result, err := Restore(ctx, cfg, staged.Name())
+	if errors.Is(err, gzip.ErrHeader) || errors.Is(err, gzip.ErrChecksum) || errors.Is(err, tar.ErrHeader) || errors.Is(err, io.ErrUnexpectedEOF) {
+		return Result{}, ErrInvalidUpload
+	}
+	if err != nil {
+		return Result{}, err
+	}
+	result.Path = filepath.Base(name)
+	if name == "" || result.Path == "." || result.Path == string(filepath.Separator) {
+		result.Path = "Hochgeladene Sicherung"
+	}
+	return result, nil
+}
+
 func stageReplacement(source, target string) (string, error) {
 	input, err := os.Open(source)
 	if err != nil {

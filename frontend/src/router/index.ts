@@ -18,8 +18,8 @@ import BackupPage from '../pages/maintenance/BackupPage.vue'
 import SupportPage from '../pages/maintenance/SupportPage.vue'
 import DeviceDetailsPage from '../pages/DeviceDetailsPage.vue'
 import LoginPage from '../pages/LoginPage.vue'
-import { api } from '../api/client'
-import type { AuthStatus } from '../types'
+import { api, setUnauthorizedHandler } from '../api/client'
+import { authDecision } from './authGuard'
 
 const router = createRouter({
   history: createWebHistory(),
@@ -41,13 +41,13 @@ const router = createRouter({
         { path: 'allgemein', redirect: to => ({ path: '/system', query: to.query, hash: to.hash }) },
         { path: 'bild-upload', name: 'system-upload', redirect: '/kameras/bild-upload' },
         { path: 'zugriff', name: 'system-access', component: SystemAccessPage, meta: { title: 'Zugriff' } },
-        { path: 'relays', name: 'system-relays', component: SystemNetworkPage, meta: { title: 'Relays' } },
-        { path: 'relays/:id', name: 'system-relay', component: SystemRelayDetailPage, meta: { title: 'Relay' } },
+        { path: 'relays', name: 'system-relays', component: SystemNetworkPage, meta: { title: 'Weiterleitungen' } },
+        { path: 'relays/:id', name: 'system-relay', component: SystemRelayDetailPage, meta: { title: 'Weiterleitung' } },
         { path: 'netzwerk', redirect: '/system/relays' },
-        { path: 'identitaeten', name: 'system-identities', component: SystemIdentitiesPage, meta: { title: 'Identitäten' } },
-        { path: 'identitaeten/:id', component: IdentityDetailPage, meta: { title: 'Identität' } },
+        { path: 'identitaeten', name: 'system-identities', component: SystemIdentitiesPage, meta: { title: 'Kamera-Zugänge' } },
+        { path: 'identitaeten/:id', component: IdentityDetailPage, meta: { title: 'Kamera-Zugang' } },
         { path: 'wartung', name: 'system-maintenance', component: MaintenanceHomePage, meta: { title: 'Wartung' } },
-        { path: 'wartung/watchdog', component: WatchdogPage, meta: { title: 'Watchdog' } },
+        { path: 'wartung/watchdog', component: WatchdogPage, meta: { title: 'Überwachung' } },
         { path: 'wartung/sicherung', component: BackupPage, meta: { title: 'Sicherung' } },
         { path: 'wartung/updates', redirect: to => ({ path: '/system/ueber', hash: '#updates', query: to.query }) },
         { path: 'wartung/support', component: SupportPage, meta: { title: 'Support' } },
@@ -82,22 +82,15 @@ router.beforeEach(async (to) => {
   }
   if (to.path === '/verwaltung' && window.matchMedia('(min-width: 821px)').matches) return { path: '/einrichtung', replace: true }
   if (to.name === 'login') return true
-  let auth: AuthStatus
-  try {
-    auth = await api.authStatus()
-  } catch {
-    // Fail closed: an unreachable auth endpoint (e.g. during a self-update
-    // restart) must not grant access to admin routes.
-    return to.meta.requiresAdmin || to.meta.requiresViewer ? { path: '/login' } : true
-  }
-  if (!auth.enabled) return true
-  if (to.meta.requiresAdmin && auth.role !== 'admin') {
-    return { path: '/login', query: { next: to.fullPath } }
-  }
-  if (to.meta.requiresViewer && !auth.viewer_public && auth.role !== 'admin' && auth.role !== 'viewer') {
-    return { path: '/login', query: { next: to.fullPath } }
-  }
-  return true
+  const auth = await api.authStatus().catch(() => undefined)
+  return authDecision(to.meta, to.fullPath, auth)
+})
+
+// An expired session mid-page sends the user to login and back afterwards.
+setUnauthorizedHandler(() => {
+  const current = router.currentRoute.value
+  if (current.name === 'login') return
+  void router.replace({ path: '/login', query: { next: current.fullPath } })
 })
 
 export default router

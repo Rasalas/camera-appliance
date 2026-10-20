@@ -6,15 +6,18 @@
   "scripts": {
     "dev": "vite",
     "build": "vue-tsc --noEmit && vite build",
-    "test:embed": "node --test tests/embed-status.test.js",
+    "test:embed": "node --test tests/embed-status.test.js tests/embed-watchdog.test.js",
     "test:mosaic": "node --test --experimental-strip-types src/pages/viewerMosaic.test.ts",
+    "test:viewer": "node --test --experimental-strip-types src/pages/viewerPlayback.test.ts src/composables/viewerKiosk.test.ts src/composables/layoutSave.test.ts",
     "preview": "vite preview",
     "test:settings": "node --test --experimental-strip-types src/composables/settingsDraft.test.ts",
     "test:upload-crop": "node --test --experimental-strip-types src/composables/uploadCropDraft.test.ts",
     "test:upload-image": "node --test --experimental-strip-types src/composables/uploadImagePreview.test.ts",
     "test:updates": "node --test --experimental-strip-types src/composables/updateClient.test.ts",
-    "test": "npm run test:updates && npm run test:embed && npm run test:mosaic && npm run test:settings && npm run test:upload-crop && npm run test:upload-image && npm run test:admin",
-    "test:admin": "node --test --experimental-strip-types src/composables/adminSearch.test.ts src/composables/supportDraft.test.ts src/navigation.test.ts"
+    "test:client": "node --test --experimental-strip-types src/api/client.test.ts src/router/authGuard.test.ts src/composables/stationRestart.test.ts",
+    "test:precompress": "node --test --experimental-strip-types tests/precompress.test.ts",
+    "test": "npm run test:updates && npm run test:embed && npm run test:mosaic && npm run test:viewer && npm run test:settings && npm run test:upload-crop && npm run test:upload-image && npm run test:admin && npm run test:client && npm run test:precompress",
+    "test:admin": "node --test --experimental-strip-types src/composables/adminSearch.test.ts src/composables/supportDraft.test.ts src/composables/cameraLabels.test.ts src/navigation.test.ts"
   },
   "dependencies": {
     "@fontsource-variable/jetbrains-mono": "^5.2.8",

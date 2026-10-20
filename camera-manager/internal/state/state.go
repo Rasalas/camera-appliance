@@ -26,6 +26,7 @@ type Store struct {
 
 type Device struct {
 	ID                string          `json:"id"`
+	Name              string          `json:"name,omitempty"`
 	FirstSeenAt       time.Time       `json:"first_seen_at"`
 	LastSeenAt        time.Time       `json:"last_seen_at"`
 	LastIP            string          `json:"last_ip,omitempty"`
@@ -120,11 +121,15 @@ func (s *Store) Close() error {
 }
 
 func (s *Store) Migrate(ctx context.Context) error {
+	return migrate(ctx, s.db)
+}
+
+func migrate(ctx context.Context, db querier) error {
 	stmts := []string{
 		`PRAGMA journal_mode=WAL;`,
 		`PRAGMA busy_timeout=5000;`,
 		`CREATE TABLE IF NOT EXISTS slots (id TEXT PRIMARY KEY, label TEXT NOT NULL, role TEXT NOT NULL, default_stream TEXT NOT NULL, required INTEGER NOT NULL DEFAULT 0, sort_order INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL, updated_at TEXT NOT NULL);`,
-		`CREATE TABLE IF NOT EXISTS devices (id TEXT PRIMARY KEY, first_seen_at TEXT NOT NULL, last_seen_at TEXT NOT NULL, last_ip TEXT, mac_address TEXT, onvif_endpoint_ref TEXT, serial_number TEXT, manufacturer TEXT, model TEXT, hardware_id TEXT, hostname TEXT, raw_json TEXT);`,
+		`CREATE TABLE IF NOT EXISTS devices (id TEXT PRIMARY KEY, first_seen_at TEXT NOT NULL, last_seen_at TEXT NOT NULL, last_ip TEXT, mac_address TEXT, onvif_endpoint_ref TEXT, serial_number TEXT, manufacturer TEXT, model TEXT, hardware_id TEXT, hostname TEXT, raw_json TEXT, name TEXT);`,
 		`CREATE TABLE IF NOT EXISTS bindings (slot_id TEXT PRIMARY KEY, device_id TEXT NOT NULL, label TEXT, username TEXT, stream_name TEXT NOT NULL DEFAULT 'stream2', enabled INTEGER NOT NULL DEFAULT 1, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, FOREIGN KEY(slot_id) REFERENCES slots(id), FOREIGN KEY(device_id) REFERENCES devices(id));`,
 		`CREATE TABLE IF NOT EXISTS scan_runs (id TEXT PRIMARY KEY, started_at TEXT NOT NULL, finished_at TEXT, status TEXT NOT NULL, message TEXT);`,
 		`CREATE TABLE IF NOT EXISTS stream_checks (id TEXT PRIMARY KEY, device_id TEXT NOT NULL, checked_at TEXT NOT NULL, stream_name TEXT NOT NULL, url_redacted TEXT NOT NULL, success INTEGER NOT NULL, latency_ms INTEGER, message TEXT, FOREIGN KEY(device_id) REFERENCES devices(id));`,
@@ -132,13 +137,16 @@ func (s *Store) Migrate(ctx context.Context) error {
 		`CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TEXT NOT NULL);`,
 		`CREATE TABLE IF NOT EXISTS auth_sessions (token_hash TEXT PRIMARY KEY, role TEXT NOT NULL, created_at TEXT NOT NULL, expires_at TEXT NOT NULL);`,
 		`CREATE INDEX IF NOT EXISTS idx_auth_sessions_expires_at ON auth_sessions(expires_at);`,
+		`CREATE INDEX IF NOT EXISTS idx_events_created_at ON events(created_at);`,
+		`CREATE INDEX IF NOT EXISTS idx_stream_checks_checked_at ON stream_checks(checked_at);`,
+		`CREATE INDEX IF NOT EXISTS idx_scan_runs_started_at ON scan_runs(started_at);`,
 	}
 	for _, stmt := range stmts {
-		if _, err := s.db.ExecContext(ctx, stmt); err != nil {
+		if _, err := db.ExecContext(ctx, stmt); err != nil {
 			return err
 		}
 	}
-	return nil
+	return ensureDeviceNameColumn(ctx, db)
 }
 
 func (s *Store) UpsertSlots(ctx context.Context, slots []config.Slot) error {
@@ -205,7 +213,7 @@ func upsertDevice(ctx context.Context, db executor, d Device) error {
 	return err
 }
 
-const deviceSelect = `SELECT id,first_seen_at,last_seen_at,coalesce(last_ip,''),coalesce(mac_address,''),coalesce(onvif_endpoint_ref,''),coalesce(serial_number,''),coalesce(manufacturer,''),coalesce(model,''),coalesce(hardware_id,''),coalesce(hostname,''),coalesce(raw_json,'') FROM devices`
+const deviceSelect = `SELECT id,first_seen_at,last_seen_at,coalesce(last_ip,''),coalesce(mac_address,''),coalesce(onvif_endpoint_ref,''),coalesce(serial_number,''),coalesce(manufacturer,''),coalesce(model,''),coalesce(hardware_id,''),coalesce(hostname,''),coalesce(raw_json,''),coalesce(name,'') FROM devices`
 
 func (s *Store) Devices(ctx context.Context) ([]Device, error) {
 	rows, err := s.db.QueryContext(ctx, deviceSelect+" ORDER BY last_seen_at DESC")
@@ -276,7 +284,7 @@ func (s *Store) UpsertBinding(ctx context.Context, b Binding) error {
 
 func (s *Store) Bindings(ctx context.Context) ([]Binding, error) {
 	rows, err := s.db.QueryContext(ctx, `SELECT b.slot_id,b.device_id,coalesce(b.label,''),coalesce(b.username,''),b.stream_name,b.enabled,b.created_at,b.updated_at,
-		coalesce(d.id,''),coalesce(d.first_seen_at,''),coalesce(d.last_seen_at,''),coalesce(d.last_ip,''),coalesce(d.mac_address,''),coalesce(d.onvif_endpoint_ref,''),coalesce(d.serial_number,''),coalesce(d.manufacturer,''),coalesce(d.model,''),coalesce(d.hardware_id,''),coalesce(d.hostname,''),coalesce(d.raw_json,'')
+		coalesce(d.id,''),coalesce(d.first_seen_at,''),coalesce(d.last_seen_at,''),coalesce(d.last_ip,''),coalesce(d.mac_address,''),coalesce(d.onvif_endpoint_ref,''),coalesce(d.serial_number,''),coalesce(d.manufacturer,''),coalesce(d.model,''),coalesce(d.hardware_id,''),coalesce(d.hostname,''),coalesce(d.raw_json,''),coalesce(d.name,'')
 		FROM bindings b LEFT JOIN devices d ON d.id=b.device_id ORDER BY b.slot_id`)
 	if err != nil {
 		return nil, err
@@ -290,7 +298,7 @@ func (s *Store) Bindings(ctx context.Context) ([]Binding, error) {
 		var d Device
 		var first, last, raw string
 		if err := rows.Scan(&b.SlotID, &b.DeviceID, &b.Label, &b.Username, &b.StreamName, &enabled, &created, &updated,
-			&d.ID, &first, &last, &d.LastIP, &d.MACAddress, &d.ONVIFEndpointRef, &d.SerialNumber, &d.Manufacturer, &d.Model, &d.HardwareID, &d.Hostname, &raw); err != nil {
+			&d.ID, &first, &last, &d.LastIP, &d.MACAddress, &d.ONVIFEndpointRef, &d.SerialNumber, &d.Manufacturer, &d.Model, &d.HardwareID, &d.Hostname, &raw, &d.Name); err != nil {
 			return nil, err
 		}
 		b.Enabled = enabled == 1
@@ -515,7 +523,7 @@ func scanDevice(row scanner) (Device, error) {
 	var d Device
 	var first, last string
 	var raw sql.NullString
-	err := row.Scan(&d.ID, &first, &last, &d.LastIP, &d.MACAddress, &d.ONVIFEndpointRef, &d.SerialNumber, &d.Manufacturer, &d.Model, &d.HardwareID, &d.Hostname, &raw)
+	err := row.Scan(&d.ID, &first, &last, &d.LastIP, &d.MACAddress, &d.ONVIFEndpointRef, &d.SerialNumber, &d.Manufacturer, &d.Model, &d.HardwareID, &d.Hostname, &raw, &d.Name)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return Device{}, err

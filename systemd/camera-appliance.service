@@ -10,9 +10,9 @@ Type=oneshot
 WorkingDirectory=/opt/camera-appliance
 Environment=COMPOSE_PROJECT_NAME=camera-appliance
 EnvironmentFile=-/opt/camera-appliance/release.env
-ExecStart=/usr/bin/docker compose -f /opt/camera-appliance/compose.yaml up -d --build --remove-orphans
+ExecStart=/usr/bin/docker compose -f /opt/camera-appliance/compose.yaml up -d --remove-orphans
 ExecReload=/usr/bin/docker compose -f /opt/camera-appliance/compose.yaml restart go2rtc camera-manager
-ExecStop=/usr/bin/docker compose -f /opt/camera-appliance/compose.yaml down
+ExecStop=/usr/bin/docker compose -f /opt/camera-appliance/compose.yaml stop
 RemainAfterExit=yes
 TimeoutStartSec=900
 TimeoutStopSec=60

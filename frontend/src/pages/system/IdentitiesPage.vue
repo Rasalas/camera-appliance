@@ -1,13 +1,14 @@
 <template>
-  <Teleport defer to="#system-page-actions"><button class="btn primary desktop-primary" @click="editing=true"><AppIcon name="plus" />Identität hinzufügen</button></Teleport>
+  <Teleport defer to="#system-page-actions"><button class="btn primary desktop-primary" @click="editing=true"><AppIcon name="plus" />Kamera-Zugang hinzufügen</button></Teleport>
   <section class="panel">
-    <div class="panel-head"><h2>Kamera-Identitäten</h2></div>
+    <div class="panel-head"><h2>Gemeinsame Kamera-Zugänge</h2></div>
     <p class="mono-mute">Wiederverwendbare Kamera-Logins. Beim Bildtest werden sie für Kameras ohne eigenes Passwort ausprobiert.</p>
-    <p class="mono-mute">{{ credentialIdentities.length }} gespeichert · nach Name sortiert</p>
-    <div v-if="!credentialIdentities.length" class="empty">Noch keine Identitäten. Füge einen gemeinsamen Kamera-Login hinzu.</div>
-    <div v-else class="identity-list"><div v-for="identity in sorted" :key="identity.id" class="identity-resource-row" @click="openRow($event,identity.id)"><RouterLink :to="`/system/identitaeten/${identity.id}`">{{ identity.name }}</RouterLink><span>{{ identity.username }}</span><span class="mono-mute">{{ identity.password_set ? 'Passwort gespeichert' : 'Kein Passwort' }}</span><button class="btn ghost" :disabled="busy" @click="duplicate(identity)">Duplizieren</button></div></div>
+    <div v-if="!sectionsLoaded.identities" role="status">{{ loadError ? 'Kamera-Zugänge konnten nicht geladen werden.' : 'Wird geladen…' }}</div>
+    <p v-else class="mono-mute">{{ credentialIdentities.length }} gespeichert · nach Name sortiert</p>
+    <div v-if="sectionsLoaded.identities && !credentialIdentities.length" class="empty">Noch keine Kamera-Zugänge. Füge einen gemeinsamen Kamera-Login hinzu.</div>
+    <div v-else-if="sectionsLoaded.identities" class="identity-list"><div v-for="identity in sorted" :key="identity.id" class="identity-resource-row" @click="openRow($event,identity.id)"><RouterLink :to="`/system/identitaeten/${identity.id}`">{{ identity.name }}</RouterLink><span>{{ identity.username }}</span><span class="mono-mute">{{ identity.password_set ? 'Passwort gespeichert' : 'Kein Passwort' }}</span><button class="btn ghost" :disabled="busy" @click="duplicate(identity)">Duplizieren</button></div></div>
   </section>
-  <button class="mobile-fab" aria-label="Identität hinzufügen" @click="editing=true"><AppIcon name="plus" /></button>
+  <button class="mobile-fab" aria-label="Kamera-Zugang hinzufügen" @click="editing=true"><AppIcon name="plus" /></button>
   <IdentityEditor :open="editing" @close="editing=false" />
 </template>
 <script setup lang="ts">
@@ -18,7 +19,7 @@ import { useSystem } from '../../composables/useSystem'
 import { rowDestination } from '../../composables/resourceRow'
 import IdentityEditor from '../../components/IdentityEditor.vue'
 import type { CredentialIdentity } from '../../types'
-const { credentialIdentities, loadAll, saveCredentialIdentity, error } = useSystem()
+const { credentialIdentities, sectionsLoaded, loadError, loadAll, saveCredentialIdentity, error } = useSystem()
 const router=useRouter(), editing=ref(false), busy=ref(false)
 const sorted=computed(()=>[...credentialIdentities.value].sort((a,b)=>a.name.localeCompare(b.name,'de')))
 function openRow(event:MouseEvent,id:string) { const href=rowDestination(event,`/system/identitaeten/${id}`);if(href)void router.push(href) }

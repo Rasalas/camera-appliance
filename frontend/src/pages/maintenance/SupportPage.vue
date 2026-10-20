@@ -74,7 +74,8 @@ onBeforeUnmount(() => { if (downloadURL) URL.revokeObjectURL(downloadURL) })
 p { margin:0; }
 textarea { width:100%;resize:vertical;line-height:1.6; }
 .support-events { list-style:none;margin:0;padding:0; }
-.support-events li { display:grid;grid-template-columns:110px 50px minmax(0,1fr);gap:12px;padding:12px 0;border-bottom:1px solid var(--hairline);font-size:13px;line-height:1.6;overflow-wrap:anywhere; }
+.support-events li:nth-child(odd) { background:rgba(255,255,255,.018);border-radius:var(--radius-sm); }
+.support-events li { display:grid;grid-template-columns:110px 50px minmax(0,1fr);gap:12px;padding:12px 8px;font-size:13px;line-height:1.6;overflow-wrap:anywhere; }
 .support-events time,.event-level { color:var(--ink-mute); }
 .support-downloads,.support-actions { justify-content:flex-end;display:flex;gap:12px;flex-wrap:wrap; }
 .support-actions { justify-content:flex-end; }

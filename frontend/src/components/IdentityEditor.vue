@@ -1,6 +1,6 @@
 <template>
-  <AdminDialog ref="dialog" :open="open" :title="identity ? 'Identität bearbeiten' : 'Identität hinzufügen'" :dirty="dirty" :busy="saving" @close="$emit('close')">
-    <form @submit.prevent="save"><label class="field"><span class="lbl">Name · Pflichtfeld</span><input aria-label="Name · Pflichtfeld" v-model="draft.name" required autofocus /></label><label class="field"><span class="lbl">Benutzername · Pflichtfeld</span><input aria-label="Benutzername · Pflichtfeld" v-model="draft.username" required autocomplete="off" /></label><label class="field"><span class="lbl">Passwort</span><input aria-label="Passwort" v-model="draft.password" type="password" autocomplete="new-password" :placeholder="identity ? 'Leer behält das gespeicherte Passwort' : 'Kamera-Passwort'" /></label><p v-if="error" class="notice err" role="alert">{{ error }}</p><div class="form-actions"><button class="btn" type="button" @click="dialog?.requestClose()">Abbrechen</button><button class="btn primary" :disabled="saving" type="submit"><AppIcon v-if="!identity" name="plus" />{{ saving ? 'Speichert…' : 'Identität speichern' }}</button></div></form>
+  <AdminDialog ref="dialog" :open="open" :title="identity ? 'Kamera-Zugang bearbeiten' : 'Kamera-Zugang hinzufügen'" :dirty="dirty" :busy="saving" @close="$emit('close')">
+    <form @submit.prevent="save"><label class="field"><span class="lbl">Name · Pflichtfeld</span><input aria-label="Name · Pflichtfeld" v-model="draft.name" required autofocus /></label><label class="field"><span class="lbl">Benutzername · Pflichtfeld</span><input aria-label="Benutzername · Pflichtfeld" v-model="draft.username" required autocomplete="off" /></label><label class="field"><span class="lbl">Passwort</span><input aria-label="Passwort" v-model="draft.password" type="password" autocomplete="new-password" :placeholder="identity ? 'Leer behält das gespeicherte Passwort' : 'Kamera-Passwort'" /></label><p v-if="error" class="notice err" role="alert">{{ error }}</p><div class="form-actions"><button class="btn" type="button" @click="dialog?.requestClose()">Abbrechen</button><button class="btn primary" :disabled="saving" type="submit"><AppIcon v-if="!identity" name="plus" />{{ saving ? 'Speichert…' : 'Zugang speichern' }}</button></div></form>
   </AdminDialog>
 </template>
 <script setup lang="ts">
@@ -22,7 +22,7 @@ async function save() {
   if(saving.value)return
   saving.value=true;error.value=''
   try { await saveCredentialIdentity(draft);baseline.value=JSON.stringify(draft);emit('saved');emit('close') }
-  catch(err) { error.value=err instanceof Error?err.message:'Identität konnte nicht gespeichert werden.' }
+  catch(err) { error.value=err instanceof Error?err.message:'Kamera-Zugang konnte nicht gespeichert werden.' }
   finally { saving.value=false }
 }
 </script>

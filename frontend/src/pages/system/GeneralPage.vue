@@ -10,31 +10,31 @@
   </form>
   </AdminDialog>
   <SettingsForm title="Verbindungen und Automatik" :setting-keys="connectionKeys">
-    <template #summary><dl class="spec"><div><dt>Streamdienst</dt><dd>{{ settings.go2rtc_url }}</dd></div><div><dt>SSH-Hop</dt><dd>{{ settings.capture_ssh_host || 'Direkt auf dieser Station' }}</dd></div><div><dt>Automatische Suche</dt><dd>{{ settings.auto_discover === 'true' ? 'Aktiv' : 'Aus' }}</dd></div></dl></template>
+    <template #summary><dl class="spec"><div><dt>Videodienst</dt><dd>{{ settings.go2rtc_url }}</dd></div><div><dt>Referenzbilder über</dt><dd>{{ settings.capture_ssh_host || 'Direkt auf dieser Station' }}</dd></div><div><dt>Automatische Suche</dt><dd>{{ settings.auto_discover === 'true' ? 'Aktiv' : 'Aus' }}</dd></div></dl></template>
     <div class="split">
       <div class="field">
-        <span class="lbl">go2rtc-URL</span>
-        <input aria-label="go2rtc-URL" :value="settings.go2rtc_url" readonly placeholder="http://localhost:1984" />
+        <span class="lbl">Adresse des Videodienstes</span>
+        <input aria-label="Adresse des Videodienstes" :value="settings.go2rtc_url" readonly placeholder="http://localhost:1984" />
       </div>
       <div class="field">
-        <span class="lbl">Capture-Hop per SSH</span>
-        <input aria-label="Capture-Hop per SSH" v-model="settings.capture_ssh_host" placeholder="leer oder nas" />
-        <div class="mono-mute" style="margin-top: 6px;">Optional. Wenn gesetzt, zieht die App Referenzbilder per ffmpeg auf diesem SSH-Host.</div>
+        <span class="lbl">Referenzbilder über anderen Rechner (SSH)</span>
+        <input aria-label="Referenzbilder über anderen Rechner (SSH)" v-model="settings.capture_ssh_host" placeholder="leer oder nas" />
+        <div class="mono-mute">Optional. Leer lassen, wenn die Station die Kameras direkt erreicht. Sonst den SSH-Namen des Rechners eintragen, der die Referenzbilder aufnimmt.</div>
       </div>
     </div>
 
-    <div style="display: grid; gap: 8px;">
+    <div class="toggle-stack">
       <label class="toggle-row">
         <input type="checkbox" :checked="settings.auto_discover === 'true'" @change="setBool('auto_discover', $event)" />
-        <div><div class="lbl-main">Beim Start automatisch suchen</div><div class="lbl-sub">Discovery läuft direkt nach dem Boot.</div></div>
+        <div><div class="lbl-main">Beim Start automatisch suchen</div><div class="lbl-sub">Die Kamerasuche läuft direkt nach dem Einschalten.</div></div>
       </label>
       <label class="toggle-row">
         <input type="checkbox" :checked="settings.render_after_discovery === 'true'" @change="setBool('render_after_discovery', $event)" />
-        <div><div class="lbl-main">go2rtc nach Suche erzeugen</div><div class="lbl-sub">Neue Konfiguration wird automatisch geschrieben.</div></div>
+        <div><div class="lbl-main">Videodienst nach der Suche einrichten</div><div class="lbl-sub">Gefundene Kameras werden automatisch für die Live-Ansicht eingetragen.</div></div>
       </label>
       <label class="toggle-row">
         <input type="checkbox" :checked="settings.restart_after_render === 'true'" @change="setBool('restart_after_render', $event)" />
-        <div><div class="lbl-main">go2rtc nach Änderungen neu starten</div><div class="lbl-sub">Streams stehen sofort am Player bereit.</div></div>
+        <div><div class="lbl-main">Videodienst nach Änderungen neu starten</div><div class="lbl-sub">Änderungen erscheinen sofort in der Live-Ansicht.</div></div>
       </label>
     </div>
   </SettingsForm>
@@ -93,3 +93,7 @@ async function saveCamPassword() {
 
 onMounted(() => void loadAll())
 </script>
+
+<style scoped>
+.toggle-stack { display: grid; gap: 8px; }
+</style>

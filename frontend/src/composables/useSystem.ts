@@ -33,7 +33,11 @@ const error = ref('')
 const toast = ref('')
 const passwordSource = ref('unbekannt')
 let baseline: Record<string, string> = {}
-const settingsLoaded = ref(false), baselineRevision = ref(0)
+const baselineRevision = ref(0)
+const sectionsLoaded = reactive({ settings: false, auth: false, status: false, identities: false, events: false })
+const settingsLoaded = computed(() => sectionsLoaded.settings)
+const loadError = ref('')
+const settingsUnavailable = computed(() => !sectionsLoaded.settings && !!loadError.value)
 let loadPending: Promise<void> | undefined
 
 const relayIds = computed(() => settingList(settings['camera.relay.ids']))
@@ -46,8 +50,8 @@ const restartCooldownLabel = computed(() => {
   const watchdog = status.value?.watchdog
   if (!watchdog) return 'Noch kein Status.'
   if (watchdog.path_restart_pending) return `Ausstehend bis ${watchdogDate(watchdog.path_restart_cooldown_until)}`
-  if (watchdog.path_restart_last_at) return `Letzter Restart ${watchdogDate(watchdog.path_restart_last_at)}`
-  return 'Kein Cooldown aktiv.'
+  if (watchdog.path_restart_last_at) return `Letzter Neustart ${watchdogDate(watchdog.path_restart_last_at)}`
+  return 'Keine Wartezeit aktiv.'
 })
 const versionDetail = computed(() => {
   const info = status.value?.version
@@ -226,33 +230,47 @@ function loadAll(): Promise<void> {
   return loadPending
 }
 
+// Each section loads independently so one failing endpoint does not lock every form.
 async function loadSystem() {
-  try {
-    const fresh = await api.settings()
+  error.value = ''
+  loadError.value = ''
+  const [fresh, auth, current, identities, recent] = await Promise.allSettled([
+    api.settings(), api.authStatus(), api.status(), api.credentialIdentities(), api.events()
+  ])
+  if (auth.status === 'fulfilled') { authStatus.value = auth.value; sectionsLoaded.auth = true }
+  if (current.status === 'fulfilled') { status.value = current.value; sectionsLoaded.status = true }
+  if (identities.status === 'fulfilled') { credentialIdentities.value = identities.value; sectionsLoaded.identities = true }
+  if (recent.status === 'fulfilled') { events.value = recent.value; sectionsLoaded.events = true }
+  if (fresh.status === 'fulfilled') {
     const pending = settingsPatch(settings, baseline, Object.keys(settings))
     for (const key of Object.keys(settings)) delete settings[key]
-    Object.assign(settings, fresh)
+    Object.assign(settings, fresh.value)
     passwordSource.value = settings.camera_password_source === 'keyring' ? 'Betriebssystem-Keyring' : (settings.camera_password_source || 'unbekannt')
-    authStatus.value = await api.authStatus()
     ensureAuthDefaults()
-    await refreshStatus()
-    credentialIdentities.value = await api.credentialIdentities()
-    events.value = await api.events()
+    if (current.status === 'fulfilled') applyStatusDefaults()
     ensurePerformanceDefault()
     baseline = { ...settings }
     baselineRevision.value++
-    settingsLoaded.value = true
+    sectionsLoaded.settings = true
     Object.assign(settings, pending)
-  } catch (err) {
-    error.value = err instanceof Error ? err.message : 'Konnte nicht geladen werden.'
   }
+  const failed = [fresh, auth, current, identities, recent].find((result) => result.status === 'rejected')
+  if (failed?.status === 'rejected') {
+    const reason = failed.reason instanceof Error ? failed.reason.message : ''
+    loadError.value = `Einige Systemdaten konnten nicht geladen werden.${reason ? ' ' + reason : ''}`
+  }
+}
+
+function applyStatusDefaults() {
+  ensurePathPolicyDefaults()
+  ensureWatchdogDefaults()
+  ensureRelayDefaults()
 }
 
 async function refreshStatus() {
   status.value = await api.status()
-  ensurePathPolicyDefaults()
-  ensureWatchdogDefaults()
-  ensureRelayDefaults()
+  sectionsLoaded.status = true
+  applyStatusDefaults()
 }
 
 function settingsDirty(keys: string[]) {
@@ -320,19 +338,19 @@ async function saveCredentialIdentity(form: { id?: string; name: string; usernam
     copy_password_from_id: form.copy_password_from_id || undefined
   })
   await loadCredentialIdentities()
-  showToast('Identität gespeichert')
+  showToast('Kamera-Zugang gespeichert')
 }
 
 async function deleteCredentialIdentity(id: string) {
   await api.deleteCredentialIdentity(id)
   await loadCredentialIdentities()
-  showToast('Identität entfernt')
+  showToast('Kamera-Zugang entfernt')
 }
 
 function addRelay(draft: { id: string; name: string; host: string; sshTarget: string }) {
   const id = sanitizeID(draft.id)
   if (!id) {
-    error.value = 'Relay-ID fehlt.'
+    error.value = 'Name der Weiterleitung fehlt.'
     return ''
   }
   const ids = relayIds.value.includes(id) ? relayIds.value : [...relayIds.value, id]
@@ -358,17 +376,17 @@ async function relayAction(id: string, action: 'start' | 'stop' | 'restart') {
   if (action === 'stop') await api.stopRelay(id)
   if (action === 'restart') await api.restartRelay(id)
   await refreshStatus()
-  showToast(`Relay ${action === 'restart' ? 'neu gestartet' : action === 'start' ? 'gestartet' : 'gestoppt'}`)
+  showToast(`Weiterleitung ${action === 'restart' ? 'neu gestartet' : action === 'start' ? 'gestartet' : 'gestoppt'}`)
 }
 
 async function createBackup() {
   backupResult.value = await api.backup()
-  showToast('Backup erstellt')
+  showToast('Sicherung erstellt')
 }
 
-async function restoreBackup(path: string) {
-  backupResult.value = await api.restore(path)
-  showToast('Backup wiederhergestellt')
+async function restoreBackup(source: string | File) {
+  backupResult.value = typeof source === 'string' ? await api.restore(source) : await api.restoreUpload(source)
+  showToast('Sicherung wiederhergestellt')
 }
 
 async function createSupportBundle() {
@@ -379,7 +397,7 @@ async function createSupportBundle() {
 export function useSystem() {
   return {
     // state
-    settings, settingsLoaded, settingsDirty, discardSettings, status, authStatus, events, credentialIdentities, error, toast, passwordSource,
+    settings, settingsLoaded, sectionsLoaded, loadError, settingsUnavailable, settingsDirty, discardSettings, status, authStatus, events, credentialIdentities, error, toast, passwordSource,
     viewerPerformanceOptions, backupResult, supportBundleResult,
     // computeds
     relayIds, relayStatuses, cameraBindings, watchdogEnabled, watchdogRestartOnChange, watchdogRestartGo2RTC,

@@ -44,7 +44,7 @@ func (a *Manager) relayStatus(ctx context.Context, relay ManagedRelay, settings 
 		return status
 	}
 	status.PID = pid
-	if pid > 0 && processAlive(pid) {
+	if pid > 0 && a.relayRunning(relay.ID, pid) {
 		status.ProcessState = "running"
 		status.Message = "Relay-Prozess läuft."
 		return status
@@ -52,6 +52,9 @@ func (a *Manager) relayStatus(ctx context.Context, relay ManagedRelay, settings 
 	if pid > 0 {
 		status.ProcessState = "stale"
 		status.Message = "PID-Datei vorhanden, Prozess läuft aber nicht mehr."
+		if child, ok := a.trackedChild(relay.ID, pid); ok && child.exited {
+			status.Message = childExitMessage(child)
+		}
 		return status
 	}
 	if relayHasReachableLocalPort(status.Endpoints) {

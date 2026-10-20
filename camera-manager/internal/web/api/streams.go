@@ -1,13 +1,24 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
 	"strings"
+	"time"
 
 	"camera-appliance/camera-manager/internal/state"
 )
+
+// Covers waiting for another restart plus render and a 90 s container recreate.
+const go2rtcOperationTimeout = 5 * time.Minute
+
+// detachedContext keeps docker operations running after the client leaves;
+// a cancelled "compose up" can leave go2rtc stopped or removed.
+func detachedContext(r *http.Request, timeout time.Duration) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(context.WithoutCancel(r.Context()), timeout)
+}
 
 func (s *Server) getSlots(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, s.app.Slots, http.StatusOK)
@@ -51,14 +62,18 @@ func (s *Server) replaceBinding(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) renderGo2RTC(w http.ResponseWriter, r *http.Request) {
-	result, err := s.app.RenderConfiguredGo2RTC(r.Context())
+	ctx, cancel := detachedContext(r, go2rtcOperationTimeout)
+	defer cancel()
+	result, err := s.app.RenderConfiguredGo2RTC(ctx)
 	writeResult(w, result, err)
 }
 
 func (s *Server) restartGo2RTC(w http.ResponseWriter, r *http.Request) {
-	err := s.app.RestartStreams(r.Context())
+	ctx, cancel := detachedContext(r, go2rtcOperationTimeout)
+	defer cancel()
+	err := s.app.RestartStreams(ctx)
 	if err == nil {
-		_ = s.app.Store.AddEvent(r.Context(), "info", "go2rtc.restarted", "go2rtc wurde neu gestartet", nil)
+		_ = s.app.Store.AddEvent(ctx, "info", "go2rtc.restarted", "go2rtc wurde neu gestartet", nil)
 	}
 	writeResult(w, map[string]string{"status": "ok"}, err)
 }

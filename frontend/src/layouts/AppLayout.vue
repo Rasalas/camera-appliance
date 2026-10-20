@@ -69,6 +69,8 @@ import AppIcon from '../components/AppIcon.vue'
 import AdminNavLink from '../components/AdminNavLink.vue'
 import { cameraPages, systemPage, systemPages, maintenancePage, maintenancePages, aboutPage } from '../navigation'
 import { provideUpdateFlow, useUpdateMonitoring } from '../composables/useUpdateFlow'
+import { hasUnsavedDrafts } from '../composables/discardChanges'
+import { browserStorage, shouldReturnToViewer, storedKioskFlag } from '../composables/viewerKiosk'
 
 const router = useRouter()
 const route = useRoute()
@@ -99,6 +101,10 @@ let timer = 0
 let onKey: ((e: KeyboardEvent) => void) | undefined
 let onAuthChanged: (() => void) | undefined
 let removeAfterEach: (() => void) | undefined
+let idleTimer = 0
+let lastInput = Date.now()
+const markInput = () => { lastInput = Date.now() }
+const inputEvents = ['pointerdown', 'pointermove', 'keydown', 'wheel'] as const
 
 async function refreshAuth() {
   try {
@@ -110,7 +116,11 @@ async function refreshAuth() {
 }
 
 async function logout() {
-  await api.logout()
+  try {
+    await api.logout()
+  } catch {
+    // The session may already be gone; leave the admin pages anyway.
+  }
   window.dispatchEvent(new Event('auth-changed'))
   await refreshAuth()
   await router.push('/')
@@ -128,6 +138,7 @@ onMounted(() => {
   tick()
   timer = window.setInterval(tick, 1000)
   onKey = (e: KeyboardEvent) => {
+    if (isViewer.value) return
     if (document.querySelector('dialog[open]') || (e.target as HTMLElement)?.closest('.search-popover')) return
     if (e.target instanceof HTMLElement && ['INPUT', 'TEXTAREA', 'SELECT'].includes(e.target.tagName)) return
     if (e.key === '1') router.push('/')
@@ -136,10 +147,21 @@ onMounted(() => {
   }
   window.addEventListener('keydown', onKey)
   window.addEventListener('pointerdown', outsideOverflow)
+  for (const name of inputEvents) window.addEventListener(name, markInput, { passive: true })
+  // Kiosk: an admin page left open returns to the cameras after 10 minutes without input.
+  idleTimer = window.setInterval(() => {
+    const kiosk = storedKioskFlag(browserStorage())
+    if (shouldReturnToViewer({ kiosk, onViewer: isViewer.value, idleMs: Date.now() - lastInput, unsaved: hasUnsavedDrafts() })) {
+      markInput()
+      void router.push('/')
+    }
+  }, 30000)
 })
 onBeforeUnmount(() => {
   window.removeEventListener('pointerdown', outsideOverflow)
   window.clearInterval(timer)
+  window.clearInterval(idleTimer)
+  for (const name of inputEvents) window.removeEventListener(name, markInput)
   if (onKey) window.removeEventListener('keydown', onKey)
   if (onAuthChanged) window.removeEventListener('auth-changed', onAuthChanged)
   if (removeAfterEach) removeAfterEach()

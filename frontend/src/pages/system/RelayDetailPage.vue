@@ -1,18 +1,18 @@
 <template>
-  <div class="mono-mute" style="font-size: 11px;">
-    <RouterLink to="/system/relays" class="mono-mute">← Alle Relays</RouterLink>
+  <div class="mono-mute">
+    <RouterLink to="/system/relays" class="mono-mute">← Alle Weiterleitungen</RouterLink>
   </div>
 
-  <div v-if="missing" class="empty">Relay „{{ relayId }}“ ist nicht konfiguriert.</div>
+  <div v-if="missing" class="empty">Weiterleitung „{{ relayId }}“ ist nicht eingerichtet.</div>
 
   <template v-else>
     <section class="panel card">
       <div class="panel-head">
         <h2>{{ relayName(relayId) }}</h2>
         <div class="btn-row">
-          <button v-if="relayStatusFor(relayId)?.process_state !== 'running'" class="btn sm" type="button" :disabled="busy === 'start'" @click="onAction('start')">{{ busy === 'start' ? 'Startet…' : 'Start' }}</button>
-          <button v-else class="btn sm ghost" type="button" :disabled="busy === 'restart'" @click="onAction('restart')">{{ busy === 'restart' ? 'Startet…' : 'Restart' }}</button>
-          <button class="btn sm ghost" type="button" :disabled="busy === 'stop'" @click="onAction('stop')">{{ busy === 'stop' ? 'Stoppt…' : 'Stop' }}</button>
+          <button v-if="relayStatusFor(relayId)?.process_state !== 'running'" class="btn sm" type="button" :disabled="busy === 'start'" @click="onAction('start')">{{ busy === 'start' ? 'Startet…' : 'Starten' }}</button>
+          <button v-else class="btn sm ghost" type="button" :disabled="busy === 'restart'" @click="onAction('restart')">{{ busy === 'restart' ? 'Startet…' : 'Neu starten' }}</button>
+          <button class="btn sm ghost" type="button" :disabled="busy === 'stop'" @click="onAction('stop')">{{ busy === 'stop' ? 'Stoppt…' : 'Stoppen' }}</button>
           <button class="btn sm danger" type="button" @click="confirmRemove=true">Entfernen</button>
         </div>
       </div>
@@ -31,33 +31,33 @@
     </section>
 
     <SettingsForm ref="configEditor" title="Konfiguration" :setting-keys="configKeys" :after-save="() => onAction('restart')">
-      <template #summary><dl class="spec"><div><dt>Name</dt><dd>{{ relayName(relayId) }}</dd></div><div><dt>SSH-Ziel</dt><dd>{{ settings[relaySettingKey(relayId,'ssh_target')] }}</dd></div><div><dt>go2rtc-Host</dt><dd>{{ settings[relaySettingKey(relayId,'host')] }}</dd></div><div><dt>Automatisch aktiv halten</dt><dd>{{ relayAutoStart(relayId) ? 'Ja' : 'Nein' }}</dd></div></dl></template>
+      <template #summary><dl class="spec"><div><dt>Name</dt><dd>{{ relayName(relayId) }}</dd></div><div><dt>SSH-Ziel</dt><dd>{{ settings[relaySettingKey(relayId,'ssh_target')] }}</dd></div><div><dt>Rechnername für den Videodienst</dt><dd>{{ settings[relaySettingKey(relayId,'host')] }}</dd></div><div><dt>Automatisch aktiv halten</dt><dd>{{ relayAutoStart(relayId) ? 'Ja' : 'Nein' }}</dd></div></dl></template>
       <label class="toggle-row compact">
         <input type="checkbox" :checked="relayAutoStart(relayId)" @change="setBool(relaySettingKey(relayId, 'auto_start'), $event)" />
-        <div><div class="lbl-main">Automatisch aktiv halten</div><div class="lbl-sub">Watchdog startet das Relay bei Ausfall erneut (empfohlen).</div></div>
+        <div><div class="lbl-main">Automatisch aktiv halten</div><div class="lbl-sub">Die Überwachung startet die Weiterleitung bei Ausfall erneut (empfohlen).</div></div>
       </label>
       <div class="relay-config-grid">
         <div class="field"><span class="lbl">Name</span><input aria-label="Name" v-model="settings[relaySettingKey(relayId, 'name')]" class="compact-input" :placeholder="relayId" /></div>
         <div class="field"><span class="lbl">SSH-Ziel</span><input aria-label="SSH-Ziel" v-model="settings[relaySettingKey(relayId, 'ssh_target')]" class="compact-input" placeholder="nas oder user@nas" /></div>
-        <div class="field"><span class="lbl">Host aus go2rtc-Docker</span><input aria-label="Host aus go2rtc-Docker" v-model="settings[relaySettingKey(relayId, 'host')]" class="compact-input" placeholder="host.docker.internal" /></div>
+        <div class="field"><span class="lbl">Rechnername aus Sicht des Videodienstes</span><input aria-label="Rechnername aus Sicht des Videodienstes" v-model="settings[relaySettingKey(relayId, 'host')]" class="compact-input" placeholder="host.docker.internal" /></div>
         <div class="field"><span class="lbl">Bind-Adresse</span><input aria-label="Bind-Adresse" v-model="settings[relaySettingKey(relayId, 'bind_host')]" class="compact-input" placeholder="127.0.0.1" /></div>
         <div class="field"><span class="lbl">Port-Basis</span><input aria-label="Port-Basis" v-model="settings[relaySettingKey(relayId, 'port_base')]" class="compact-input" :placeholder="String(relayPortBaseFallback)" /></div>
       </div>
-      <p class="mono-mute">Speichern startet das Relay neu, damit die Konfiguration wirksam wird.</p>
+      <p class="mono-mute">Speichern startet die Weiterleitung neu, damit die Änderung wirksam wird.</p>
     </SettingsForm>
-    <button class="mobile-fab" aria-label="Relay bearbeiten" @click="configEditor?.edit()"><AppIcon name="edit" /></button>
-    <AdminDialog :open="confirmRemove" title="Relay entfernen?" compact :busy="busy !== ''" @close="confirmRemove=false"><p>„{{ relayName(relayId) }}“ wird aus der Konfiguration entfernt. Kameras können diesen Ersatzpfad anschließend nicht mehr nutzen.</p><div class="form-actions"><button class="btn" @click="confirmRemove=false">Abbrechen</button><button class="btn danger" @click="onRemove">Entfernen</button></div></AdminDialog>
+    <button class="mobile-fab" aria-label="Weiterleitung bearbeiten" @click="configEditor?.edit()"><AppIcon name="edit" /></button>
+    <AdminDialog :open="confirmRemove" title="Weiterleitung entfernen?" compact :busy="busy !== ''" @close="confirmRemove=false"><p>„{{ relayName(relayId) }}“ wird aus der Konfiguration entfernt. Kameras können diesen Ersatzweg anschließend nicht mehr nutzen.</p><div class="form-actions"><button class="btn" @click="confirmRemove=false">Abbrechen</button><button class="btn danger" @click="onRemove">Entfernen</button></div></AdminDialog>
 
     <section class="panel">
       <div class="panel-head">
-        <h2>Weiterleitungen</h2>
+        <h2>Weitergeleitete Kameras</h2>
         <div class="right">automatisch aus den aktiven Kameras</div>
       </div>
       <div class="mono-mute">
         Pro Kameraplatz wird automatisch ein lokaler Port weitergeleitet. Verbindungsweg und
         Port-Anpassungen einer Kamera findest du auf ihrer Detailseite unter „Verbindung“.
       </div>
-      <div v-if="!endpoints.length" class="empty">Keine Weiterleitungen — noch keine Kamera aktiviert.</div>
+      <div v-if="!endpoints.length" class="empty">Noch keine Kamera eingeblendet.</div>
       <div v-else class="forward-list">
         <RouterLink v-for="endpoint in endpoints" :key="endpoint.device_id" :to="`/kamera/${endpoint.device_id}`" class="forward-row">
           <span class="endpoint-state" :class="endpointStateClass(endpoint.state)">{{ endpointStateLabel(endpoint.state) }}</span>
@@ -121,7 +121,7 @@ async function onAction(action: 'start' | 'stop' | 'restart') {
   try {
     await relayAction(relayId.value, action)
   } catch (err) {
-    error.value = err instanceof Error ? err.message : 'Relay-Aktion fehlgeschlagen.'
+    error.value = err instanceof Error ? err.message : 'Aktion fehlgeschlagen.'
   } finally {
     busy.value = ''
   }
