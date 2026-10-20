@@ -4,17 +4,25 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"mime"
 	"net/http"
 	neturl "net/url"
 	"strings"
+	"time"
 
 	"camera-appliance/camera-manager/internal/backup"
 	"camera-appliance/camera-manager/internal/system"
 	updater "camera-appliance/camera-manager/internal/update"
 )
 
+// restartStackFunc is replaced in tests.
+var restartStackFunc = system.RestartStack
+
 func (s *Server) restartStack(w http.ResponseWriter, r *http.Request) {
-	err := system.RestartStack(r.Context(), s.app.Config)
+	// system.RestartStack applies its own, shorter deadline.
+	ctx, cancel := detachedContext(r, 25*time.Minute)
+	defer cancel()
+	err := restartStackFunc(ctx, s.app.Config)
 	writeResult(w, map[string]string{"status": "ok"}, err)
 }
 
@@ -71,6 +79,10 @@ func (s *Server) createSupportBundle(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) restoreBackup(w http.ResponseWriter, r *http.Request) {
+	if mediaType, _, _ := mime.ParseMediaType(r.Header.Get("Content-Type")); mediaType == "multipart/form-data" {
+		s.restoreUploadedBackup(w, r)
+		return
+	}
 	var req struct {
 		In string `json:"in"`
 	}
@@ -83,4 +95,53 @@ func (s *Server) restoreBackup(w http.ResponseWriter, r *http.Request) {
 		_ = s.app.Store.AddEvent(r.Context(), "info", "restore.completed", "Backup wiederhergestellt", map[string]string{"path": result.Path})
 	}
 	writeResult(w, result, err)
+}
+
+// restoreUploadLimit bounds the staged archive; backups hold one SQLite file and small configs.
+var restoreUploadLimit int64 = 256 << 20
+
+// restoreUploadedBackup streams the "backup" form file to disk instead of buffering the form.
+func (s *Server) restoreUploadedBackup(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, restoreUploadLimit+1<<20)
+	form, err := r.MultipartReader()
+	if err != nil {
+		writeError(w, err, http.StatusBadRequest)
+		return
+	}
+	for {
+		part, err := form.NextPart()
+		if errors.Is(err, io.EOF) {
+			writeError(w, errors.New("Keine Sicherungsdatei hochgeladen."), http.StatusBadRequest)
+			return
+		}
+		if err != nil {
+			writeUploadError(w, err, http.StatusBadRequest)
+			return
+		}
+		if part.FormName() != "backup" {
+			_ = part.Close()
+			continue
+		}
+		result, err := backup.RestoreUpload(r.Context(), s.app.Config, part, part.FileName(), restoreUploadLimit)
+		_ = part.Close()
+		if err != nil {
+			writeUploadError(w, err, http.StatusInternalServerError)
+			return
+		}
+		_ = s.app.Store.AddEvent(r.Context(), "info", "restore.completed", "Backup aus Upload wiederhergestellt", map[string]string{"file": result.Path})
+		writeJSON(w, result, http.StatusOK)
+		return
+	}
+}
+
+func writeUploadError(w http.ResponseWriter, err error, status int) {
+	var tooLarge *http.MaxBytesError
+	if errors.Is(err, backup.ErrUploadTooLarge) || errors.As(err, &tooLarge) {
+		writeError(w, backup.ErrUploadTooLarge, http.StatusRequestEntityTooLarge)
+		return
+	}
+	if errors.Is(err, backup.ErrInvalidUpload) {
+		status = http.StatusBadRequest
+	}
+	writeError(w, err, status)
 }

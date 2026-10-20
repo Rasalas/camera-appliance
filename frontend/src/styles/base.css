@@ -15,8 +15,8 @@
   /* ink */
   --ink:       #EDEAE0;
   --ink-soft:  #B7B5AC;
-  --ink-mute:  #7A7A82;
-  --ink-dim:   #4E4E55;
+  --ink-mute:  #9A9AA2;   /* 7:1 on --bg */
+  --ink-dim:   #7E7E86;   /* 4.9:1 on --bg, 4.3:1 on --raised (disabled) */
 
   /* signal */
   --live:      #B5E853;       /* phosphor green — primary on-air */
@@ -593,9 +593,9 @@ input, select, textarea { font: inherit; color: inherit; }
   gap: 12px;
   text-align: center;
   padding: 28px;
-  color: var(--ink-mute);
-  font-size: 12px;
-  letter-spacing: .04em;
+  color: var(--ink-soft);
+  font-size: 18px;
+  line-height: 1.4;
 }
 .viewer-placeholder.paused {
   background:
@@ -700,12 +700,24 @@ input, select, textarea { font: inherit; color: inherit; }
   bottom: 8px;
   height: min(12%, 80px);
 }
-.placeholder-mark {
-  font-family: var(--serif);
-  font-size: 54px;
-  line-height: 1;
-  color: var(--ink-dim);
-  letter-spacing: 0;
+.placeholder-label {
+  font-size: clamp(22px, 7cqw, 40px);
+  font-weight: 600;
+  line-height: 1.15;
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}
+.placeholder-message {
+  max-width: 32ch;
+  margin-inline: auto;
+  font-size: 18px;
+}
+.viewer-placeholder.offline .placeholder-message { color: var(--warn); }
+.placeholder-detail {
+  max-width: 48ch;
+  margin-inline: auto;
+  font-size: 12px;
+  color: var(--ink-mute);
 }
 .viewer-cover {
   position: absolute;

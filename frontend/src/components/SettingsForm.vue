@@ -1,6 +1,6 @@
 <template>
   <EditableSection :title="title" :disabled="!settingsLoaded" @edit="editing = true">
-    <div v-if="!settingsLoaded" role="status">Wird geladen…</div>
+    <div v-if="!settingsLoaded" role="status">{{ settingsUnavailable ? 'Nicht verfügbar, solange die Einstellungen nicht geladen sind.' : 'Wird geladen…' }}</div>
     <slot v-else name="summary"><p class="mono-mute">{{ title }} ist eingerichtet.</p></slot>
   </EditableSection>
   <AdminDialog :open="editing" :title="title + ' bearbeiten'" :dirty="dirty" :busy="saving" @close="cancel">
@@ -18,7 +18,7 @@ import { askDiscard, useDraftGuard } from '../composables/discardChanges'
 import AdminDialog from './AdminDialog.vue'
 import EditableSection from './EditableSection.vue'
 const props = defineProps<{ title: string; settingKeys: string[]; afterSave?: () => Promise<void> }>()
-const { settingsLoaded, settingsDirty, discardSettings, saveSettings, error } = useSystem()
+const { settingsLoaded, settingsUnavailable, settingsDirty, discardSettings, saveSettings, error } = useSystem()
 const saving = ref(false), saveError = ref(''), editing = ref(false)
 const dirty = computed(() => settingsDirty(props.settingKeys))
 useDraftGuard(() => editing.value && dirty.value, cancel)
