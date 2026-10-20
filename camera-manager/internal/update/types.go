@@ -93,6 +93,9 @@ type StackOps struct {
 	RestorePrevious func(ctx context.Context, image string) error
 	// PruneImages removes superseded images after a verified update.
 	PruneImages func(context.Context) error
+	// DockerRoot returns a locally readable path on Docker's data root, so the
+	// preflight can reserve space for the image build.
+	DockerRoot func(context.Context) (string, error)
 }
 
 func manifestFromVersion(info version.Info) Manifest {

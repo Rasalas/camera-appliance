@@ -31,7 +31,8 @@ func StartUpdateWorker(ctx context.Context, cfg config.Config, executable, jobPa
 		if err != nil {
 			return fmt.Errorf("cannot start updater: current container image is unknown: %w", err)
 		}
-		out, err := exec.CommandContext(ctx, "docker", updateWorkerArgs(cfg, image, executable, jobPath, id)...).CombinedOutput()
+		root, _ := dockerDataRoot(ctx)
+		out, err := exec.CommandContext(ctx, "docker", updateWorkerArgs(cfg, image, executable, jobPath, id, root)...).CombinedOutput()
 		if err != nil {
 			return fmt.Errorf("start independent Docker updater: %w: %s", err, out)
 		}
@@ -54,7 +55,7 @@ func StartUpdateWorker(ctx context.Context, cfg config.Config, executable, jobPa
 	return nil
 }
 
-func updateWorkerArgs(cfg config.Config, image, executable, jobPath, id string) []string {
+func updateWorkerArgs(cfg config.Config, image, executable, jobPath, id, dockerRoot string) []string {
 	args := []string{"run", "--rm", "-d", "--name", "camera-appliance-update-" + id,
 		"--network", "host", "--entrypoint", executable,
 		"-v", "/var/run/docker.sock:/var/run/docker.sock", "-w", cfg.InstallDir}
@@ -65,7 +66,42 @@ func updateWorkerArgs(cfg config.Config, image, executable, jobPath, id string) 
 			seen[dir] = true
 		}
 	}
+	// Only for statfs. Non-recursive, so container overlays stay out of the
+	// worker's mount namespace and cannot block their removal.
+	if filepath.IsAbs(dockerRoot) && !strings.Contains(dockerRoot, ",") {
+		args = append(args, "--mount", "type=bind,source="+dockerRoot+",target="+workerDockerRoot+",readonly,bind-recursive=disabled")
+	}
 	return append(args, image, "update-worker", "--job", jobPath, "--job-id", id)
+}
+
+// workerDockerRoot is where the Docker updater sees the daemon's data root.
+const workerDockerRoot = "/run/camera-appliance/docker-root"
+
+// DockerRootPath returns a path on Docker's data root that this process can
+// statfs. Workers started without the mount return an error.
+func DockerRootPath(ctx context.Context, cfg config.Config) (string, error) {
+	if strings.EqualFold(cfg.RestartStrategy, "systemd") {
+		return "", errors.New("systemd deployments do not build images")
+	}
+	if runningInContainer() {
+		if !pathExists(workerDockerRoot) {
+			return "", errors.New("docker data root is not mounted in the updater")
+		}
+		return workerDockerRoot, nil
+	}
+	return dockerDataRoot(ctx)
+}
+
+func dockerDataRoot(ctx context.Context) (string, error) {
+	out, err := commandOutput(ctx, 5*time.Second, "docker", "info", "--format", "{{.DockerRootDir}}")
+	if err != nil {
+		return "", fmt.Errorf("docker info: %w", err)
+	}
+	root := strings.TrimSpace(out)
+	if !filepath.IsAbs(root) {
+		return "", fmt.Errorf("docker info returned no data root: %q", root)
+	}
+	return root, nil
 }
 
 // ApplyStackAndWait is for the independent updater, which survives both unit

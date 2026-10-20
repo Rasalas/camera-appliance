@@ -6,19 +6,24 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strings"
 	"syscall"
 )
 
-// Reserve for temp files, metadata and Docker build layers that usually share
-// the install disk.
 const (
+	// Headroom per filesystem so state, events and logs still fit after the update.
 	updateSpaceMargin   uint64 = 256 << 20
 	rollbackSpaceMargin uint64 = 32 << 20
+	// A build after upstream base images moved measured 3.4–4.2 GB of new cache
+	// and image layers; see docs/operations.md before lowering this.
+	dockerBuildSpace uint64 = 5 << 30
 )
 
 type spaceNeed struct {
 	path  string
 	bytes uint64
+	// build marks the Docker image build; its path is used as is.
+	build bool
 }
 
 // statFree is replaced in tests.
@@ -38,13 +43,16 @@ var statFree = func(path string) (free, device uint64, err error) {
 // staging already keeps the live install intact on ENOSPC.
 func checkFreeSpace(margin uint64, needs ...spaceNeed) error {
 	type disk struct {
-		path       string
-		free, need uint64
+		path              string
+		free, need, build uint64
 	}
 	var disks []*disk
 	byDevice := map[uint64]*disk{}
 	for _, n := range needs {
-		path := existingParent(n.path)
+		path := n.path
+		if !n.build {
+			path = existingParent(path)
+		}
 		free, device, err := statFree(path)
 		if err != nil {
 			continue
@@ -56,11 +64,20 @@ func checkFreeSpace(margin uint64, needs ...spaceNeed) error {
 			disks = append(disks, d)
 		}
 		d.need += n.bytes
+		if n.build {
+			d.build += n.bytes
+		}
 	}
 	for _, d := range disks {
-		if d.free < d.need+margin {
-			return fmt.Errorf("nicht genug freier Speicherplatz auf %s: benötigt %s, frei %s. Bitte Speicher freigeben und erneut versuchen; die Installation wurde nicht verändert", d.path, formatMB(d.need+margin), formatMB(d.free))
+		if d.free >= d.need+margin {
+			continue
 		}
+		detail, hint := "", ""
+		if d.build > 0 {
+			detail = fmt.Sprintf(" (davon %s für den Docker-Image-Build)", formatSize(d.build))
+			hint = ", z. B. alten Build-Cache mit „docker builder prune“,"
+		}
+		return fmt.Errorf("nicht genug freier Speicherplatz auf %s: benötigt %s%s, frei %s. Bitte Speicher freigeben%s und erneut versuchen; die Installation wurde nicht verändert", d.path, formatSize(d.need+margin), detail, formatSize(d.free), hint)
 	}
 	return nil
 }
@@ -109,6 +126,9 @@ func existingParent(path string) string {
 	}
 }
 
-func formatMB(bytes uint64) string {
-	return fmt.Sprintf("%d MB", (bytes+(1<<20)-1)>>20)
+func formatSize(bytes uint64) string {
+	if bytes < 1<<30 {
+		return fmt.Sprintf("%d MB", (bytes+(1<<20)-1)>>20)
+	}
+	return strings.Replace(fmt.Sprintf("%.1f GB", float64(bytes)/(1<<30)), ".", ",", 1)
 }

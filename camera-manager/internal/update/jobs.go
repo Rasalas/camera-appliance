@@ -193,6 +193,7 @@ func workerStack(cfg config.Config) StackOps {
 			return system.RestorePreviousStackAndWait(ctx, cfg, image)
 		},
 		PruneImages: func(ctx context.Context) error { return system.PruneManagerImages(ctx, cfg) },
+		DockerRoot:  func(ctx context.Context) (string, error) { return system.DockerRootPath(ctx, cfg) },
 	}
 }
 

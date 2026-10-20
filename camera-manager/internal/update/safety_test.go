@@ -69,11 +69,83 @@ func TestApplyRefusesWithoutFreeSpaceBeforeTouchingInstall(t *testing.T) {
 
 func TestCheckFreeSpaceSumsNeedsOnSameFilesystem(t *testing.T) {
 	stubFreeSpace(t, 300<<20)
-	if err := checkFreeSpace(0, spaceNeed{"/a", 200 << 20}); err != nil {
+	if err := checkFreeSpace(0, spaceNeed{path: "/a", bytes: 200 << 20}); err != nil {
 		t.Fatal(err)
 	}
-	if err := checkFreeSpace(0, spaceNeed{"/a", 200 << 20}, spaceNeed{"/b", 200 << 20}); err == nil {
+	if err := checkFreeSpace(0, spaceNeed{path: "/a", bytes: 200 << 20}, spaceNeed{path: "/b", bytes: 200 << 20}); err == nil {
 		t.Fatal("staging and snapshot on one disk must be counted together")
+	}
+}
+
+// stubDisks maps path prefixes to {device, free bytes}; the longest prefix wins.
+func stubDisks(t *testing.T, disks map[string][2]uint64) {
+	t.Helper()
+	original := statFree
+	statFree = func(path string) (uint64, uint64, error) {
+		best := ""
+		for prefix := range disks {
+			if strings.HasPrefix(path, prefix) && len(prefix) > len(best) {
+				best = prefix
+			}
+		}
+		if best == "" {
+			return 0, 0, os.ErrNotExist
+		}
+		return disks[best][1], disks[best][0], nil
+	}
+	t.Cleanup(func() { statFree = original })
+}
+
+func TestUpdateSpaceAddsDockerBuildToSharedDisk(t *testing.T) {
+	installDir, release := t.TempDir(), t.TempDir()
+	writeFile(t, filepath.Join(release, "bin", "camera-appliance"), "new")
+	// One root filesystem: install, state and Docker data root.
+	tooSmall := dockerBuildSpace + updateSpaceMargin
+	stubDisks(t, map[string][2]uint64{"/": {1, tooSmall}})
+	err := checkUpdateSpace(installDir, filepath.Join(installDir, "backups"), release, "/var/lib/docker")
+	if err == nil || !strings.Contains(err.Error(), "Docker-Image-Build") || !strings.Contains(err.Error(), "docker builder prune") {
+		t.Fatalf("expected Docker build refusal, got %v", err)
+	}
+	stubDisks(t, map[string][2]uint64{"/": {1, tooSmall + 1<<20}})
+	if err := checkUpdateSpace(installDir, filepath.Join(installDir, "backups"), release, "/var/lib/docker"); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestUpdateSpaceChecksSeparateDockerDisk(t *testing.T) {
+	installDir, release := t.TempDir(), t.TempDir()
+	writeFile(t, filepath.Join(release, "bin", "camera-appliance"), "new")
+	stubDisks(t, map[string][2]uint64{"/docker": {2, 1 << 30}, "/": {1, 100 << 30}})
+	err := checkUpdateSpace(installDir, filepath.Join(installDir, "backups"), release, "/docker")
+	if err == nil || !strings.Contains(err.Error(), "auf /docker:") || !strings.Contains(err.Error(), "frei 1,0 GB") {
+		t.Fatalf("expected refusal for the Docker disk, got %v", err)
+	}
+	if err := checkUpdateSpace(installDir, filepath.Join(installDir, "backups"), release, ""); err != nil {
+		t.Fatalf("unknown Docker root must not block the update: %v", err)
+	}
+}
+
+func TestApplyRefusesWhenDockerBuildDoesNotFit(t *testing.T) {
+	cfg := newTestConfig(t)
+	installDir := newSafetyInstall(t)
+	stubDisks(t, map[string][2]uint64{"/docker": {2, 2 << 30}, "/": {1, 100 << 30}})
+	stack := &fakeStack{t: t, installDir: installDir}
+	ops := stack.ops()
+	ops.DockerRoot = func(context.Context) (string, error) { return "/docker", nil }
+	_, err := Apply(context.Background(), Options{
+		Config: cfg, Archive: newReleaseArchive(t, releaseFiles), InstallDir: installDir,
+		AutoRollback: true, Now: fixedNow, Stack: ops,
+		Restart:     func(context.Context) error { return nil },
+		Healthcheck: func(context.Context) error { return nil },
+	})
+	if err == nil || !strings.Contains(err.Error(), "Docker-Image-Build") {
+		t.Fatalf("expected Docker build refusal, got %v", err)
+	}
+	if len(stack.calls) != 0 {
+		t.Fatalf("refused update must not touch the stack: %v", stack.calls)
+	}
+	if got := readFile(t, filepath.Join(installDir, "camera-manager", "main.go")); got != "old go" {
+		t.Fatalf("install changed: %q", got)
 	}
 }
 

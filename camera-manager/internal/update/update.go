@@ -84,7 +84,11 @@ func apply(ctx context.Context, opts Options) (Result, error) {
 		newHealthcheck = HTTPVersionHealthcheck(opts.Config, manifest)
 		oldHealthcheck = HTTPVersionHealthcheck(opts.Config, manifestFromVersion(result.OldVersion))
 	}
-	if err := checkUpdateSpace(installDir, opts.Config.BackupDir(), releaseRoot); err != nil {
+	var buildRoot string
+	if !opts.NoRestart && opts.Stack.DockerRoot != nil {
+		buildRoot, _ = opts.Stack.DockerRoot(ctx)
+	}
+	if err := checkUpdateSpace(installDir, opts.Config.BackupDir(), releaseRoot, buildRoot); err != nil {
 		return result, err
 	}
 
@@ -212,16 +216,19 @@ func restartRestored(ctx context.Context, noRestart bool, stack StackOps, image 
 	return nil
 }
 
-func checkUpdateSpace(installDir, backupDir, releaseRoot string) error {
-	release, err := treeSize(releaseRoot)
-	if err != nil {
-		return nil
+// checkUpdateSpace reserves staging, the rollback snapshot and, when buildRoot
+// is known, the image build on Docker's filesystem (often the same disk).
+func checkUpdateSpace(installDir, backupDir, releaseRoot, buildRoot string) error {
+	var needs []spaceNeed
+	release, releaseErr := treeSize(releaseRoot)
+	snapshot, snapshotErr := treeSize(installDir)
+	if releaseErr == nil && snapshotErr == nil {
+		needs = append(needs, spaceNeed{path: installDir, bytes: release}, spaceNeed{path: backupDir, bytes: snapshot})
 	}
-	snapshot, err := treeSize(installDir)
-	if err != nil {
-		return nil
+	if buildRoot != "" {
+		needs = append(needs, spaceNeed{path: buildRoot, bytes: dockerBuildSpace, build: true})
 	}
-	return checkFreeSpace(updateSpaceMargin, spaceNeed{installDir, release}, spaceNeed{backupDir, snapshot})
+	return checkFreeSpace(updateSpaceMargin, needs...)
 }
 
 func joinNotes(notes []string) string {
@@ -263,7 +270,7 @@ func rollback(ctx context.Context, opts RollbackOptions) (Result, error) {
 		Warning:         "Rollback aus letztem Update-Snapshot wiederhergestellt.",
 	}
 	if size, err := treeSize(last.RollbackDir); err == nil {
-		if err := checkFreeSpace(rollbackSpaceMargin, spaceNeed{installDir, size}); err != nil {
+		if err := checkFreeSpace(rollbackSpaceMargin, spaceNeed{path: installDir, bytes: size}); err != nil {
 			return result, err
 		}
 	}
