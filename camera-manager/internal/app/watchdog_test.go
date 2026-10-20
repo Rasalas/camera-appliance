@@ -3,10 +3,12 @@ package app
 import (
 	"context"
 	"errors"
+	"os"
 	"strings"
 	"testing"
 	"time"
 
+	"camera-appliance/camera-manager/internal/relay"
 	"camera-appliance/camera-manager/internal/state"
 	"camera-appliance/camera-manager/internal/streamrouting"
 )
@@ -254,6 +256,10 @@ func newWatchdogTestApp(t *testing.T) *App {
 		watchdogRestartGo2RTCOnFailureKey: "false",
 	}); err != nil {
 		t.Fatal(err)
+	}
+	// Never spawn a real ssh; report this live test process as the relay.
+	a.Relays().StartProcess = func(context.Context, relay.ManagedRelay) (int, error) {
+		return os.Getpid(), nil
 	}
 	return a
 }
