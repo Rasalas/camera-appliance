@@ -1,4 +1,4 @@
-export type ResourceKind = 'Kameras' | 'Relays' | 'Identitäten'
+export type ResourceKind = 'Kameras' | 'Weiterleitungen' | 'Kamera-Zugänge'
 export interface SearchEntry { id: string; kind: ResourceKind; title: string; detail: string; href: string }
 export function searchResources(entries: SearchEntry[], query: string, scope?: ResourceKind): SearchEntry[] {
   const words = query.trim().toLocaleLowerCase('de').split(/\s+/).filter(Boolean)

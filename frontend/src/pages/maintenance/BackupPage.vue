@@ -2,15 +2,15 @@
   <section class="panel card">
     <div class="panel-head">
       <h2>Sicherung</h2>
-      <div class="right">Lokale Konfiguration · Bindings · Einstellungen</div>
+      <div class="right">Kameras · Namen · Einstellungen</div>
     </div>
     <div class="split">
       <div class="field">
-        <span class="lbl">Backup erstellen</span>
-        <div class="btn-row"><button class="btn primary" :disabled="busy" @click="onBackup">Backup jetzt erstellen</button></div>
+        <span class="lbl">Sicherung erstellen</span>
+        <div class="btn-row"><button class="btn primary" :disabled="busy" @click="onBackup">Sicherung jetzt erstellen</button></div>
       </div>
       <div class="field">
-        <label class="lbl" for="restore-file">Backup wiederherstellen</label>
+        <label class="lbl" for="restore-file">Sicherung wiederherstellen</label>
         <input id="restore-file" ref="fileInput" type="file" accept=".tar.gz,.tgz,application/gzip" :disabled="busy" @change="onFile" />
         <span class="mono-mute">Wähle eine Sicherungsdatei (.tar.gz) von diesem Gerät oder einem USB-Stick.</span>
         <div class="btn-row"><button class="btn" :disabled="busy || !restoreFile" @click="confirm(restoreFile)">Wiederherstellen</button></div>
@@ -53,7 +53,7 @@ const fileInput = ref<HTMLInputElement>()
 const pendingName = computed(() => typeof pending.value === 'string' ? pending.value : pending.value?.name ?? '')
 function onFile(event: Event) { restoreFile.value = (event.target as HTMLInputElement).files?.[0] }
 function confirm(source: File | string | undefined) { if (source) pending.value = source }
-async function onBackup() { busy.value=true;try { await createBackup() } catch(err) { error.value=err instanceof Error?err.message:'Backup konnte nicht erstellt werden.' } finally { busy.value=false } }
+async function onBackup() { busy.value=true;try { await createBackup() } catch(err) { error.value=err instanceof Error?err.message:'Sicherung konnte nicht erstellt werden.' } finally { busy.value=false } }
 async function doRestore() {
   const source = pending.value
   if (!source) return

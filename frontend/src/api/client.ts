@@ -162,6 +162,7 @@ export const api = {
   runs: () => request<ScanRun[]>('/api/discovery/runs'),
   devices: () => request<Device[]>('/api/devices'),
   device: (id: string) => request<Device>(`/api/devices/${id}`),
+  saveDeviceName: (id: string, name: string) => request<Device>(`/api/devices/${encodeURIComponent(id)}/name`, { method: 'PUT', body: JSON.stringify({ name }) }),
   addManualDevice: (body: { ip: string; username: string; password?: string; stream: string; label?: string }) =>
     request<ManualDeviceResult>('/api/devices/manual', { method: 'POST', body: JSON.stringify(body) }, SLOW),
   probeDevice: (id: string, body: { username: string; password: string; stream: string }) =>

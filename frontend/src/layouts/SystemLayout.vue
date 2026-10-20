@@ -20,7 +20,7 @@ const route = useRoute()
 const { error, loadError, toast, loadAll, credentialIdentities, relayName } = useSystem()
 const retrying = ref(false)
 
-const activeLabel = computed(() => route.params.id && route.path.includes('/identitaeten/') ? credentialIdentities.value.find(item => item.id === route.params.id)?.name || 'Identität' : route.params.id && route.path.includes('/relays/') ? relayName(String(route.params.id)) : String(route.meta.title || 'System'))
+const activeLabel = computed(() => route.params.id && route.path.includes('/identitaeten/') ? credentialIdentities.value.find(item => item.id === route.params.id)?.name || 'Kamera-Zugang' : route.params.id && route.path.includes('/relays/') ? relayName(String(route.params.id)) : String(route.meta.title || 'System'))
 
 async function retry() { retrying.value = true; try { await loadAll() } finally { retrying.value = false } }
 

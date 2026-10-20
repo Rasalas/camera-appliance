@@ -71,6 +71,8 @@ export interface Slot {
 
 export interface Device {
   id: string
+  /** Custom display name; empty means manufacturer/model is shown. */
+  name?: string
   first_seen_at: string
   last_seen_at: string
   last_ip?: string

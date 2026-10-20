@@ -16,7 +16,7 @@
     "test:updates": "node --test --experimental-strip-types src/composables/updateClient.test.ts",
     "test:client": "node --test --experimental-strip-types src/api/client.test.ts src/router/authGuard.test.ts src/composables/stationRestart.test.ts",
     "test": "npm run test:updates && npm run test:embed && npm run test:mosaic && npm run test:viewer && npm run test:settings && npm run test:upload-crop && npm run test:upload-image && npm run test:admin && npm run test:client",
-    "test:admin": "node --test --experimental-strip-types src/composables/adminSearch.test.ts src/composables/supportDraft.test.ts src/navigation.test.ts"
+    "test:admin": "node --test --experimental-strip-types src/composables/adminSearch.test.ts src/composables/supportDraft.test.ts src/composables/cameraLabels.test.ts src/navigation.test.ts"
   },
   "dependencies": {
     "@fontsource-variable/jetbrains-mono": "^5.2.8",

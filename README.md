@@ -100,14 +100,15 @@ Do not put camera DHCP IPs into viewer configuration.
 
 Die Seitenleiste trennt **Live-Ansicht**, **Kameras**, **System** und **Wartung**.
 System öffnet direkt die allgemeinen Einstellungen; darunter stehen Zugriff,
-Relays und Identitäten. Wartung öffnet eine Übersicht mit Watchdog, Sicherung
-und Support. Updates findest du unter Über Watchdeck, das Ereignisprotokoll
+Weiterleitungen und Kamera-Zugänge. Wartung öffnet eine Übersicht mit
+Überwachung, Sicherung und Support. Updates findest du unter Über Watchdeck, das Ereignisprotokoll
 unter Support. Bestehende Links wie `/system/bild-upload`, `/backup` und
 `/events` werden auf die passenden Seiten weitergeleitet. Auf schmalen
 Bildschirmen führt **Home** unter `/verwaltung` zu allen Zielen. Die untere
 Navigation hält Home, Kameras und Live-Ansicht erreichbar. Die Suche unter dem
-Logo durchsucht Kameras, Relays und Identitäten. Mit Cmd/Ctrl+K öffnest du sie;
-der Suchbereich lässt sich auf die aktuelle Ressourcenart begrenzen.
+Logo durchsucht Kameras (auch nach eigenem Namen, Modell oder IP-Adresse),
+Weiterleitungen und Kamera-Zugänge. Mit Cmd/Ctrl+K öffnest du sie; der
+Suchbereich lässt sich auf die aktuelle Ressourcenart begrenzen.
 
 Einstellungsformulare zeigen ungespeicherte Änderungen sowie Fehler direkt am
 Formular. Speichern und Abbrechen gelten jeweils für den benannten Bereich;

@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { isNavItemActive, isNavItemAncestor, legacyMaintenanceDestination } from './navigation.ts'
+import { isNavItemActive, isNavItemAncestor, legacyMaintenanceDestination, maintenancePages, systemPages } from './navigation.ts'
 
 test('navigation distinguishes current destinations and their actual parents', () => {
   for (const [path, current, parent] of [
@@ -29,4 +29,18 @@ test('old maintenance anchors retain their destinations while plain maintenance 
   assert.equal(legacyMaintenanceDestination('#backup'), '/system/wartung/sicherung')
   assert.equal(legacyMaintenanceDestination('#updates'), '/system/wartung/updates')
   assert.equal(legacyMaintenanceDestination('#events'), '/system/wartung/ereignisse')
+})
+
+test('navigation uses plain German labels while keeping bookmarked paths', () => {
+  assert.deepEqual(systemPages.map(item => [item.to, item.label]), [
+    ['/system/zugriff', 'Zugriff'],
+    ['/system/relays', 'Weiterleitungen'],
+    ['/system/identitaeten', 'Kamera-Zugänge']
+  ])
+  assert.deepEqual(maintenancePages.map(item => [item.to, item.label]), [
+    ['/system/wartung/watchdog', 'Überwachung'],
+    ['/system/wartung/sicherung', 'Sicherung'],
+    ['/system/wartung/support', 'Support']
+  ])
+  for (const item of [...systemPages, ...maintenancePages]) assert.doesNotMatch(item.label, /Relay|Identität|Watchdog|Backup/)
 })

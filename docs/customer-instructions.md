@@ -11,6 +11,17 @@
 
 Wird das Kamerafenster geschlossen, öffnet es sich nach etwa 10 Sekunden von selbst wieder, sofern Chromium oder Google Chrome installiert ist.
 
+## Kamera benennen
+
+1. Unter **Kameras** bei der gewünschten Kamera auf **Umbenennen** klicken (oder auf der Kameraseite im Bereich **Name** auf **Bearbeiten**).
+2. Einen Namen wie „Einfahrt“ eingeben (höchstens 40 Zeichen) und **Name speichern** wählen.
+
+Der Name erscheint in der Kameraliste, in der Suche und in der Live-Ansicht. Er bleibt erhalten, wenn die Kamera eine neue IP-Adresse bekommt, und ist in jeder Sicherung enthalten. Ein leeres Feld zeigt wieder Hersteller und Modell an.
+
+## Kamera aus- oder einblenden
+
+Unter **Kameras** blendet **Ausblenden** eine Kamera aus der Live-Ansicht aus, **Einblenden** zeigt sie wieder an. Vor der Änderung erscheint eine Rückfrage, weil sich die Live-Ansicht dabei kurz neu verbindet und alle Kamerabilder einige Sekunden fehlen. Höchstens fünf Kameras sind gleichzeitig sichtbar.
+
 ## Anzeige auf einem anderen Gerät
 
 1. Unter **System → Zugriff** zuerst ein Admin-Passwort setzen.
