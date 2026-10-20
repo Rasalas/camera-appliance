@@ -97,3 +97,28 @@ func intSetting(settings map[string]string, key string, fallback, min, max int) 
 	}
 	return value
 }
+
+// Observation is the persisted result of the most recent watchdog probe of one path.
+type Observation struct {
+	OK bool
+	At time.Time
+}
+
+// LastObservation reads the watchdog's last probe result for a path without probing.
+func LastObservation(settings map[string]string, deviceID, pathID string) (Observation, bool) {
+	counters := streamPathCountersFromSettings(settings, deviceID, pathID)
+	raw, ok := "", false
+	switch {
+	case counters.SuccessCount > 0:
+		raw, ok = counters.LastSuccessAt, true
+	case counters.FailureCount > 0:
+		raw = counters.LastFailureAt
+	default:
+		return Observation{}, false
+	}
+	at, err := time.Parse(time.RFC3339, raw)
+	if err != nil {
+		return Observation{}, false
+	}
+	return Observation{OK: ok, At: at}, true
+}
