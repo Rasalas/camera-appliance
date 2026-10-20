@@ -39,6 +39,10 @@ jobs:
           version="${REF_NAME#v}"
           short_commit="${COMMIT:0:7}"
           make release VERSION="$version" COMMIT="$short_commit"
+          cp repair-update.sh .release/repair-update.sh
+          # install.sh and the updater refuse archives that are not listed here.
+          (cd .release && sha256sum "camera-appliance-${version}-${short_commit}.tar.gz" camera-appliance-latest.tar.gz repair-update.sh > SHA256SUMS)
+          cat .release/SHA256SUMS
 
       - name: Publish GitHub release
         env:
@@ -64,13 +68,15 @@ jobs:
             gh release upload "$REF_NAME" \
               "$archive" \
               ".release/camera-appliance-latest.tar.gz" \
-              "repair-update.sh" \
+              ".release/repair-update.sh" \
+              ".release/SHA256SUMS" \
               --clobber
           else
             gh release create "$REF_NAME" \
               "$archive" \
               ".release/camera-appliance-latest.tar.gz" \
-              "repair-update.sh" \
+              ".release/repair-update.sh" \
+              ".release/SHA256SUMS" \
               --title "camera-appliance ${REF_NAME}" \
               --notes-file "$notes_file" \
               --generate-notes \

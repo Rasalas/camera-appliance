@@ -7,6 +7,8 @@ BIND_ADDR ?= 127.0.0.1:8091
 FRONTEND_DIST ?= $(ROOT)/frontend/dist
 RELEASE_DIR ?= $(ROOT)/.release
 RELEASE_NAME ?= camera-appliance-$(VERSION)-$(COMMIT)
+# Release CLI target; the appliance is Linux, override the CPU with RELEASE_GOARCH=arm64.
+RELEASE_GOARCH ?= amd64
 GO2RTC_IMAGE ?= alexxit/go2rtc:latest
 GO2RTC_CONTAINER ?= camera-appliance-go2rtc-dev
 GO2RTC_CONFIG ?= $(STATE_DIR)/generated/go2rtc.yaml
@@ -136,7 +138,7 @@ release:
 	@set -euo pipefail; \
 	release_version="$$(VERSION_ORIGIN="$(origin VERSION)" VERSION_VALUE="$(VERSION)" "$(ROOT)/scripts/release-version")"; \
 	release_name="camera-appliance-$${release_version}-$(COMMIT)"; \
-	"$(MAKE)" build VERSION="$$release_version" COMMIT="$(COMMIT)" BUILD_TIME="$(BUILD_TIME)"; \
+	GOOS=linux GOARCH="$(RELEASE_GOARCH)" CGO_ENABLED=0 "$(MAKE)" build VERSION="$$release_version" COMMIT="$(COMMIT)" BUILD_TIME="$(BUILD_TIME)"; \
 	export COPYFILE_DISABLE=1; \
 	rm -rf "$(RELEASE_DIR)/$${release_name}"; \
 	mkdir -p "$(RELEASE_DIR)/$${release_name}"; \

@@ -5,6 +5,7 @@ DEFAULT_RELEASE_URL="https://github.com/Rasalas/camera-appliance/releases/latest
 DEFAULT_INSTALLER_URL="https://raw.githubusercontent.com/Rasalas/camera-appliance/main/install.sh"
 RELEASE_URL="${CAMERA_APPLIANCE_RELEASE_URL:-$DEFAULT_RELEASE_URL}"
 INSTALL_DIR="/opt/camera-appliance"
+EXPECTED_SHA256=""
 USER_NAME="${CAMERA_APPLIANCE_USER:-}"
 ENABLE_KIOSK=1
 INSTALL_DESKTOP=1
@@ -17,7 +18,8 @@ Usage:
   curl -fsSL https://raw.githubusercontent.com/Rasalas/camera-appliance/main/install.sh | sudo bash -s -- [options]
 
 Options:
-  --url URL                         Release archive URL
+  --url URL                         Release archive URL (SHA256SUMS must sit next to it)
+  --sha256 HEX                      Expected archive SHA-256 instead of the release's SHA256SUMS
   --user USER                       Linux desktop/kiosk user (auto-detected by default)
   --install-dir DIR                 Install directory (default: /opt/camera-appliance)
   --no-kiosk                        Do not enable the kiosk browser user service
@@ -27,8 +29,9 @@ Options:
   -h, --help                        Show this help
 
 Hinweis:
-  Das Skript installiert nur die Bootstrap-Abhängigkeiten, lädt ein Release und ruft dann
-  camera-appliance install oder camera-appliance update auf. Firewall-Regeln werden nicht geändert.
+  Das Skript installiert nur die Bootstrap-Abhängigkeiten, lädt ein Release, prüft es gegen
+  die SHA256SUMS des Releases und ruft dann camera-appliance install oder camera-appliance update
+  auf. Firewall-Regeln werden nicht geändert.
 USAGE
 }
 
@@ -36,6 +39,10 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --url)
       RELEASE_URL="${2:-}"
+      shift 2
+      ;;
+    --sha256)
+      EXPECTED_SHA256="${2:-}"
       shift 2
       ;;
     --user)
@@ -78,7 +85,7 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-if [[ "${EUID:-$(id -u)}" -ne 0 ]]; then
+if [[ "$(id -u)" -ne 0 ]]; then
   echo "Bitte mit sudo/root ausführen. Beispiel:" >&2
   echo "  curl -fsSL $DEFAULT_INSTALLER_URL | sudo bash" >&2
   exit 1
@@ -88,6 +95,33 @@ if [[ -z "$RELEASE_URL" ]]; then
   echo "--url darf nicht leer sein." >&2
   exit 2
 fi
+
+tmp_dir="$(mktemp -d)"
+cleanup() {
+  rm -rf "$tmp_dir"
+}
+trap cleanup EXIT
+
+# Prints the lowercase digest listed for name in a sha256sum file.
+checksum_for() {
+  local sums_file="$1" name="$2"
+  awk -v name="$name" 'NF == 2 { file = $2; sub(/^\*/, "", file); if (file == name) { print tolower($1); exit } }' "$sums_file"
+}
+
+# Fails unless file matches the expected SHA-256; label names it in messages.
+verify_sha256() {
+  local file="$1" expected="$2" label="$3" actual
+  if [[ ! "$expected" =~ ^[0-9a-f]{64}$ ]]; then
+    echo "Keine gültige SHA-256-Prüfsumme für $label gefunden; breche ab." >&2
+    return 1
+  fi
+  actual="$(sha256sum "$file" | awk '{print $1}')"
+  if [[ "$actual" != "$expected" ]]; then
+    echo "SHA-256-Prüfung für $label fehlgeschlagen (erwartet $expected, erhalten $actual); breche ab." >&2
+    return 1
+  fi
+  echo "Prüfsumme OK: $label"
+}
 
 need_or_install() {
   local missing_base=()
@@ -143,29 +177,20 @@ install_compose_plugin_binary() {
   primary_dir="/usr/local/lib/docker/cli-plugins"
   primary_target="$primary_dir/docker-compose"
   compose_version="${COMPOSE_VERSION:-v2.39.1}"
-  url="https://github.com/docker/compose/releases/download/$compose_version/docker-compose-linux-$arch"
+  asset="docker-compose-linux-$arch"
+  url="https://github.com/docker/compose/releases/download/$compose_version/$asset"
   checksum_url="https://github.com/docker/compose/releases/download/$compose_version/checksums.txt"
-  echo "Docker Compose Plugin fehlt; installiere Compose $compose_version nach $primary_target"
-  mkdir -p "$primary_dir"
-  curl -fsSL "$url" -o "$primary_target"
-  # Integritätsprüfung gegen die zum Release gehörende checksums.txt
+  download="$tmp_dir/$asset"
   checksums="$tmp_dir/compose-checksums.txt"
-  if curl -fsSL "$checksum_url" -o "$checksums"; then
-    expected="$(grep "docker-compose-linux-$arch$" "$checksums" | awk '{print $1}')"
-    if [[ -z "$expected" ]]; then
-      echo "Prüfsumme für docker-compose-linux-$arch nicht in checksums.txt gefunden." >&2
-      return 1
-    fi
-    actual="$(sha256sum "$primary_target" | awk '{print $1}')"
-    if [[ "$actual" != "$expected" ]]; then
-      echo "SHA-256-Prüfung des Compose-Plugins fehlgeschlagen; breche ab." >&2
-      return 1
-    fi
-    echo "Compose-Plugin Prüfsumme OK."
-  else
-    echo "WARNUNG: checksums.txt konnte nicht geladen werden; überspringe Integritätsprüfung." >&2
+  echo "Docker Compose Plugin fehlt; installiere Compose $compose_version nach $primary_target"
+  if ! curl -fsSL "$checksum_url" -o "$checksums"; then
+    echo "checksums.txt für Compose $compose_version konnte nicht geladen werden; ohne Prüfung wird nichts installiert." >&2
+    return 1
   fi
-  chmod 0755 "$primary_target"
+  curl -fsSL "$url" -o "$download"
+  verify_sha256 "$download" "$(checksum_for "$checksums" "$asset")" "$asset" || return 1
+  mkdir -p "$primary_dir"
+  install -m 0755 "$download" "$primary_target"
 
   for plugin_dir in \
     /usr/local/lib/docker/cli-plugins \
@@ -235,12 +260,6 @@ if [[ "$ENABLE_KIOSK" -eq 1 || "$INSTALL_DESKTOP" -eq 1 ]]; then
   echo "Desktop/Kiosk-Benutzer: $USER_NAME"
 fi
 
-tmp_dir="$(mktemp -d)"
-cleanup() {
-  rm -rf "$tmp_dir"
-}
-trap cleanup EXIT
-
 archive="$tmp_dir/camera-appliance-release.tar.gz"
 extract_dir="$tmp_dir/release"
 mkdir -p "$extract_dir"
@@ -248,28 +267,68 @@ mkdir -p "$extract_dir"
 echo "Lade camera-appliance Release:"
 echo "  $RELEASE_URL"
 curl -fL "$RELEASE_URL" -o "$archive"
+archive_url="${RELEASE_URL%%[?#]*}"
+archive_name="${archive_url##*/}"
+if [[ -z "$EXPECTED_SHA256" ]]; then
+  sums_url="${archive_url%/*}/SHA256SUMS"
+  if ! curl -fsSL "$sums_url" -o "$tmp_dir/SHA256SUMS"; then
+    echo "SHA256SUMS konnte nicht geladen werden: $sums_url" >&2
+    echo "Ohne Prüfsumme wird nichts installiert. Für ein eigenes Archiv --sha256 HEX angeben." >&2
+    exit 1
+  fi
+  EXPECTED_SHA256="$(checksum_for "$tmp_dir/SHA256SUMS" "$archive_name")"
+fi
+EXPECTED_SHA256="$(printf '%s' "$EXPECTED_SHA256" | tr 'A-F' 'a-f')"
+verify_sha256 "$archive" "$EXPECTED_SHA256" "$archive_name"
 # Als root keine Ownership/Permissions aus dem Archiv übernehmen.
 tar -xzf "$archive" --no-same-owner --no-same-permissions -C "$extract_dir"
 release_binary="$(find_release_binary "$extract_dir")"
 
-install_common_args=(--install-dir "$INSTALL_DIR")
+install_common_args=(--install-dir "$INSTALL_DIR" --digest "sha256:$EXPECTED_SHA256")
 if [[ -n "$USER_NAME" ]]; then
   install_common_args+=(--user "$USER_NAME")
 fi
 if [[ "$NO_START" -eq 1 ]]; then
   install_common_args+=(--no-start)
 fi
-update_args=(--install-dir "$INSTALL_DIR")
+update_args=(--install-dir "$INSTALL_DIR" --digest "sha256:$EXPECTED_SHA256")
 if [[ "$NO_START" -eq 1 ]]; then
   update_args+=(--no-restart)
 fi
 
+# Updates replace /opt only; refresh unit copies so boot/kiosk fixes reach old installs.
+# They take effect on the next start, running services are not restarted.
+refresh_installed_units() {
+  local source="$INSTALL_DIR/systemd" target owner
+  target="/etc/systemd/system/camera-appliance.service"
+  if [[ -f "$target" && -f "$source/camera-appliance.service" ]] && ! cmp -s "$source/camera-appliance.service" "$target"; then
+    install -m 0644 "$source/camera-appliance.service" "$target"
+    systemctl daemon-reload >/dev/null 2>&1 || true
+    echo "camera-appliance.service aktualisiert."
+  fi
+  for target in /home/*/.config/systemd/user/camera-kiosk.service; do
+    if [[ -f "$target" && -f "$source/camera-kiosk.service" ]] && ! cmp -s "$source/camera-kiosk.service" "$target"; then
+      owner="$(stat -c '%u:%g' "$target")"
+      install -m 0644 -o "${owner%:*}" -g "${owner#*:}" "$source/camera-kiosk.service" "$target"
+      echo "Kiosk-Dienst aktualisiert: $target (wirksam nach Neustart oder erneuter Anmeldung)."
+    fi
+  done
+}
+
 if [[ -x "$INSTALL_DIR/bin/camera-appliance" ]]; then
   echo "Bestehende Installation gefunden. Führe update aus."
   "$release_binary" update --archive "$archive" "${update_args[@]}"
+  refresh_installed_units
 else
   echo "Keine bestehende Installation gefunden. Führe Erstinstallation aus."
-  echo "Docker-Images werden beim ersten Start gebaut und geladen; das kann mehrere Minuten dauern."
+  # camera-appliance.service starts existing images without --build.
+  release_root="$(dirname "$(dirname "$release_binary")")"
+  echo "Baue Docker-Images; das kann mehrere Minuten dauern."
+  compose_build=(docker compose --project-name camera-appliance)
+  if [[ -f "$release_root/release.env" ]]; then
+    compose_build+=(--env-file "$release_root/release.env")
+  fi
+  "${compose_build[@]}" -f "$release_root/compose.yaml" build
   install_args=(install --archive "$archive" "${install_common_args[@]}")
   if [[ "$ENABLE_SYSTEMD" -eq 1 ]]; then
     install_args+=(--enable-systemd)
