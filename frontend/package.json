@@ -13,7 +13,8 @@
     "test:upload-crop": "node --test --experimental-strip-types src/composables/uploadCropDraft.test.ts",
     "test:upload-image": "node --test --experimental-strip-types src/composables/uploadImagePreview.test.ts",
     "test:updates": "node --test --experimental-strip-types src/composables/updateClient.test.ts",
-    "test": "npm run test:updates && npm run test:embed && npm run test:mosaic && npm run test:settings && npm run test:upload-crop && npm run test:upload-image && npm run test:admin",
+    "test": "npm run test:updates && npm run test:embed && npm run test:mosaic && npm run test:settings && npm run test:upload-crop && npm run test:upload-image && npm run test:admin && npm run test:precompress",
+    "test:precompress": "node --test --experimental-strip-types tests/precompress.test.ts",
     "test:admin": "node --test --experimental-strip-types src/composables/adminSearch.test.ts src/composables/supportDraft.test.ts src/navigation.test.ts"
   },
   "dependencies": {
