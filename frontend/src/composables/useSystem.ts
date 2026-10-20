@@ -50,8 +50,8 @@ const restartCooldownLabel = computed(() => {
   const watchdog = status.value?.watchdog
   if (!watchdog) return 'Noch kein Status.'
   if (watchdog.path_restart_pending) return `Ausstehend bis ${watchdogDate(watchdog.path_restart_cooldown_until)}`
-  if (watchdog.path_restart_last_at) return `Letzter Restart ${watchdogDate(watchdog.path_restart_last_at)}`
-  return 'Kein Cooldown aktiv.'
+  if (watchdog.path_restart_last_at) return `Letzter Neustart ${watchdogDate(watchdog.path_restart_last_at)}`
+  return 'Keine Wartezeit aktiv.'
 })
 const versionDetail = computed(() => {
   const info = status.value?.version
@@ -338,19 +338,19 @@ async function saveCredentialIdentity(form: { id?: string; name: string; usernam
     copy_password_from_id: form.copy_password_from_id || undefined
   })
   await loadCredentialIdentities()
-  showToast('Identität gespeichert')
+  showToast('Kamera-Zugang gespeichert')
 }
 
 async function deleteCredentialIdentity(id: string) {
   await api.deleteCredentialIdentity(id)
   await loadCredentialIdentities()
-  showToast('Identität entfernt')
+  showToast('Kamera-Zugang entfernt')
 }
 
 function addRelay(draft: { id: string; name: string; host: string; sshTarget: string }) {
   const id = sanitizeID(draft.id)
   if (!id) {
-    error.value = 'Relay-ID fehlt.'
+    error.value = 'Name der Weiterleitung fehlt.'
     return ''
   }
   const ids = relayIds.value.includes(id) ? relayIds.value : [...relayIds.value, id]
@@ -376,17 +376,17 @@ async function relayAction(id: string, action: 'start' | 'stop' | 'restart') {
   if (action === 'stop') await api.stopRelay(id)
   if (action === 'restart') await api.restartRelay(id)
   await refreshStatus()
-  showToast(`Relay ${action === 'restart' ? 'neu gestartet' : action === 'start' ? 'gestartet' : 'gestoppt'}`)
+  showToast(`Weiterleitung ${action === 'restart' ? 'neu gestartet' : action === 'start' ? 'gestartet' : 'gestoppt'}`)
 }
 
 async function createBackup() {
   backupResult.value = await api.backup()
-  showToast('Backup erstellt')
+  showToast('Sicherung erstellt')
 }
 
 async function restoreBackup(source: string | File) {
   backupResult.value = typeof source === 'string' ? await api.restore(source) : await api.restoreUpload(source)
-  showToast('Backup wiederhergestellt')
+  showToast('Sicherung wiederhergestellt')
 }
 
 async function createSupportBundle() {

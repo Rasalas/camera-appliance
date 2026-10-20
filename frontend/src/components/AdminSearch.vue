@@ -22,12 +22,13 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { api } from '../api/client'
 import { isCameraResource } from '../composables/cameraResources'
+import { cameraName, cameraSearchDetail } from '../composables/cameraLabels'
 import { searchResources, type ResourceKind, type SearchEntry } from '../composables/adminSearch'
 const route = useRoute(), router = useRouter()
 const open = ref(false), query = ref(''), scope = ref<ResourceKind | 'all'>('all'), active = ref(0)
 const loading = ref(false), error = ref(''), entries = ref<SearchEntry[]>([])
 const trigger = ref<HTMLButtonElement>(), input = ref<HTMLInputElement>(), popup = ref<HTMLElement>()
-const currentKind = computed<ResourceKind | undefined>(() => route.path.startsWith('/kamera') || route.path === '/einrichtung' ? 'Kameras' : route.path.includes('/relays') ? 'Relays' : route.path.includes('/identitaeten') ? 'Identitäten' : undefined)
+const currentKind = computed<ResourceKind | undefined>(() => route.path.startsWith('/kamera') || route.path === '/einrichtung' ? 'Kameras' : route.path.includes('/relays') ? 'Weiterleitungen' : route.path.includes('/identitaeten') ? 'Kamera-Zugänge' : undefined)
 const results = computed(() => searchResources(entries.value, query.value, scope.value === 'all' ? undefined : scope.value))
 watch([query, scope], () => { active.value = 0 })
 watch(() => route.fullPath, close)
@@ -36,9 +37,9 @@ async function load() {
   try {
     const [identities, status] = await Promise.all([api.credentialIdentities(), api.status()])
     entries.value = [
-      ...status.devices.filter(device => isCameraResource(device,status.bindings)).map(device => ({ id: device.id, kind: 'Kameras' as const, title: status.bindings?.find(binding => binding.device_id === device.id)?.label || device.hostname || device.model || device.last_ip || device.id, detail: [device.last_ip, device.manufacturer].filter(Boolean).join(' · '), href: `/kamera/${encodeURIComponent(device.id)}` })),
-      ...(status.relays || []).map(relay => ({ id: relay.id, kind: 'Relays' as const, title: relay.name || relay.id, detail: relay.ssh_target || relay.host, href: `/system/relays/${encodeURIComponent(relay.id)}` })),
-      ...identities.map(identity => ({ id: identity.id, kind: 'Identitäten' as const, title: identity.name, detail: identity.username, href: `/system/identitaeten/${encodeURIComponent(identity.id)}` }))
+      ...status.devices.filter(device => isCameraResource(device,status.bindings)).map(device => ({ id: device.id, kind: 'Kameras' as const, title: cameraName(device), detail: cameraSearchDetail(device), href: `/kamera/${encodeURIComponent(device.id)}` })),
+      ...(status.relays || []).map(relay => ({ id: relay.id, kind: 'Weiterleitungen' as const, title: relay.name || relay.id, detail: relay.ssh_target || relay.host, href: `/system/relays/${encodeURIComponent(relay.id)}` })),
+      ...identities.map(identity => ({ id: identity.id, kind: 'Kamera-Zugänge' as const, title: identity.name, detail: identity.username, href: `/system/identitaeten/${encodeURIComponent(identity.id)}` }))
     ]
   } catch { error.value = 'Suche konnte nicht geladen werden.' }
   finally { loading.value = false }
