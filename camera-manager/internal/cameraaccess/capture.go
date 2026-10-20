@@ -6,7 +6,10 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"errors"
+	"fmt"
+	"io"
 	"net"
+	"net/http"
 	neturl "net/url"
 	"os"
 	"os/exec"
@@ -16,6 +19,7 @@ import (
 	"unicode/utf8"
 
 	"camera-appliance/camera-manager/internal/redaction"
+	"camera-appliance/camera-manager/internal/state"
 )
 
 func captureFrame(ctx context.Context, rawURL, sshHost string) ([]byte, error) {
@@ -32,6 +36,64 @@ func captureFrame(ctx context.Context, rawURL, sshHost string) ([]byte, error) {
 		return nil, errors.New("ffmpeg ist nicht installiert; Vorschaubild kann nicht erzeugt werden")
 	}
 	return exec.CommandContext(ctx, ffmpeg, args...).Output()
+}
+
+// restreamCaptureTimeout leaves most of the frame budget for the direct fallback.
+const restreamCaptureTimeout = 4 * time.Second
+
+// captureGo2RTCFrame fetches a JPEG from go2rtc, which reuses its running camera session.
+func captureGo2RTCFrame(ctx context.Context, frameURL string) ([]byte, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, frameURL, nil)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("go2rtc frame: %s", resp.Status)
+	}
+	image, err := io.ReadAll(io.LimitReader(resp.Body, 16<<20))
+	if err != nil {
+		return nil, err
+	}
+	// go2rtc answers 200 with an empty body when it cannot attach to the stream.
+	if len(image) < 2 || image[0] != 0xFF || image[1] != 0xD8 {
+		return nil, errors.New("go2rtc frame: response is not a JPEG image")
+	}
+	return image, nil
+}
+
+// restreamFrame captures through go2rtc when the request uses the stored credentials.
+// New credentials are being tested, so they must reach the camera directly.
+func (s *Service) restreamFrame(ctx context.Context, device state.Device, req FrameInput) ([]byte, string, bool) {
+	if s.Restream == nil || s.CaptureRestream == nil || strings.TrimSpace(req.Password) != "" {
+		return nil, "", false
+	}
+	settings, _ := s.store.Settings(ctx)
+	if username := strings.TrimSpace(req.Username); username != "" && username != settings["camera.credentials."+device.ID+".username"] {
+		return nil, "", false
+	}
+	stream := strings.TrimSpace(req.Stream)
+	if stream == "" {
+		stream = strings.TrimSpace(settings["camera.credentials."+device.ID+".stream"])
+	}
+	if stream == "" {
+		stream = "stream2"
+	}
+	frameURL, ok := s.Restream(ctx, device, stream)
+	if !ok {
+		return nil, "", false
+	}
+	captureCtx, cancel := context.WithTimeout(ctx, restreamCaptureTimeout)
+	defer cancel()
+	image, err := s.CaptureRestream(captureCtx, frameURL)
+	if err != nil || len(image) == 0 {
+		return nil, "", false
+	}
+	return image, frameURL, true
 }
 
 func cameraRTSPURL(username, password, host, port, stream string) string {
@@ -98,6 +160,9 @@ func (s *Service) Frame(ctx context.Context, deviceID string, req FrameInput) (F
 		return Frame{}, failure(InvalidInput, err)
 	}
 	requestCtx := ctx
+	if image, frameURL, ok := s.restreamFrame(requestCtx, device, req); ok {
+		return s.finishFrame(requestCtx, device, req, image, time.Now(), frameURL, credentialCandidate{Source: "go2rtc"})
+	}
 	ctx, cancel := context.WithTimeout(ctx, 8*time.Second)
 	defer cancel()
 	settings, _ := s.store.Settings(requestCtx)
@@ -130,6 +195,10 @@ func (s *Service) Frame(ctx context.Context, deviceID string, req FrameInput) (F
 		}
 		return Frame{}, failure(InvalidInput, errors.New("username and password are required for frame capture"))
 	}
+	return s.finishFrame(requestCtx, device, req, image, capturedAt, rawURL, used)
+}
+
+func (s *Service) finishFrame(requestCtx context.Context, device state.Device, req FrameInput, image []byte, capturedAt time.Time, rawURL string, used credentialCandidate) (Frame, error) {
 	sum := sha256.Sum256(image)
 	imagePath := ""
 	if req.Save {

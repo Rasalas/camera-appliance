@@ -28,6 +28,11 @@ type App struct {
 	cameraPasswordSource string
 	relayOnce            sync.Once
 	relays               *relay.Manager
+
+	credentialPresence credentialPresence
+	loadCameraSecret   func(configDir, deviceID string) secrets.Result
+	viewerProbes       viewerProbeCache
+	viewerGo2RTC       go2rtcAvailability
 }
 
 // CameraCredentials returns the currently active camera password and its
@@ -45,6 +50,7 @@ func (a *App) SetCameraCredentials(password, source string) {
 	defer a.camPassMu.Unlock()
 	a.cameraPassword = password
 	a.cameraPasswordSource = source
+	a.InvalidateCredentialPresence("")
 }
 
 func Open(ctx context.Context) (*App, error) {

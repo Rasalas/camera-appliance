@@ -315,7 +315,7 @@ const plans = computed(() => {
     const hdURL = slot.playback?.hd_page_url
     result[pane.alias] = planPlayer({
       alias: pane.alias,
-      playable: !!slot.playback?.page_url && isPlayable(slot),
+      playable: isPlayable(slot),
       hasHD: !!hdURL && hdURL !== slot.playback?.page_url
     }, ctx)
   }
@@ -840,12 +840,13 @@ async function persistDisplay(slot: ViewerSlot) {
 
 // --- Stream / state helpers --------------------------------------------------
 
+// Playback presence decides, not state: a go2rtc outage only changes the status while players retry.
 function isPlayable(slot: ViewerSlot) {
-  return slot.state === 'online' || slot.state === 'connecting'
+  return !!slot.playback?.page_url
 }
 
 function isPausedByPerformance(slot: ViewerSlot) {
-  return performanceMode.value === 'low' && !!slot.playback?.page_url && isPlayable(slot) && slot.alias !== primaryLiveAlias.value
+  return performanceMode.value === 'low' && isPlayable(slot) && slot.alias !== primaryLiveAlias.value
 }
 
 function appendQuery(url: string, params: Record<string, string>) {
@@ -877,7 +878,7 @@ function placeholderKind(slot: ViewerSlot): 'offline' | 'paused' | '' {
   const plan = planFor(slot.alias)
   if (plan.sub || plan.hd) return ''
   if (isPausedByPerformance(slot)) return 'paused'
-  if (!slot.playback?.page_url || !isPlayable(slot)) return 'offline'
+  if (!isPlayable(slot)) return 'offline'
   return ''
 }
 

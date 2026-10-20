@@ -389,7 +389,7 @@ func TestViewerIncludesPerformanceModeAndStreamMetrics(t *testing.T) {
 	}
 }
 
-func newViewerTestApp(t *testing.T, go2rtcURL, password string) *App {
+func newViewerTestApp(t testing.TB, go2rtcURL, password string) *App {
 	t.Helper()
 	ctx := context.Background()
 	dir := t.TempDir()
@@ -421,7 +421,7 @@ func newViewerTestApp(t *testing.T, go2rtcURL, password string) *App {
 	return a
 }
 
-func writeGeneratedGo2RTC(t *testing.T, cfg config.Config, data string) {
+func writeGeneratedGo2RTC(t testing.TB, cfg config.Config, data string) {
 	t.Helper()
 	if err := os.MkdirAll(filepath.Dir(cfg.Go2RTCConfigPath()), 0o750); err != nil {
 		t.Fatal(err)
