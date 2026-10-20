@@ -46,6 +46,8 @@ services:
         BUILD_TIME: ${BUILD_TIME:-}
     container_name: camera-manager
     restart: unless-stopped
+    # Reaps orphaned ssh relay descendants; the manager would otherwise be PID 1.
+    init: true
     network_mode: host
     security_opt:
       - no-new-privileges:true

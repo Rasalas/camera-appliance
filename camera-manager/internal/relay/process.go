@@ -13,28 +13,41 @@ import (
 	"syscall"
 	"time"
 
+	"camera-appliance/camera-manager/internal/redaction"
 	"camera-appliance/camera-manager/internal/streamrouting"
 )
 
-func startSSHRelayProcess(ctx context.Context, relay ManagedRelay, logPath string) (int, error) {
+func (a *Manager) startSSHRelayProcess(ctx context.Context, relay ManagedRelay) (int, error) {
 	if err := ctx.Err(); err != nil {
 		return 0, err
 	}
-	if _, err := exec.LookPath("ssh"); err != nil {
-		return 0, errors.New("SSH ist nicht installiert; installiere openssh-client oder starte den Relay manuell")
+	newCommand := a.newCommand
+	if newCommand == nil {
+		newCommand = sshCommand
 	}
 	args, err := sshRelayArgs(relay)
 	if err != nil {
 		return 0, err
 	}
+	logPath := a.relayLogPath(relay.ID)
 	if err := os.MkdirAll(filepath.Dir(logPath), 0o750); err != nil {
 		return 0, err
 	}
+	// An unrotatable log must not keep the relay down.
+	_ = rotateRelayLog(logPath)
 	logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
 	if err != nil {
 		return 0, err
 	}
-	cmd := exec.Command("ssh", args...)
+	var logOffset int64
+	if info, err := logFile.Stat(); err == nil {
+		logOffset = info.Size()
+	}
+	cmd, err := newCommand(args)
+	if err != nil {
+		_ = logFile.Close()
+		return 0, err
+	}
 	cmd.Stdout = logFile
 	cmd.Stderr = logFile
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
@@ -42,10 +55,164 @@ func startSSHRelayProcess(ctx context.Context, relay ManagedRelay, logPath strin
 		_ = logFile.Close()
 		return 0, err
 	}
-	pid := cmd.Process.Pid
-	_ = cmd.Process.Release()
 	_ = logFile.Close()
-	return pid, nil
+	a.trackChild(relay.ID, cmd, logOffset)
+	return cmd.Process.Pid, nil
+}
+
+// relayChild is an ssh process started by this manager. Its Wait goroutine
+// reaps it, so an exited relay never lingers as a zombie that looks alive.
+type relayChild struct {
+	pid       int
+	startedAt time.Time
+	exited    bool
+	exitedAt  time.Time
+	exitCode  int
+	reported  bool
+	// done is closed after the exit fields are set.
+	done chan struct{}
+	// logOffset is where this run's output starts in the relay log.
+	logOffset int64
+}
+
+func (a *Manager) trackChild(relayID string, cmd *exec.Cmd, logOffset int64) {
+	child := &relayChild{pid: cmd.Process.Pid, startedAt: time.Now().UTC(), done: make(chan struct{}), logOffset: logOffset}
+	a.childMu.Lock()
+	if a.children == nil {
+		a.children = map[string]*relayChild{}
+	}
+	a.children[relayID] = child
+	a.childMu.Unlock()
+	go func() {
+		_ = cmd.Wait()
+		code := -1
+		if cmd.ProcessState != nil {
+			code = cmd.ProcessState.ExitCode()
+		}
+		a.childMu.Lock()
+		child.exited = true
+		child.exitedAt = time.Now().UTC()
+		child.exitCode = code
+		a.childMu.Unlock()
+		close(child.done)
+	}()
+}
+
+// awaitEarlyExit blocks until the grace window after start has passed and
+// returns an error if the tracked child exited within it.
+func (a *Manager) awaitEarlyExit(ctx context.Context, relayID string, pid int) error {
+	child, ok := a.trackedChild(relayID, pid)
+	if !ok || a.startGrace <= 0 {
+		return nil
+	}
+	timer := time.NewTimer(time.Until(child.startedAt.Add(a.startGrace)))
+	defer timer.Stop()
+	select {
+	case <-child.done:
+	case <-timer.C:
+		return nil
+	case <-ctx.Done():
+		return nil
+	}
+	if child, ok = a.trackedChild(relayID, pid); !ok {
+		return nil
+	}
+	message := "Relay-Prozess wurde direkt nach dem Start durch ein Signal beendet."
+	if child.exitCode >= 0 {
+		message = fmt.Sprintf("Relay-Prozess wurde direkt nach dem Start beendet (Exit-Code %d).", child.exitCode)
+	}
+	if tail := relayLogTail(a.relayLogPath(relayID), child.logOffset); tail != "" {
+		message += " Relay-Log: " + tail
+	}
+	return errors.New(redaction.Text(message))
+}
+
+// relayLogTail returns the last lines written after offset, joined on one line.
+func relayLogTail(path string, offset int64) string {
+	file, err := os.Open(path)
+	if err != nil {
+		return ""
+	}
+	defer file.Close()
+	info, err := file.Stat()
+	if err != nil || info.Size() <= offset {
+		return ""
+	}
+	offset = max(offset, info.Size()-relayLogTailBytes)
+	data := make([]byte, info.Size()-offset)
+	n, _ := file.ReadAt(data, offset)
+	var lines []string
+	for _, line := range strings.Split(string(data[:n]), "\n") {
+		if line = strings.TrimSpace(line); line != "" {
+			lines = append(lines, line)
+		}
+	}
+	if len(lines) > relayLogTailLines {
+		lines = lines[len(lines)-relayLogTailLines:]
+	}
+	return strings.Join(lines, " | ")
+}
+
+// trackedChild returns a snapshot of the child started for relayID if it
+// matches pid. Relays from a previous manager process are not tracked.
+func (a *Manager) trackedChild(relayID string, pid int) (relayChild, bool) {
+	a.childMu.Lock()
+	defer a.childMu.Unlock()
+	child, ok := a.children[relayID]
+	if !ok || pid <= 0 || child.pid != pid {
+		return relayChild{}, false
+	}
+	return *child, true
+}
+
+func (a *Manager) markChildReported(relayID string, pid int) {
+	a.childMu.Lock()
+	defer a.childMu.Unlock()
+	if child, ok := a.children[relayID]; ok && child.pid == pid {
+		child.reported = true
+	}
+}
+
+func (a *Manager) forgetChild(relayID string) {
+	a.childMu.Lock()
+	defer a.childMu.Unlock()
+	delete(a.children, relayID)
+}
+
+func (a *Manager) relayRunning(relayID string, pid int) bool {
+	if child, ok := a.trackedChild(relayID, pid); ok {
+		return !child.exited
+	}
+	return processAlive(pid)
+}
+
+func childExitMessage(child relayChild) string {
+	if child.exitCode < 0 {
+		return "Relay-Prozess wurde durch ein Signal beendet."
+	}
+	return fmt.Sprintf("Relay-Prozess beendet (Exit-Code %d). Details im Relay-Log.", child.exitCode)
+}
+
+// rotateRelayLog moves an oversized log to <path>.1, replacing an older copy.
+func rotateRelayLog(path string) error {
+	info, err := os.Stat(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if info.Size() <= relayLogMaxBytes {
+		return nil
+	}
+	return os.Rename(path, path+".1")
+}
+
+func sshCommand(args []string) (*exec.Cmd, error) {
+	if _, err := exec.LookPath("ssh"); err != nil {
+		return nil, errors.New("SSH ist nicht installiert; installiere openssh-client oder starte den Relay manuell")
+	}
+	return exec.Command("ssh", args...), nil
 }
 
 func sshRelayArgs(relay ManagedRelay) ([]string, error) {
@@ -124,12 +291,36 @@ func processAlive(pid int) bool {
 	if pid <= 0 {
 		return false
 	}
+	if processIsZombie(pid) {
+		return false
+	}
 	process, err := os.FindProcess(pid)
 	if err != nil {
 		return false
 	}
 	err = process.Signal(syscall.Signal(0))
 	return err == nil || errors.Is(err, syscall.EPERM)
+}
+
+// processIsZombie catches exited relays nobody reaped, e.g. children of a
+// previous manager process. Without /proc (macOS dev) it reports false.
+func processIsZombie(pid int) bool {
+	data, err := os.ReadFile(fmt.Sprintf("/proc/%d/stat", pid))
+	if err != nil {
+		return false
+	}
+	return statIsZombie(data)
+}
+
+// statIsZombie parses /proc/<pid>/stat; the state follows the last ')'
+// because the command name may itself contain parentheses.
+func statIsZombie(stat []byte) bool {
+	end := bytes.LastIndexByte(stat, ')')
+	if end < 0 || end+2 >= len(stat) {
+		return false
+	}
+	state := stat[end+2]
+	return state == 'Z' || state == 'X'
 }
 
 // processLooksLikeSSH verifies via /proc that the PID still belongs to an ssh
@@ -143,7 +334,7 @@ func processLooksLikeSSH(pid int) bool {
 	return bytes.Contains(data, []byte("ssh"))
 }
 
-func stopProcess(ctx context.Context, pid int) error {
+func stopProcess(ctx context.Context, pid int, running func() bool) error {
 	process, err := os.FindProcess(pid)
 	if err != nil {
 		return err
@@ -153,7 +344,7 @@ func stopProcess(ctx context.Context, pid int) error {
 	}
 	deadline := time.Now().Add(3 * time.Second)
 	for time.Now().Before(deadline) {
-		if !processAlive(pid) {
+		if !running() {
 			return nil
 		}
 		if !waitForExit(ctx, 100*time.Millisecond) {
