@@ -16,6 +16,8 @@ type lastUpdate struct {
 	AppliedAt   string       `json:"applied_at"`
 	OldVersion  version.Info `json:"old_version"`
 	NewVersion  Manifest     `json:"new_version"`
+	// PreviousImage is empty when rollback must rebuild the old sources.
+	PreviousImage string `json:"previous_image,omitempty"`
 }
 
 func writeLastUpdate(cfg config.Config, last lastUpdate) error {

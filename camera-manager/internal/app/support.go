@@ -16,6 +16,7 @@ import (
 	"strings"
 	"time"
 
+	"camera-appliance/camera-manager/internal/backup"
 	"camera-appliance/camera-manager/internal/redaction"
 	"camera-appliance/camera-manager/internal/relay"
 	"camera-appliance/camera-manager/internal/version"
@@ -28,7 +29,8 @@ type SupportBundleResult struct {
 }
 
 func (a *App) CreateSupportBundle(ctx context.Context, out string) (SupportBundleResult, error) {
-	if out == "" {
+	defaultPath := out == ""
+	if defaultPath {
 		out = filepath.Join(a.Config.BackupDir(), "support-bundle-"+time.Now().UTC().Format("20060102-150405")+".tar.gz")
 	}
 	if err := os.MkdirAll(filepath.Dir(out), 0o750); err != nil {
@@ -93,6 +95,9 @@ func (a *App) CreateSupportBundle(ctx context.Context, out string) (SupportBundl
 
 	if len(files) == 0 {
 		return SupportBundleResult{}, errors.New("support bundle did not include any files")
+	}
+	if defaultPath {
+		_, _ = backup.Prune(filepath.Dir(out), backup.SupportBundles, backup.KeepSupportBundles, out)
 	}
 	_ = a.Store.AddEvent(ctx, "info", "support.bundle.created", "Support-Bundle erstellt", map[string]string{"path": out})
 	return SupportBundleResult{

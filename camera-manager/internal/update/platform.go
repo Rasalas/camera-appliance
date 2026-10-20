@@ -1,7 +1,9 @@
 package update
 
 import (
+	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -9,6 +11,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"syscall"
 )
 
 func ensureCommandLink(installDir string) error {
@@ -91,6 +94,110 @@ func installKiosk(ctx context.Context, installDir, userName string, noStart bool
 	_ = runCommand(ctx, "", "runuser", "-u", userName, "--", "systemctl", "--user", "daemon-reload")
 	_ = runCommand(ctx, "", "runuser", "-u", userName, "--", "systemctl", "--user", "restart", "camera-kiosk.service")
 	return nil
+}
+
+// unitHost describes where installed units live; tests replace it.
+var unitHost = struct {
+	managed   func(installDir string) bool
+	systemDir string
+	kioskGlob string
+	run       func(ctx context.Context, name string, args ...string) error
+}{
+	managed: func(installDir string) bool {
+		return installDir == DefaultInstallDir && os.Geteuid() == 0 && !pathExists("/.dockerenv") && pathExists("/run/systemd/system")
+	},
+	systemDir: "/etc/systemd/system",
+	kioskGlob: "/home/*/.config/systemd/user/camera-kiosk.service",
+	run: func(ctx context.Context, name string, args ...string) error {
+		return runCommand(ctx, "", name, args...)
+	},
+}
+
+// refreshInstalledUnits updates units that install copied earlier when the
+// release changed them. It never installs, enables or restarts a unit.
+func refreshInstalledUnits(ctx context.Context, installDir string) []string {
+	if !unitHost.managed(installDir) {
+		return nil
+	}
+	var notes []string
+	target := filepath.Join(unitHost.systemDir, "camera-appliance.service")
+	changed, err := replaceUnit(filepath.Join(installDir, "systemd", "camera-appliance.service"), target)
+	switch {
+	case err != nil:
+		notes = append(notes, "Systemd-Unit konnte nicht aktualisiert werden: "+err.Error())
+	case changed:
+		if err := unitHost.run(ctx, "systemctl", "daemon-reload"); err != nil {
+			notes = append(notes, "Systemd-Unit aktualisiert, aber daemon-reload schlug fehl: "+err.Error())
+		} else {
+			notes = append(notes, "Systemd-Unit camera-appliance.service aktualisiert.")
+		}
+	}
+	kioskUnits, _ := filepath.Glob(unitHost.kioskGlob)
+	for _, target := range kioskUnits {
+		notes = append(notes, refreshKioskUnit(ctx, filepath.Join(installDir, "systemd", "camera-kiosk.service"), target)...)
+	}
+	return notes
+}
+
+func refreshKioskUnit(ctx context.Context, source, target string) []string {
+	info, err := os.Lstat(target)
+	if err != nil {
+		return nil
+	}
+	stat, ok := info.Sys().(*syscall.Stat_t)
+	if !ok {
+		return nil
+	}
+	changed, err := replaceUnit(source, target)
+	if err != nil {
+		return []string{"Kiosk-Unit konnte nicht aktualisiert werden: " + err.Error()}
+	}
+	if !changed {
+		return nil
+	}
+	uid := strconv.FormatUint(uint64(stat.Uid), 10)
+	if err := os.Chown(target, int(stat.Uid), int(stat.Gid)); err != nil {
+		return []string{"Kiosk-Unit aktualisiert, Besitzer konnte nicht gesetzt werden: " + err.Error()}
+	}
+	account, err := user.LookupId(uid)
+	if err != nil {
+		return []string{"Kiosk-Unit aktualisiert; Benutzer nicht ermittelbar, daemon-reload übersprungen."}
+	}
+	if err := unitHost.run(ctx, "runuser", "-u", account.Username, "--", "env", "XDG_RUNTIME_DIR=/run/user/"+uid, "systemctl", "--user", "daemon-reload"); err != nil {
+		return []string{"Kiosk-Unit für " + account.Username + " aktualisiert, aber daemon-reload schlug fehl: " + err.Error()}
+	}
+	return []string{"Kiosk-Unit für " + account.Username + " aktualisiert."}
+}
+
+// replaceUnit reports false when the release has no unit, the target was never
+// installed or the contents already match.
+func replaceUnit(source, target string) (bool, error) {
+	want, err := os.ReadFile(source)
+	if errors.Is(err, os.ErrNotExist) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	info, err := os.Lstat(target)
+	if errors.Is(err, os.ErrNotExist) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	// Never write through a link someone else may control.
+	if !info.Mode().IsRegular() {
+		return false, fmt.Errorf("%s ist keine reguläre Datei", target)
+	}
+	have, err := os.ReadFile(target)
+	if err != nil {
+		return false, err
+	}
+	if bytes.Equal(have, want) {
+		return false, nil
+	}
+	return true, copyFile(source, target, 0o644)
 }
 
 func installDesktopLaunchers(installDir, userName string) error {

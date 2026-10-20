@@ -122,3 +122,32 @@ func mapValues(values map[string]string) []string {
 	}
 	return out
 }
+
+func TestCreateSupportBundleKeepsNewestDefaultBundles(t *testing.T) {
+	t.Setenv("PATH", "")
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusOK) }))
+	defer srv.Close()
+	a := newViewerTestApp(t, srv.URL, "secret")
+	if err := os.MkdirAll(a.Config.BackupDir(), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"support-bundle-20200101-000000.tar.gz", "support-bundle-20200102-000000.tar.gz", "support-bundle-20200103-000000.tar.gz"} {
+		if err := os.WriteFile(filepath.Join(a.Config.BackupDir(), name), []byte("old"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	result, err := a.CreateSupportBundle(context.Background(), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	matches, _ := filepath.Glob(filepath.Join(a.Config.BackupDir(), "support-bundle-*.tar.gz"))
+	if len(matches) != 3 {
+		t.Fatalf("expected 3 bundles, got %v", matches)
+	}
+	if _, err := os.Stat(result.Path); err != nil {
+		t.Fatal("new bundle must survive pruning")
+	}
+	if _, err := os.Stat(filepath.Join(a.Config.BackupDir(), "support-bundle-20200101-000000.tar.gz")); !os.IsNotExist(err) {
+		t.Fatal("oldest bundle should be pruned")
+	}
+}
