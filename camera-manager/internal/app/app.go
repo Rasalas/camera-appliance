@@ -19,6 +19,8 @@ type App struct {
 	Go2RTCRestart func(ctx context.Context) error
 	Scan          func(context.Context, discovery.Options) ([]discovery.Result, []discovery.Subnet, error)
 	discoveryMu   sync.Mutex
+	// go2rtcMu serializes render+restart sequences; concurrent force-recreates conflict.
+	go2rtcMu sync.Mutex
 
 	// Runtime credentials are kept outside the immutable process configuration.
 	camPassMu            sync.RWMutex
