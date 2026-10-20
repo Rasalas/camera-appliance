@@ -60,7 +60,7 @@ func TestCreateArchiveHasRestrictedPermissions(t *testing.T) {
 	if !includedLocalEnv {
 		t.Fatalf("expected local.env to be listed as included, got %v", result.Files)
 	}
-	if !strings.Contains(result.Warning, "Zugangsdaten") {
+	if !strings.Contains(result.Warning, "Kamera-Passwörter") {
 		t.Fatalf("warning must disclose credential content, got %q", result.Warning)
 	}
 }

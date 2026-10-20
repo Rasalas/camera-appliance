@@ -66,9 +66,10 @@ func serveCmd() *cobra.Command {
 				return err
 			}
 			defer listener.Close()
-			schedulerDone := make(chan struct{})
+			schedulerDone, autoBackupDone := make(chan struct{}), make(chan struct{})
 			go func() { defer close(schedulerDone); apiServer.RunUploadScheduler(ctx) }()
-			defer func() { stop(); <-schedulerDone }()
+			go func() { defer close(autoBackupDone); a.RunAutoBackup(ctx) }()
+			defer func() { stop(); <-schedulerDone; <-autoBackupDone }()
 			errCh := make(chan error, 1)
 			go func() {
 				fmt.Printf("camera-appliance läuft auf http://%s\n", a.Config.BindAddr)

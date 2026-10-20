@@ -52,7 +52,11 @@ func apply(ctx context.Context, opts Options) (Result, error) {
 	if previous, err := releasearchive.ReadManifest(installDir); err == nil && previous.Version != "unknown" {
 		result.OldVersion = manifestAsVersionInfo(previous)
 	}
-	backupResult, err := backup.Create(ctx, opts.Config, opts.BackupOverride, false)
+	backupPath := opts.BackupOverride
+	if backupPath == "" {
+		backupPath = backup.NewPath(opts.Config, backup.KindUpdate)
+	}
+	backupResult, err := backup.Create(ctx, opts.Config, backupPath, false)
 	if err != nil {
 		return result, fmt.Errorf("pre-update backup failed: %w", err)
 	}
