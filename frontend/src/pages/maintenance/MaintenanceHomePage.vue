@@ -13,14 +13,14 @@ import { maintenancePages, type NavItem } from '../../navigation'
 const destinations: NavItem[] = [...maintenancePages, { to: '/system/ueber#updates', label: 'Updates', icon: 'update' }]
 const descriptions: Record<string, string> = {
   '/system/wartung/watchdog': 'Kameras und Verbindungen überwachen, automatische Wiederherstellung einstellen.',
-  '/system/wartung/sicherung': 'Einstellungen sichern oder aus einem Backup wiederherstellen.',
+  '/system/wartung/sicherung': 'Einstellungen sichern oder aus einer Sicherung wiederherstellen.',
   '/system/ueber#updates': 'Installierte Version ansehen und verfügbare Updates unter Über Watchdeck prüfen.',
   '/system/wartung/support': 'Protokoll ansehen, Diagnosedaten herunterladen und Hilfe anfragen.',
 }
 </script>
 <style scoped>
-.maintenance-destinations { max-width:900px; }
-.maintenance-destination { display:flex;align-items:center;gap:20px;padding:24px 12px;border-bottom:1px solid var(--hairline); }
+.maintenance-destinations { max-width:900px;display:grid;gap:4px; }
+.maintenance-destination { display:flex;align-items:center;gap:20px;padding:24px 12px;border-radius:var(--radius-sm); }
 .maintenance-destination > span { flex:1;min-width:0;display:grid;gap:8px; }
 .maintenance-destination strong { font-size:16px;font-weight:500; }
 .maintenance-destination small { color:var(--ink-mute);font-size:14px;line-height:1.6; }

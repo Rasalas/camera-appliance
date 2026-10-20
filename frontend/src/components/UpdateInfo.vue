@@ -54,7 +54,7 @@
   <!-- ready: next press installs -->
   <template v-else-if="phase === 'ready'">
     <p class="update-hint ok">Update bereit ({{ shortDigest }}).</p>
-    <p class="update-warn">Bei der Installation werden go2rtc und die Oberfläche neu gestartet.</p>
+    <p class="update-warn">Bei der Installation werden Videodienst und Oberfläche neu gestartet.</p>
   </template>
 
   <!-- installing -->

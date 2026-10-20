@@ -1,14 +1,14 @@
 <template>
-  <RouterLink to="/system/identitaeten" class="mono-mute">← Identitäten</RouterLink>
-  <div v-if="!sectionsLoaded.identities" role="status">{{ loadError ? 'Identitäten konnten nicht geladen werden.' : 'Wird geladen…' }}</div>
+  <RouterLink to="/system/identitaeten" class="mono-mute">← Kamera-Zugänge</RouterLink>
+  <div v-if="!sectionsLoaded.identities" role="status">{{ loadError ? 'Kamera-Zugänge konnten nicht geladen werden.' : 'Wird geladen…' }}</div>
   <template v-else-if="identity">
     <EditableSection title="Kamera-Login" @edit="editing=true"><dl class="spec"><div><dt>Name</dt><dd>{{ identity.name }}</dd></div><div><dt>Benutzername</dt><dd>{{ identity.username }}</dd></div><div><dt>Passwort</dt><dd>{{ identity.password_set ? 'Gespeichert' : 'Nicht gesetzt' }}</dd></div></dl></EditableSection>
-    <button class="btn danger" style="align-self:start" @click="deleting=true">Identität entfernen</button>
-    <button class="mobile-fab" aria-label="Identität bearbeiten" @click="editing=true"><AppIcon name="edit" /></button>
+    <button class="btn danger remove-action" @click="deleting=true">Kamera-Zugang entfernen</button>
+    <button class="mobile-fab" aria-label="Kamera-Zugang bearbeiten" @click="editing=true"><AppIcon name="edit" /></button>
     <IdentityEditor :open="editing" :identity="identity" @close="editing=false" />
-    <AdminDialog :open="deleting" title="Identität entfernen?" :busy="busy" compact @close="deleting=false"><p>„{{ identity.name }}“ wird entfernt. Kameras mit diesem gemeinsamen Login können anschließend einen neuen Zugang benötigen.</p><p v-if="error" role="alert">{{ error }}</p><div class="form-actions"><button class="btn" @click="deleting=false">Abbrechen</button><button class="btn danger" :disabled="busy" @click="remove">Entfernen</button></div></AdminDialog>
+    <AdminDialog :open="deleting" title="Kamera-Zugang entfernen?" :busy="busy" compact @close="deleting=false"><p>„{{ identity.name }}“ wird entfernt. Kameras mit diesem gemeinsamen Login können anschließend einen neuen Zugang benötigen.</p><p v-if="error" role="alert">{{ error }}</p><div class="form-actions"><button class="btn" @click="deleting=false">Abbrechen</button><button class="btn danger" :disabled="busy" @click="remove">Entfernen</button></div></AdminDialog>
   </template>
-  <p v-else>Diese Identität ist nicht mehr vorhanden.</p>
+  <p v-else>Dieser Kamera-Zugang ist nicht mehr vorhanden.</p>
 </template>
 <script setup lang="ts">
 import AppIcon from '../../components/AppIcon.vue'
@@ -25,3 +25,6 @@ const editing=ref(false),deleting=ref(false),busy=ref(false),error=ref('')
 async function remove() { if(!identity.value)return;busy.value=true;try {await deleteCredentialIdentity(identity.value.id);deleting.value=false;await router.push('/system/identitaeten')} catch(err){error.value=err instanceof Error?err.message:'Entfernen fehlgeschlagen.'}finally{busy.value=false} }
 onMounted(()=>void loadAll())
 </script>
+<style scoped>
+.remove-action { align-self: start; }
+</style>

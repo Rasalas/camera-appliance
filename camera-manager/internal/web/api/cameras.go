@@ -11,6 +11,7 @@ import (
 
 	"camera-appliance/camera-manager/internal/app"
 	"camera-appliance/camera-manager/internal/cameraaccess"
+	"camera-appliance/camera-manager/internal/state"
 )
 
 func (s *Server) startDiscovery(w http.ResponseWriter, r *http.Request) {
@@ -38,6 +39,25 @@ func (s *Server) getScanRun(w http.ResponseWriter, r *http.Request) {
 func (s *Server) getDevices(w http.ResponseWriter, r *http.Request) {
 	devices, err := s.app.Store.Devices(r.Context())
 	writeResult(w, devices, err)
+}
+
+func (s *Server) putDeviceName(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Name string `json:"name"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, err, http.StatusBadRequest)
+		return
+	}
+	device, err := s.app.Store.SetDeviceName(r.Context(), r.PathValue("id"), req.Name)
+	switch {
+	case errors.Is(err, state.ErrInvalidDeviceName):
+		writeError(w, err, http.StatusBadRequest)
+	case errors.Is(err, sql.ErrNoRows):
+		writeError(w, errors.New("Kamera nicht gefunden."), http.StatusNotFound)
+	default:
+		writeResult(w, device, err)
+	}
 }
 
 func (s *Server) addManualDevice(w http.ResponseWriter, r *http.Request) {

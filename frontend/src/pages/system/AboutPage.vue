@@ -28,7 +28,7 @@ onMounted(async () => { try { const info = await api.health(); version.value = `
 .about-updates { display:grid;gap:24px;max-width:760px;scroll-margin-top:24px; }
 .about-section { display:grid;gap:16px;max-width:760px; }
 .about-section p { margin:0;line-height:1.6; }
-.about-link { display:flex;align-items:center;gap:16px;padding:16px 0;border-top:1px solid var(--hairline); }
+.about-link { display:flex;align-items:center;gap:16px;padding:16px 12px;border-radius:var(--radius-sm);background:var(--raised); }
 .about-link > span:first-of-type { flex:1;display:grid;gap:6px; }
 .about-link strong { font-weight:500; }
 .about-link small { color:var(--ink-mute);font-size:13px; }
