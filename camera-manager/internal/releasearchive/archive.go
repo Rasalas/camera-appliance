@@ -14,6 +14,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 )
 
@@ -49,9 +50,8 @@ func redactUpdateURL(rawURL string) string {
 	return parsed.String()
 }
 
-// verifyDigest checks the downloaded or local archive against an expected
-// checksum ("sha256:<hex>" or bare hex). Updates replace the running binary,
-// so integrity must never be skipped silently.
+// verifyDigest checks the archive against "sha256:<hex>" or bare hex. An empty
+// digest only reaches here for local archives; Prepare requires one for URLs.
 func verifyDigest(archivePath, expected string) error {
 	if strings.TrimSpace(expected) == "" {
 		return nil
@@ -241,6 +241,7 @@ func ReadManifest(root string) (Manifest, error) {
 
 // Source identifies exactly one archive. Prepare owns download, verification,
 // extraction and cleanup; callers never manage intermediate archive paths.
+// URL sources without Digest are checked against the release's SHA256SUMS.
 type Source struct {
 	Archive          string
 	URL              string
@@ -269,17 +270,22 @@ func Prepare(ctx context.Context, source Source, workspace string, client *http.
 	if err := source.Validate(); err != nil {
 		return nil, err
 	}
-	archive := source.Archive
+	archive, digest := source.Archive, source.Digest
 	cleanup := func() {}
 	var err error
 	if source.URL != "" {
+		if strings.TrimSpace(digest) == "" {
+			if digest, err = ExpectedDigest(ctx, client, source.URL); err != nil {
+				return nil, err
+			}
+		}
 		archive, cleanup, err = downloadArchive(ctx, source.URL, client)
 		if err != nil {
 			return nil, err
 		}
 	}
 	defer cleanup()
-	if err := verifyDigest(archive, source.Digest); err != nil {
+	if err := verifyDigest(archive, digest); err != nil {
 		return nil, err
 	}
 	dir, err := os.MkdirTemp(workspace, "camera-appliance-release-")
@@ -297,6 +303,9 @@ func Prepare(ctx context.Context, source Source, workspace string, client *http.
 	}
 	root, manifest, err := findReleaseRoot(dir)
 	if err != nil {
+		return nil, err
+	}
+	if err := checkReleaseBinary(filepath.Join(root, "bin", "camera-appliance"), runtime.GOOS, runtime.GOARCH); err != nil {
 		return nil, err
 	}
 	keep = true

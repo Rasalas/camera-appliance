@@ -29,6 +29,8 @@ func (a *App) RenderConfiguredGo2RTC(ctx context.Context) (go2rtcrender.RenderRe
 	if err != nil {
 		return go2rtcrender.RenderResult{}, err
 	}
+	a.go2rtcMu.Lock()
+	defer a.go2rtcMu.Unlock()
 	result, err := a.RenderGo2RTC(ctx)
 	if err != nil {
 		return result, err
@@ -40,6 +42,8 @@ func (a *App) RenderConfiguredGo2RTC(ctx context.Context) (go2rtcrender.RenderRe
 }
 
 func (a *App) RestartStreams(ctx context.Context) error {
+	a.go2rtcMu.Lock()
+	defer a.go2rtcMu.Unlock()
 	if _, err := a.RenderGo2RTC(ctx); err != nil {
 		return err
 	}

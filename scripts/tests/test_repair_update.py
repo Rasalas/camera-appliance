@@ -9,7 +9,7 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 class RepairUpdateTests(unittest.TestCase):
-    def fixture(self, root, curl_success=True):
+    def fixture(self, root, curl_success=True, latest="https://github.com/Rasalas/camera-appliance/releases/tag/v9.9.9"):
         commands = root / "commands"
         commands.mkdir()
         install = root / "appliance"
@@ -20,7 +20,11 @@ class RepairUpdateTests(unittest.TestCase):
             "uname": "echo Linux\n",
             "id": "echo 0\n",
             "docker": "exit 0\n",
-            "curl": "exit 22\n" if not curl_success else """for arg do output="$arg"; done
+            "curl": "exit 22\n" if not curl_success else """for arg do
+  case "$arg" in %{url_effective}) printf '%s' "$CAMERA_TEST_LATEST"; exit 0 ;; esac
+  output="$arg"
+done
+for arg do case "$arg" in http*) echo "$arg" >> "$CAMERA_TEST_CURL_LOG" ;; esac; done
 cat > "$output" <<'INSTALLER'
 #!/bin/bash
 printf '%s\\n' "$@" > "$CAMERA_TEST_REPAIR_ARGS"
@@ -36,6 +40,8 @@ INSTALLER
             "PATH": str(commands) + os.pathsep + os.environ["PATH"],
             "CAMERA_APPLIANCE_INSTALL_DIR": str(install),
             "CAMERA_TEST_REPAIR_ARGS": str(root / "installer-args"),
+            "CAMERA_TEST_CURL_LOG": str(root / "curl-log"),
+            "CAMERA_TEST_LATEST": latest,
         }
 
     def test_existing_installation_uses_host_update_without_kiosk_changes(self):
@@ -45,10 +51,22 @@ INSTALLER
             subprocess.run(["bash", str(ROOT / "repair-update.sh")], env=env, check=True, capture_output=True)
             args = (root / "installer-args").read_text().splitlines()
             self.assertEqual(args, [
-                "--url", "https://github.com/Rasalas/camera-appliance/releases/latest/download/camera-appliance-latest.tar.gz",
+                "--url", "https://github.com/Rasalas/camera-appliance/releases/download/v9.9.9/camera-appliance-latest.tar.gz",
                 "--install-dir", env["CAMERA_APPLIANCE_INSTALL_DIR"],
                 "--no-kiosk", "--no-desktop-launchers",
             ])
+            self.assertEqual((root / "curl-log").read_text().splitlines(), [
+                "https://raw.githubusercontent.com/Rasalas/camera-appliance/v9.9.9/install.sh",
+            ])
+
+    def test_unresolved_latest_release_never_executes_an_installer(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            env = self.fixture(root, latest="https://github.com/Rasalas/camera-appliance/releases")
+            result = subprocess.run(["bash", str(ROOT / "repair-update.sh")], env=env, capture_output=True)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("Aktuelles Release konnte nicht ermittelt werden", result.stderr.decode())
+            self.assertFalse((root / "installer-args").exists())
 
     def test_failed_download_never_executes_an_installer(self):
         with tempfile.TemporaryDirectory() as temp:

@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/signal"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -53,14 +54,23 @@ func serveCmd() *cobra.Command {
 				return err
 			}
 			defer a.Close()
-			go func() {
+			var background sync.WaitGroup
+			// Registered after a.Close so it runs first: workers must stop writing before the store closes.
+			defer func() {
+				stop()
+				if !waitTimeout(&background, backgroundShutdownTimeout) {
+					fmt.Fprintln(os.Stderr, "Hintergrundaufgaben wurden nicht rechtzeitig beendet")
+				}
+			}()
+			background.Go(func() {
 				if err := a.RunStartup(ctx); err != nil {
 					_ = a.Store.AddEvent(ctx, "error", "startup.discovery.failed", redaction.Text(err.Error()), nil)
 				}
 				a.RunWatchdog(ctx)
-			}()
+			})
+			background.Go(func() { pruneHistoryPeriodically(ctx, a.Store, historyPruneInterval) })
 			apiServer := api.New(a)
-			server := &http.Server{Addr: a.Config.BindAddr, Handler: apiServer.Handler()}
+			server := newHTTPServer(a.Config.BindAddr, apiServer.Handler())
 			listener, err := net.Listen("tcp", a.Config.BindAddr)
 			if err != nil {
 				return err
@@ -87,6 +97,47 @@ func serveCmd() *cobra.Command {
 				return err
 			}
 		},
+	}
+}
+
+const (
+	backgroundShutdownTimeout = 10 * time.Second
+	historyPruneInterval      = time.Hour
+)
+
+// newHTTPServer leaves WriteTimeout unset because the go2rtc WebSocket proxy streams indefinitely.
+func newHTTPServer(addr string, handler http.Handler) *http.Server {
+	return &http.Server{
+		Addr:              addr,
+		Handler:           handler,
+		ReadHeaderTimeout: 10 * time.Second,
+		IdleTimeout:       120 * time.Second,
+	}
+}
+
+func waitTimeout(wg *sync.WaitGroup, timeout time.Duration) bool {
+	done := make(chan struct{})
+	go func() { wg.Wait(); close(done) }()
+	select {
+	case <-done:
+		return true
+	case <-time.After(timeout):
+		return false
+	}
+}
+
+func pruneHistoryPeriodically(ctx context.Context, store *state.Store, interval time.Duration) {
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		if err := store.PruneHistory(ctx, time.Now().UTC()); err != nil && ctx.Err() == nil {
+			fmt.Fprintln(os.Stderr, "Verlauf konnte nicht bereinigt werden:", redaction.Text(err.Error()))
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+		}
 	}
 }
 
