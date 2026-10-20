@@ -1,5 +1,7 @@
 import type { AuthStatus, Binding, CredentialIdentity, Device, DeviceCredentials, EventItem, FrameResult, LoginResult, ManualDeviceResult, ProbeResult, RelayStatus, ScanRun, Slot, StatusResponse, SupportBundleResult, UpdateStartResult, UpdateFlowStatus, ViewerResponse } from '../types'
 
+import type { BackupList } from '../types'
+import { backupDownloadPath } from '../composables/backupList.ts'
 import type { UploadSettings, UploadCrop, SnapshotUploadResult, UploadScheduleInput, UploadScheduleStatus, UploadNaming, UploadImageSettings } from '../types'
 
 export type BackupResult = { path: string; files: string[]; warning: string }
@@ -198,6 +200,9 @@ export const api = {
   saveCameraPassword: (password: string) => request<{ status: string; source: string }>('/api/secrets/camera-password', { method: 'POST', body: JSON.stringify({ password }) }),
   events: () => request<EventItem[]>('/api/events'),
   backup: () => request<BackupResult>('/api/backup', { method: 'POST', body: JSON.stringify({}) }, VERY_SLOW),
+  backups: () => request<BackupList>('/api/backups'),
+  downloadBackup: (name: string) => send(backupDownloadPath(name), undefined, VERY_SLOW, response => response.blob()),
+  deleteBackup: (name: string) => request(backupDownloadPath(name), { method: 'DELETE' }),
   supportBundle: () => request<SupportBundleResult>('/api/support-bundle', { method: 'POST', body: JSON.stringify({}) }, VERY_SLOW),
   supportReport: () => request<{ version: { version: string; commit: string }; events: EventItem[] }>('/api/support'),
   downloadSupportBundle: () => send('/api/support-bundle/download', { method: 'POST', body: '{}' }, VERY_SLOW, response => response.blob()),

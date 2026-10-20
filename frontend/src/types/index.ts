@@ -347,6 +347,29 @@ export interface SupportBundleResult {
   warning: string
 }
 
+export type BackupKind = 'manual' | 'automatic' | 'before-update'
+
+export interface BackupEntry {
+  name: string
+  kind: BackupKind
+  created_at: string
+  size: number
+}
+
+export interface AutoBackupStatus {
+  enabled: boolean
+  keep: number
+  interval_hours: number
+  last_at?: string
+  last_error?: string
+}
+
+export interface BackupList {
+  backups: BackupEntry[]
+  auto: AutoBackupStatus
+  warning: string
+}
+
 export interface UpdateStartResult {
   status: string
   url: string
