@@ -180,14 +180,44 @@ func TestSystemctlArgsForUserUnits(t *testing.T) {
 
 func TestUpdateWorkerSharesStateOutsideComposeProject(t *testing.T) {
 	cfg := config.Config{InstallDir: "/opt/appliance", ConfigDir: "/etc/appliance", StateDir: "/var/lib/appliance", ComposeFile: "/opt/appliance/compose.yaml"}
-	args := strings.Join(updateWorkerArgs(cfg, "sha256:old", "/var/lib/appliance/updates/worker-1", "/var/lib/appliance/updates/job.json", "1"), " ")
-	for _, want := range []string{"run --rm -d", "--network host", "--entrypoint /var/lib/appliance/updates/worker-1", "/etc/appliance:/etc/appliance", "/var/lib/appliance:/var/lib/appliance", "sha256:old update-worker --job /var/lib/appliance/updates/job.json"} {
+	args := strings.Join(updateWorkerArgs(cfg, "sha256:old", "/var/lib/appliance/updates/worker-1", "/var/lib/appliance/updates/job.json", "1", "/var/lib/docker"), " ")
+	for _, want := range []string{"run --rm -d", "--network host", "--entrypoint /var/lib/appliance/updates/worker-1", "/etc/appliance:/etc/appliance", "/var/lib/appliance:/var/lib/appliance", "sha256:old update-worker --job /var/lib/appliance/updates/job.json",
+		"--mount type=bind,source=/var/lib/docker,target=" + workerDockerRoot + ",readonly,bind-recursive=disabled"} {
 		if !strings.Contains(args, want) {
 			t.Fatalf("missing %q: %s", want, args)
 		}
 	}
 	if strings.Contains(args, "--label") {
 		t.Fatalf("worker must not be a compose orphan: %s", args)
+	}
+}
+
+func TestUpdateWorkerSkipsUnusableDockerRootMount(t *testing.T) {
+	cfg := config.Config{InstallDir: "/opt/appliance", ConfigDir: "/etc/appliance", StateDir: "/var/lib/appliance", ComposeFile: "/opt/appliance/compose.yaml"}
+	for _, root := range []string{"", "relative/docker", "/var/lib/do,cker"} {
+		args := strings.Join(updateWorkerArgs(cfg, "sha256:old", "/w", "/j", "1", root), " ")
+		if strings.Contains(args, "--mount") {
+			t.Fatalf("root %q must not be mounted: %s", root, args)
+		}
+	}
+}
+
+func TestDockerRootPathOnHostUsesDaemonDataRoot(t *testing.T) {
+	if runningInContainer() {
+		t.Skip("host path only")
+	}
+	dir := t.TempDir()
+	script := "#!/bin/sh\n[ \"$*\" = 'info --format {{.DockerRootDir}}' ] || exit 3\necho /srv/docker\n"
+	if err := os.WriteFile(filepath.Join(dir, "docker"), []byte(script), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	root, err := DockerRootPath(context.Background(), config.Config{})
+	if err != nil || root != "/srv/docker" {
+		t.Fatalf("root = %q, %v", root, err)
+	}
+	if _, err := DockerRootPath(context.Background(), config.Config{RestartStrategy: "systemd"}); err == nil {
+		t.Fatal("systemd deployments build no images")
 	}
 }
 

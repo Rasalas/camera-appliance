@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { autoBackupSummary, backupDownloadPath, backupKindLabel, backupSizeLabel, backupTimeLabel } from './backupList.ts'
+import { autoBackupSummary, backupDownloadPath, backupKindLabel, backupSizeLabel, backupTimeLabel, otherRetentionText } from './backupList.ts'
 
 test('backup kinds use plain German labels', () => {
   assert.equal(backupKindLabel('manual'), 'Von Hand')
@@ -32,4 +32,10 @@ test('auto backup summary explains schedule and retention', () => {
 test('download paths encode the backup name', () => {
   assert.equal(backupDownloadPath('camera-appliance-20260101-120000.tar.gz'), '/api/backups/camera-appliance-20260101-120000.tar.gz')
   assert.equal(backupDownloadPath('../state.db'), '/api/backups/..%2Fstate.db')
+})
+
+test('retention text covers manual and pre-update backups', () => {
+  assert.equal(otherRetentionText(undefined), '')
+  assert.equal(otherRetentionText({ manual: 5, 'before-update': 5, automatic: 7 }), 'Von Sicherungen von Hand und vor Updates bleiben jeweils die letzten 5 erhalten.')
+  assert.match(otherRetentionText({ manual: 3, 'before-update': 5, automatic: 7 }), /Hand bleiben die letzten 3 .* Updates die letzten 5/)
 })

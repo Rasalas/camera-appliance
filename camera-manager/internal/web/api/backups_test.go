@@ -34,9 +34,10 @@ func TestBackupListShowsKindsSizeAndWarning(t *testing.T) {
 		t.Fatalf("status %d: %s", res.Code, res.Body.String())
 	}
 	var body struct {
-		Backups []backup.Entry       `json:"backups"`
-		Auto    app.AutoBackupStatus `json:"auto"`
-		Warning string               `json:"warning"`
+		Backups   []backup.Entry       `json:"backups"`
+		Auto      app.AutoBackupStatus `json:"auto"`
+		Retention map[backup.Kind]int  `json:"retention"`
+		Warning   string               `json:"warning"`
 	}
 	if err := json.Unmarshal(res.Body.Bytes(), &body); err != nil {
 		t.Fatal(err)
@@ -46,6 +47,9 @@ func TestBackupListShowsKindsSizeAndWarning(t *testing.T) {
 	}
 	if body.Backups[2].Size != 6 || !body.Auto.Enabled || body.Auto.Keep != 7 || body.Auto.LastAt == nil {
 		t.Fatalf("body = %+v", body)
+	}
+	if body.Retention[backup.KindManual] != 5 || body.Retention[backup.KindUpdate] != 5 || body.Retention[backup.KindAutomatic] != 7 {
+		t.Fatalf("retention = %v", body.Retention)
 	}
 	if !strings.Contains(body.Warning, "Kamera-Passwörter") {
 		t.Fatalf("warning = %q", body.Warning)

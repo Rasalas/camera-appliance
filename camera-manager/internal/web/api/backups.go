@@ -10,9 +10,10 @@ import (
 )
 
 type backupList struct {
-	Backups []backup.Entry       `json:"backups"`
-	Auto    app.AutoBackupStatus `json:"auto"`
-	Warning string               `json:"warning"`
+	Backups   []backup.Entry       `json:"backups"`
+	Auto      app.AutoBackupStatus `json:"auto"`
+	Retention map[backup.Kind]int  `json:"retention"`
+	Warning   string               `json:"warning"`
 }
 
 func (s *Server) listBackups(w http.ResponseWriter, r *http.Request) {
@@ -23,7 +24,11 @@ func (s *Server) listBackups(w http.ResponseWriter, r *http.Request) {
 	}
 	auto, err := s.app.AutoBackupStatus(r.Context(), entries)
 	w.Header().Set("Cache-Control", "no-store")
-	writeResult(w, backupList{Backups: entries, Auto: auto, Warning: backup.SensitiveWarning}, err)
+	retention := map[backup.Kind]int{}
+	for _, kind := range []backup.Kind{backup.KindManual, backup.KindUpdate, backup.KindAutomatic} {
+		retention[kind] = backup.Keep(kind)
+	}
+	writeResult(w, backupList{Backups: entries, Auto: auto, Retention: retention, Warning: backup.SensitiveWarning}, err)
 }
 
 func (s *Server) downloadBackup(w http.ResponseWriter, r *http.Request) {

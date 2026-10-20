@@ -22,10 +22,20 @@ type Result struct {
 	Warning string   `json:"warning"`
 }
 
+// Create writes a backup to out, or a pruned manual backup in the backup directory when out is empty.
 func Create(ctx context.Context, cfg config.Config, out string, includeSecrets bool) (Result, error) {
 	if out == "" {
-		out = NewPath(cfg, KindManual)
+		return create(ctx, cfg, NewPath(cfg, KindManual), includeSecrets, KindManual)
 	}
+	return create(ctx, cfg, out, includeSecrets, "")
+}
+
+// CreateKind writes a backup of kind to the backup directory and prunes older ones of the same kind.
+func CreateKind(ctx context.Context, cfg config.Config, kind Kind) (Result, error) {
+	return create(ctx, cfg, NewPath(cfg, kind), false, kind)
+}
+
+func create(ctx context.Context, cfg config.Config, out string, includeSecrets bool, prune Kind) (Result, error) {
 	if err := os.MkdirAll(filepath.Dir(out), 0o750); err != nil {
 		return Result{}, err
 	}
@@ -94,6 +104,10 @@ func Create(ctx context.Context, cfg config.Config, out string, includeSecrets b
 	}
 	if err := os.Rename(file.Name(), out); err != nil {
 		return Result{}, err
+	}
+	if policy, ok := kindRetention[prune]; ok {
+		// Retention is best effort; a failed cleanup must not fail the backup.
+		_, _ = Prune(cfg.BackupDir(), policy.retention, policy.keep, out)
 	}
 	return Result{Path: out, Files: included, Warning: warning}, nil
 }

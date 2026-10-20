@@ -13,7 +13,7 @@ const (
 	AutoBackupEnabledKey   = "backup.auto.enabled"
 	autoBackupLastErrorKey = "backup.auto.last_error"
 
-	AutoBackupKeep     = 7
+	AutoBackupKeep     = backup.KeepAutomaticBackups
 	autoBackupInterval = 24 * time.Hour
 	autoBackupPoll     = time.Hour
 )
@@ -39,7 +39,7 @@ func (a *App) RunAutoBackup(ctx context.Context) {
 	}
 }
 
-// AutoBackupOnce creates and prunes automatic backups when due. Manual and pre-update backups are never pruned.
+// AutoBackupOnce creates an automatic backup when due; pruning only touches automatic backups.
 func (a *App) AutoBackupOnce(ctx context.Context, now time.Time) (bool, error) {
 	settings, err := a.Store.Settings(ctx)
 	if err != nil {
@@ -55,15 +55,11 @@ func (a *App) AutoBackupOnce(ctx context.Context, now time.Time) (bool, error) {
 	if last := newestAutomatic(entries); last != nil && !autoBackupDue(*last, now) {
 		return false, nil
 	}
-	result, err := backup.Create(ctx, a.Config, backup.NewPath(a.Config, backup.KindAutomatic), false)
+	result, err := backup.CreateKind(ctx, a.Config, backup.KindAutomatic)
 	if err != nil {
 		return false, a.recordAutoBackupError(ctx, settings, err)
 	}
-	_, pruneErr := backup.Prune(a.Config, backup.KindAutomatic, AutoBackupKeep)
 	_ = a.Store.AddEvent(ctx, "info", "backup.auto.created", "Automatische Sicherung erstellt", map[string]string{"file": filepath.Base(result.Path)})
-	if pruneErr != nil {
-		return true, a.recordAutoBackupError(ctx, settings, pruneErr)
-	}
 	if settings[autoBackupLastErrorKey] != "" {
 		_ = a.Store.PutSettings(ctx, map[string]string{autoBackupLastErrorKey: ""})
 	}

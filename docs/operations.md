@@ -76,9 +76,13 @@ Backups live in `/var/lib/camera-appliance/backups/` and are named by kind:
 
 | File name | Kind | Pruned automatically |
 | --- | --- | --- |
-| `camera-appliance-<UTC>.tar.gz` | manual (UI, CLI, older releases) | never |
-| `camera-appliance-update-<UTC>.tar.gz` | created before an update | never |
+| `camera-appliance-<UTC>.tar.gz` | manual (UI, CLI without `--out`, older releases) | newest 5 kept |
+| `camera-appliance-update-<UTC>.tar.gz` | created before an update | newest 5 kept |
 | `camera-appliance-auto-<UTC>.tar.gz` | daily automatic backup | newest 7 kept |
+
+A kind is pruned only when a new backup of the same kind is created, so the
+daily job never removes manual or pre-update backups. Files written with
+`--out` elsewhere are never pruned.
 
 `serve` checks hourly and creates an automatic backup once the newest one is
 24 hours old. The first check runs two minutes after start. Disable it with the
@@ -133,14 +137,45 @@ Apply a local archive on the customer appliance:
 sudo /opt/camera-appliance/bin/camera-appliance update --archive /path/to/camera-appliance-0.1.0-COMMIT.tar.gz
 ```
 
-The update command:
+The update command hands the work to an independent update worker (see `docs/recovery.md`). The worker:
 
-- creates a normal configuration backup first,
+- deletes rollback snapshots beyond the newest three, keeping the one `update rollback` would use,
+- creates a pre-update configuration backup (`camera-appliance-update-*.tar.gz`, the newest five are kept),
+- downloads the archive to the worker's temp directory and extracts it under `/var/lib/camera-appliance/backups`,
+- checks free disk space (see below). If it is short, it stops with a German message before any file is changed,
 - snapshots the current installed files under `/var/lib/camera-appliance/backups/rollback-*`,
-- copies the release into `/opt/camera-appliance`,
-- runs `docker compose up -d --build --remove-orphans`,
-- checks the manager API, go2rtc API, and Viewer API,
-- automatically restores the previous files if the healthcheck fails.
+- tags the running manager image as `<repo>:previous`,
+- writes the release-owned trees (`frontend/src`, `frontend/public`, `frontend/tests`, `frontend/dist`, `camera-manager`) to `/opt/camera-appliance/.update-new/` and swaps them in by rename. Other release files are replaced one at a time, atomically,
+- runs `docker compose build` while the old manager keeps serving its own UI, then swaps in `frontend/dist`,
+- runs `docker compose up -d --build --force-recreate --remove-orphans`, which reuses the build cache,
+- checks that the manager's version and commit match the release manifest, then checks the go2rtc API and Viewer API,
+- on failure, restores the snapshot and starts the `:previous` image with `up -d --no-build`. It rebuilds the old sources only if that image is missing or does not start,
+- on success, replaces changed systemd units that are already installed and removes dangling manager images.
+
+An interrupted swap is repaired at the start of the next update or rollback. A tree left only in `.update-old/` is moved back.
+
+### Disk space
+
+Before the snapshot, the worker checks free space on each filesystem. Needs on the same filesystem are added together:
+
+| Need | Filesystem | Size |
+| --- | --- | --- |
+| Staged release trees | `/opt/camera-appliance` | size of the extracted release |
+| Rollback snapshot | `/var/lib/camera-appliance/backups` | size of the current install tree |
+| Docker image build | Docker data root (`docker info --format '{{.DockerRootDir}}'`, usually `/var/lib/docker`) | 5 GiB |
+| Headroom | every checked filesystem | 256 MB |
+
+On a laptop with a single root partition, all four needs land on one filesystem. An update then needs about 5.6 GB free. The Docker updater container mounts the data root read-only, without its submounts, and uses it only for this check. If the data root cannot be determined, the worker skips the Docker reservation, and `--no-restart` skips it too. Manual `update rollback` needs only the snapshot size plus 32 MB on the install filesystem. It does not need to build.
+
+Measured on 0.5.x with Docker 29 and BuildKit (October 2026):
+
+- The release archive is 13–14 MB and extracts to 25–26 MB. The download (capped at 512 MiB) and the extraction already exist when free space is measured.
+- A rebuild after a source-only change adds 642 MB of build cache: 405 MB for the Go module layer, 195 MB for the `go build` layer including its build cache, 33 MB for the binary layer, and a few small copy layers.
+- A rebuild after a dependency change also reruns `npm ci` (195 MB) and `go mod download` (585 MB), about 1.4 GB in total.
+- A cold build creates 3.4 GB of build cache with the default Docker builder and 4.2 GB with a `docker-container` builder. The manager image is 938 MB unpacked, 253 MB compressed. The Dockerfile names its base images by tag (`golang:1.26-bookworm`, `node:22-bookworm`, `debian:bookworm-slim`), and BuildKit resolves these tags against the registry on every build. If upstream republished a base image since the last update, the next update rebuilds almost from scratch, so the reservation covers a cold build.
+- go2rtc is a pinned image (about 270 MB). It is pulled only when a release changes the pin.
+
+The updater keeps at most three rollback snapshots plus the current one, five pre-update backups, and the `:previous` image. It does not prune the Docker build cache, because the fallback rebuild uses it offline. BuildKit's garbage collector trims the cache on its own. If an update reports a lack of Docker space, `sudo docker builder prune` frees the cache. Rollback still works afterwards because it uses the `:previous` image. The fallback rebuild then needs network access.
 
 Apply from a URL:
 

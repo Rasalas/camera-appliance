@@ -3,10 +3,10 @@ package backup
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 	"time"
 
@@ -129,21 +129,8 @@ func TestOpenReturnsBackupContent(t *testing.T) {
 	}
 }
 
-func TestPruneKeepsNewestOfKindAndNeverTouchesOthers(t *testing.T) {
-	cfg := config.Config{StateDir: t.TempDir()}
-	for day := 1; day <= 9; day++ {
-		stamp := time.Date(2026, 1, day, 3, 0, 0, 0, time.UTC).Format(timestampLayout)
-		writeBackupFile(t, cfg, "camera-appliance-auto-"+stamp+".tar.gz", "a")
-		writeBackupFile(t, cfg, "camera-appliance-"+stamp+".tar.gz", "m")
-		writeBackupFile(t, cfg, "camera-appliance-update-"+stamp+".tar.gz", "u")
-	}
-	removed, err := Prune(cfg, KindAutomatic, 7)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(removed) != 2 || !strings.Contains(removed[0], "20260102") || !strings.Contains(removed[1], "20260101") {
-		t.Fatalf("removed = %v", removed)
-	}
+func countKinds(t *testing.T, cfg config.Config) map[Kind]int {
+	t.Helper()
 	entries, err := List(cfg)
 	if err != nil {
 		t.Fatal(err)
@@ -152,8 +139,36 @@ func TestPruneKeepsNewestOfKindAndNeverTouchesOthers(t *testing.T) {
 	for _, entry := range entries {
 		counts[entry.Kind]++
 	}
-	if counts[KindAutomatic] != 7 || counts[KindManual] != 9 || counts[KindUpdate] != 9 {
-		t.Fatalf("counts = %v", counts)
+	return counts
+}
+
+func TestCreatePrunesOnlyBackupsOfTheSameKind(t *testing.T) {
+	cfg := newBackupTestConfig(t)
+	for day := 1; day <= 9; day++ {
+		stamp := time.Date(2026, 1, day, 3, 0, 0, 0, time.UTC).Format(timestampLayout)
+		writeBackupFile(t, cfg, "camera-appliance-auto-"+stamp+".tar.gz", "a")
+		writeBackupFile(t, cfg, "camera-appliance-"+stamp+".tar.gz", "m")
+		writeBackupFile(t, cfg, "camera-appliance-update-"+stamp+".tar.gz", "u")
+	}
+	ctx := context.Background()
+	steps := []struct {
+		create func() error
+		want   map[Kind]int
+	}{
+		{func() error { _, err := CreateKind(ctx, cfg, KindAutomatic); return err }, map[Kind]int{KindAutomatic: 7, KindManual: 9, KindUpdate: 9}},
+		{func() error { _, err := CreateKind(ctx, cfg, KindUpdate); return err }, map[Kind]int{KindAutomatic: 7, KindManual: 9, KindUpdate: 5}},
+		{func() error { _, err := Create(ctx, cfg, "", false); return err }, map[Kind]int{KindAutomatic: 7, KindManual: 5, KindUpdate: 5}},
+	}
+	for i, step := range steps {
+		if err := step.create(); err != nil {
+			t.Fatal(err)
+		}
+		if got := countKinds(t, cfg); fmt.Sprint(got) != fmt.Sprint(step.want) {
+			t.Fatalf("step %d counts = %v, want %v", i, got, step.want)
+		}
+	}
+	if Keep(KindAutomatic) != 7 || Keep(KindManual) != KeepBackups || Keep(KindUpdate) != KeepBackups {
+		t.Fatal("unexpected retention")
 	}
 }
 

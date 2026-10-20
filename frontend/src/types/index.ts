@@ -367,6 +367,7 @@ export interface AutoBackupStatus {
 export interface BackupList {
   backups: BackupEntry[]
   auto: AutoBackupStatus
+  retention: Record<BackupKind, number>
   warning: string
 }
 

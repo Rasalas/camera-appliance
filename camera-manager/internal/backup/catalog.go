@@ -41,6 +41,26 @@ var namePattern = regexp.MustCompile(`^camera-appliance-(?:(auto|update)-)?(\d{8
 
 var kindSegments = map[Kind]string{KindManual: "", KindAutomatic: "auto-", KindUpdate: "update-"}
 
+const KeepAutomaticBackups = 7
+
+var (
+	UpdateArchives    = Retention{pattern: regexp.MustCompile(`^camera-appliance-update-(\d{8}-\d{6}(?:\.\d+)?)\.tar\.gz$`)}
+	AutomaticArchives = Retention{pattern: regexp.MustCompile(`^camera-appliance-auto-(\d{8}-\d{6}(?:\.\d+)?)\.tar\.gz$`)}
+)
+
+// Each kind is pruned only when a new backup of the same kind is created.
+var kindRetention = map[Kind]struct {
+	retention Retention
+	keep      int
+}{
+	KindManual:    {BackupArchives, KeepBackups},
+	KindUpdate:    {UpdateArchives, KeepBackups},
+	KindAutomatic: {AutomaticArchives, KeepAutomaticBackups},
+}
+
+// Keep returns how many backups of kind survive pruning.
+func Keep(kind Kind) int { return kindRetention[kind].keep }
+
 // NewPath returns a fresh archive path in the backup directory for kind.
 func NewPath(cfg config.Config, kind Kind) string {
 	stamp := time.Now().UTC().Format(timestampLayout + ".000000000")
@@ -128,32 +148,6 @@ func Delete(cfg config.Config, name string) error {
 	}
 	defer root.Close()
 	return notFound(root.Remove(name))
-}
-
-// Prune deletes the oldest backups of kind beyond keep and returns their names.
-func Prune(cfg config.Config, kind Kind, keep int) ([]string, error) {
-	entries, err := List(cfg)
-	if err != nil {
-		return nil, err
-	}
-	var removed []string
-	var errs []error
-	kept := 0
-	for _, entry := range entries {
-		if entry.Kind != kind {
-			continue
-		}
-		if kept < keep {
-			kept++
-			continue
-		}
-		if err := Delete(cfg, entry.Name); err != nil && !errors.Is(err, ErrNotFound) {
-			errs = append(errs, err)
-			continue
-		}
-		removed = append(removed, entry.Name)
-	}
-	return removed, errors.Join(errs...)
 }
 
 // openEntry validates name and confines access to the backup directory via os.Root.

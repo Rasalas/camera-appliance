@@ -16,7 +16,7 @@
     </div>
     <label class="toggle-row">
       <input type="checkbox" :checked="list?.auto.enabled ?? true" :disabled="!list || savingAuto" @change="onAutoChange" />
-      <div><div class="lbl-main">Täglich automatisch sichern</div><div class="lbl-sub">{{ autoBackupSummary(list?.auto) }} Sicherungen von Hand und vor Updates werden nie automatisch gelöscht.</div></div>
+      <div><div class="lbl-main">Täglich automatisch sichern</div><div class="lbl-sub">{{ autoBackupSummary(list?.auto) }} {{ otherRetentionText(list?.retention) }}</div></div>
     </label>
     <p v-if="list?.auto.last_error" class="notice err" role="alert">Letzte automatische Sicherung fehlgeschlagen: {{ list.auto.last_error }}</p>
 
@@ -88,7 +88,7 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { api } from '../../api/client'
 import { useSystem } from '../../composables/useSystem'
-import { autoBackupSummary, backupKindLabel, backupSizeLabel, backupTimeLabel } from '../../composables/backupList'
+import { autoBackupSummary, backupKindLabel, backupSizeLabel, backupTimeLabel, otherRetentionText } from '../../composables/backupList'
 import type { BackupEntry, BackupList } from '../../types'
 import AdminDialog from '../../components/AdminDialog.vue'
 import AppIcon from '../../components/AppIcon.vue'

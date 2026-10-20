@@ -100,7 +100,7 @@ pages, producing errors about missing `supportReport`, `downloadSupportBundle`,
 `health` and `settingsLoaded`.
 
 The updater now replaces release-owned frontend source, public assets, tests,
-build output and Go sources before copying either a release or a rollback
+build output and Go sources as whole trees, for both a release and a rollback
 snapshot. Runtime state and customer configuration stay outside these trees.
 The Docker frontend stage also includes the shared stamp font and project
 license imported by the UI. CI builds the actual Docker frontend stage and
@@ -123,8 +123,20 @@ needs a working user service manager, as it does for the appliance units.
 The supervisor waits for stack recreation and verifies the running manager's
 version and commit against the release manifest, then checks go2rtc and the viewer.
 A healthy old manager does not count as a successful update. Failure triggers
-file rollback unless `--no-auto-rollback` was specified. Recovery has a separate
-timeout so it can run after the update deadline expires.
+file rollback unless `--no-auto-rollback` was specified. Rollback restores the
+snapshot and recreates the stack from the `<repo>:previous` image that was tagged
+before the update, without building. It rebuilds the old sources only if that
+image is missing or does not pass the healthcheck. Recovery has its own
+10-minute timeout, so it can run after the update deadline expires. Manual
+`update rollback` uses the same image, recorded as `previous_image` in
+`update-last.json`.
+
+New trees are written to `/opt/camera-appliance/.update-new/` first and then
+renamed into place, with the old trees moved to `.update-old/`. If writing them
+fails, the live installation stays unchanged. The running manager serves the UI
+from `frontend/dist`, so that tree is swapped only after the new image is built.
+If a swap is interrupted, the next update or rollback moves any tree found only
+in `.update-old/` back before it starts.
 
 ```bash
 camera-appliance update status
@@ -143,3 +155,22 @@ itself requires this recovery step; only manager restarts are handled automatica
 healthcheck. A manual restart is then required. Release archives used for normal
 updates must include version and commit metadata. Rollback restores installation
 files; restoring runtime data is a separate explicit backup restore operation.
+
+### Update refuses: not enough disk space
+
+An update that reports `nicht genug freier Speicherplatz` has stopped before
+the snapshot. The installation was not changed. The message names the
+filesystem, the space needed and the space free. If it mentions the
+`Docker-Image-Build`, most of the requirement is the 5 GiB reserved on Docker's
+data root. `docs/operations.md` explains the numbers.
+
+```bash
+df -h /opt/camera-appliance /var/lib/camera-appliance "$(sudo docker info --format '{{.DockerRootDir}}')"
+sudo docker system df
+sudo docker builder prune
+```
+
+`docker builder prune` removes only the build cache. Rollback still uses the
+`:previous` image, but a fallback rebuild then needs network access. Rollback
+snapshots, backups and support bundles beyond the kept counts are removed
+automatically the next time an update, backup or support bundle is created.

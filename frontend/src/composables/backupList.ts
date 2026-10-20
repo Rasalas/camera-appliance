@@ -1,4 +1,4 @@
-import type { AutoBackupStatus, BackupKind } from '../types/index.ts'
+import type { AutoBackupStatus, BackupKind, BackupList } from '../types/index.ts'
 
 const kindLabels: Record<BackupKind, string> = {
   manual: 'Von Hand',
@@ -29,6 +29,14 @@ export function autoBackupSummary(auto: AutoBackupStatus | undefined): string {
   if (!auto.enabled) return 'Automatische Sicherung ist aus.'
   const last = auto.last_at ? `Zuletzt: ${backupTimeLabel(auto.last_at)}.` : 'Die erste automatische Sicherung folgt in Kürze.'
   return `Einmal am Tag. Die letzten ${auto.keep} automatischen Sicherungen bleiben erhalten. ${last}`
+}
+
+// The daily job never prunes other kinds; each kind is capped when a new one of it is made.
+export function otherRetentionText(retention: BackupList['retention'] | undefined): string {
+  const manual = retention?.manual, update = retention?.['before-update']
+  if (!manual || !update) return ''
+  if (manual === update) return `Von Sicherungen von Hand und vor Updates bleiben jeweils die letzten ${manual} erhalten.`
+  return `Von Sicherungen von Hand bleiben die letzten ${manual} erhalten, von Sicherungen vor Updates die letzten ${update}.`
 }
 
 export function backupDownloadPath(name: string): string {
