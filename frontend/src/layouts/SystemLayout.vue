@@ -24,8 +24,6 @@ const activeLabel = computed(() => route.params.id && route.path.includes('/iden
 
 async function retry() { retrying.value = true; try { await loadAll() } finally { retrying.value = false } }
 
-async function retry() { retrying.value = true; try { await loadAll() } finally { retrying.value = false } }
-
 onMounted(() => void loadAll())
 </script>
 
