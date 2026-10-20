@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"camera-appliance/camera-manager/internal/releasearchive"
 	updater "camera-appliance/camera-manager/internal/update"
 	"camera-appliance/camera-manager/internal/version"
 )
@@ -163,7 +164,7 @@ func (s *Server) startUpdateDownload(ctx context.Context) error {
 	go func() {
 		downloadCtx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 		defer cancel()
-		path, digest, err := updater.FetchArchive(downloadCtx, url, s.updates.archiveDir, http.DefaultClient, func(done, total int64) {
+		path, digest, err := fetchVerifiedArchive(downloadCtx, url, s.updates.archiveDir, func(done, total int64) {
 			s.updates.mu.Lock()
 			s.updates.st.Downloaded = done
 			s.updates.st.Total = total
@@ -185,6 +186,24 @@ func (s *Server) startUpdateDownload(ctx context.Context) error {
 		_ = s.app.Store.AddEvent(context.Background(), "info", "update.downloaded", "Update wurde heruntergeladen", map[string]string{"digest": digest})
 	}()
 	return nil
+}
+
+// fetchVerifiedArchive downloads url only if the release publishes its digest
+// and keeps the archive only when the downloaded bytes match it.
+func fetchVerifiedArchive(ctx context.Context, url, dir string, onProgress func(done, total int64)) (string, string, error) {
+	expected, err := releasearchive.ExpectedDigest(ctx, http.DefaultClient, url)
+	if err != nil {
+		return "", "", err
+	}
+	path, digest, err := updater.FetchArchive(ctx, url, dir, http.DefaultClient, onProgress)
+	if err != nil {
+		return "", "", err
+	}
+	if digest != expected {
+		_ = removeArchiveFile(path)
+		return "", "", fmt.Errorf("Prüfsumme stimmt nicht mit %s überein (erwartet sha256:%s, erhalten sha256:%s)", releasearchive.ChecksumsFile, expected, digest)
+	}
+	return path, digest, nil
 }
 
 // startUpdateInstall hands the archive to an independent, durable update job.
