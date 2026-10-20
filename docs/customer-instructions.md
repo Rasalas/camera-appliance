@@ -32,6 +32,17 @@ Unter **Kameras** blendet **Ausblenden** eine Kamera aus der Live-Ansicht aus, *
 
 Die Netzwerkfreigabe bleibt ohne Admin-Passwort grundsätzlich geschlossen. Eine lokale Firewall muss TCP-Port 8091 gegebenenfalls zusätzlich für das lokale Subnetz erlauben.
 
+## Sicherung
+
+Die Station sichert Kameras, Namen und Einstellungen einmal am Tag von selbst und behält die letzten sieben automatischen Sicherungen. Unter **Wartung → Sicherung** gibt es außerdem:
+
+- **Jetzt sichern** erstellt sofort eine Sicherung, zum Beispiel vor größeren Änderungen.
+- **Herunterladen** speichert eine Sicherung auf dem Gerät, mit dem du gerade arbeitest. Kopiere die Datei danach auf ein anderes Gerät oder einen USB-Stick. Fällt die Station aus, sind die Sicherungen auf ihr ebenfalls weg.
+- **Löschen** entfernt eine Sicherung nach einer Rückfrage.
+- **Wiederherstellen** spielt eine heruntergeladene Sicherung wieder ein.
+
+Sicherungen enthalten Kamera-Passwörter. Bewahre heruntergeladene Dateien deshalb sicher auf und gib sie nicht weiter.
+
 ## Vollbild
 
 Über die Vollbild-Schaltfläche in der Kameraansicht wird – soweit der Browser dies unterstützt – gleichzeitig die Bildschirmsperre verhindert. Der lokale Kiosk-Modus fordert diese Funktion automatisch an. Browser können den Zugriff über eine unverschlüsselte LAN-Adresse ablehnen; dann müssen die Energiespareinstellungen des verwendeten Geräts zusätzlich angepasst werden.

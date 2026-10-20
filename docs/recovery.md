@@ -15,7 +15,9 @@ camera-appliance restore --in /var/lib/camera-appliance/backups/FILE.tar.gz
 camera-appliance restart-stack
 ```
 
-Backups may contain generated RTSP URLs and should be stored securely.
+Backups contain camera passwords and should be stored securely. See
+[operations](operations.md#backups) for contents, kinds and retention. The admin
+UI can also download a backup and restore it by upload.
 
 Database backups include committed WAL changes and can be created while the
 manager is running. Restore validates the archive before changing files and

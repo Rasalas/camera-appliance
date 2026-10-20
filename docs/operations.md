@@ -70,6 +70,34 @@ On camera checks, the watchdog evaluates direct and relay paths with the same pa
 
 A real active-path change updates `camera.active_path.*`, renders go2rtc, restarts go2rtc when enabled and outside the cooldown, and writes a `watchdog.path_switched` event with the switch reason. If a restart is inside the cooldown, the watchdog writes `watchdog.path_restart_cooldown`, marks a pending restart, and performs it after the cooldown with `watchdog.path_restart_after_cooldown`. A failed render or restart also marks the restart as pending; the watchdog re-renders and retries it with the same backoff.
 
+## Backups
+
+Backups live in `/var/lib/camera-appliance/backups/` and are named by kind:
+
+| File name | Kind | Pruned automatically |
+| --- | --- | --- |
+| `camera-appliance-<UTC>.tar.gz` | manual (UI, CLI, older releases) | never |
+| `camera-appliance-update-<UTC>.tar.gz` | created before an update | never |
+| `camera-appliance-auto-<UTC>.tar.gz` | daily automatic backup | newest 7 kept |
+
+`serve` checks hourly and creates an automatic backup once the newest one is
+24 hours old. The first check runs two minutes after start. Disable it with the
+setting `backup.auto.enabled=false` (**Wartung → Sicherung → Täglich automatisch
+sichern**). Failures show on the backup page and create one `backup.auto.failed`
+event per distinct error.
+
+**Wartung → Sicherung** lists the backups and can create, download and delete
+them. The API (`GET /api/backups`, `GET|DELETE /api/backups/{name}`) is
+admin-only and accepts only names that match the pattern above, without symlinks.
+`POST /api/backup` always writes to the backup directory and never includes
+`secrets.env`. Use `camera-appliance backup --out … --include-secrets` for that.
+
+Every archive contains the SQLite state (password hashes only), the generated
+`go2rtc.yaml` (camera passwords in RTSP URLs), `local.env` (camera passwords if
+the keyring is unavailable) and the upload password file. Keyring entries are
+never included. Archives are created with mode `0600`. Copy important backups to
+another device. Backups on the appliance disk are lost with the disk.
+
 ## Updates and Rollback
 
 Build a release archive on the development machine:
