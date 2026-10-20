@@ -13,7 +13,7 @@ import { maintenancePages, type NavItem } from '../../navigation'
 const destinations: NavItem[] = [...maintenancePages, { to: '/system/ueber#updates', label: 'Updates', icon: 'update' }]
 const descriptions: Record<string, string> = {
   '/system/wartung/watchdog': 'Kameras und Verbindungen überwachen, automatische Wiederherstellung einstellen.',
-  '/system/wartung/sicherung': 'Einstellungen sichern oder aus einer Sicherung wiederherstellen.',
+  '/system/wartung/sicherung': 'Sicherungen erstellen, herunterladen und wiederherstellen. Die Station sichert täglich automatisch.',
   '/system/ueber#updates': 'Installierte Version ansehen und verfügbare Updates unter Über Watchdeck prüfen.',
   '/system/wartung/support': 'Protokoll ansehen, Diagnosedaten herunterladen und Hilfe anfragen.',
 }

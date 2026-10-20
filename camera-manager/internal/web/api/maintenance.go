@@ -56,13 +56,9 @@ func (s *Server) getEvents(w http.ResponseWriter, r *http.Request) {
 	writeResult(w, events, err)
 }
 
+// createBackup ignores client paths and secrets.env so every archive stays listable and downloadable.
 func (s *Server) createBackup(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		Out            string `json:"out"`
-		IncludeSecrets bool   `json:"include_secrets"`
-	}
-	_ = json.NewDecoder(r.Body).Decode(&req)
-	result, err := backup.Create(r.Context(), s.app.Config, req.Out, req.IncludeSecrets)
+	result, err := backup.Create(r.Context(), s.app.Config, "", false)
 	if err == nil {
 		_ = s.app.Store.AddEvent(r.Context(), "info", "backup.created", "Backup erstellt", map[string]string{"path": result.Path})
 	}

@@ -380,7 +380,7 @@ async function relayAction(id: string, action: 'start' | 'stop' | 'restart') {
 }
 
 async function createBackup() {
-  backupResult.value = await api.backup()
+  await api.backup()
   showToast('Sicherung erstellt')
 }
 

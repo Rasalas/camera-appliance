@@ -62,7 +62,12 @@ func apply(ctx context.Context, opts Options) (Result, error) {
 	if last, err := readLastUpdate(opts.Config); err == nil || errors.Is(err, os.ErrNotExist) {
 		_, _ = backup.Prune(opts.Config.BackupDir(), backup.RollbackSnapshots, backup.KeepRollbackSnapshots, last.RollbackDir)
 	}
-	backupResult, err := backup.Create(ctx, opts.Config, opts.BackupOverride, false)
+	var backupResult backup.Result
+	if opts.BackupOverride == "" {
+		backupResult, err = backup.CreateKind(ctx, opts.Config, backup.KindUpdate)
+	} else {
+		backupResult, err = backup.Create(ctx, opts.Config, opts.BackupOverride, false)
+	}
 	if err != nil {
 		return result, fmt.Errorf("pre-update backup failed: %w", err)
 	}

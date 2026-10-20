@@ -24,6 +24,7 @@ var booleanSettings = map[string]bool{
 	"auto_discover": true, "render_after_discovery": true, "restart_after_render": true,
 	NetworkSettingLANAccess: true, AuthSettingViewerPublic: true, AuthSettingLocalAdminBypass: true,
 	watchdogEnabledKey: true, watchdogRestartOnChangeKey: true, watchdogRestartGo2RTCOnFailureKey: true,
+	AutoBackupEnabledKey: true,
 }
 
 var numericSettings = map[string][2]int{

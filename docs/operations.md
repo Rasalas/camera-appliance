@@ -72,6 +72,38 @@ On camera checks, the watchdog evaluates direct and relay paths with the same pa
 
 A real active-path change updates `camera.active_path.*`, renders go2rtc, restarts go2rtc when enabled and outside the cooldown, and writes a `watchdog.path_switched` event with the switch reason. If a restart is inside the cooldown, the watchdog writes `watchdog.path_restart_cooldown`, marks a pending restart, and performs it after the cooldown with `watchdog.path_restart_after_cooldown`. A failed render or restart also marks the restart as pending; the watchdog re-renders and retries it with the same backoff.
 
+## Backups
+
+Backups live in `/var/lib/camera-appliance/backups/` and are named by kind:
+
+| File name | Kind | Pruned automatically |
+| --- | --- | --- |
+| `camera-appliance-<UTC>.tar.gz` | manual (UI, CLI without `--out`, older releases) | newest 5 kept |
+| `camera-appliance-update-<UTC>.tar.gz` | created before an update | newest 5 kept |
+| `camera-appliance-auto-<UTC>.tar.gz` | daily automatic backup | newest 7 kept |
+
+A kind is pruned only when a new backup of the same kind is created, so the
+daily job never removes manual or pre-update backups. Files written with
+`--out` elsewhere are never pruned.
+
+`serve` checks hourly and creates an automatic backup once the newest one is
+24 hours old. The first check runs two minutes after start. Disable it with the
+setting `backup.auto.enabled=false` (**Wartung → Sicherung → Täglich automatisch
+sichern**). Failures show on the backup page and create one `backup.auto.failed`
+event per distinct error.
+
+**Wartung → Sicherung** lists the backups and can create, download and delete
+them. The API (`GET /api/backups`, `GET|DELETE /api/backups/{name}`) is
+admin-only and accepts only names that match the pattern above, without symlinks.
+`POST /api/backup` always writes to the backup directory and never includes
+`secrets.env`. Use `camera-appliance backup --out … --include-secrets` for that.
+
+Every archive contains the SQLite state (password hashes only), the generated
+`go2rtc.yaml` (camera passwords in RTSP URLs), `local.env` (camera passwords if
+the keyring is unavailable) and the upload password file. Keyring entries are
+never included. Archives are created with mode `0600`. Copy important backups to
+another device. Backups on the appliance disk are lost with the disk.
+
 ## Updates and Rollback
 
 Build a release archive on the development machine:
@@ -110,7 +142,7 @@ sudo /opt/camera-appliance/bin/camera-appliance update --archive /path/to/camera
 The update command hands the work to an independent update worker (see `docs/recovery.md`). The worker:
 
 - deletes rollback snapshots beyond the newest three, keeping the one `update rollback` would use,
-- creates a normal configuration backup (`camera-appliance-*.tar.gz`, the newest five are kept),
+- creates a pre-update configuration backup (`camera-appliance-update-*.tar.gz`, the newest five are kept),
 - downloads the archive to the worker's temp directory and extracts it under `/var/lib/camera-appliance/backups`,
 - checks free disk space (see below). If it is short, it stops with a German message before any file is changed,
 - snapshots the current installed files under `/var/lib/camera-appliance/backups/rollback-*`,
@@ -145,7 +177,7 @@ Measured on 0.5.x with Docker 29 and BuildKit (October 2026):
 - A cold build creates 3.4 GB of build cache with the default Docker builder and 4.2 GB with a `docker-container` builder. The manager image is 938 MB unpacked, 253 MB compressed. The Dockerfile names its base images by tag (`golang:1.26-bookworm`, `node:22-bookworm`, `debian:bookworm-slim`), and BuildKit resolves these tags against the registry on every build. If upstream republished a base image since the last update, the next update rebuilds almost from scratch, so the reservation covers a cold build.
 - go2rtc is a pinned image (about 270 MB). It is pulled only when a release changes the pin.
 
-The updater keeps at most three rollback snapshots plus the current one, five backups, and the `:previous` image. It does not prune the Docker build cache, because the fallback rebuild uses it offline. BuildKit's garbage collector trims the cache on its own. If an update reports a lack of Docker space, `sudo docker builder prune` frees the cache. Rollback still works afterwards because it uses the `:previous` image. The fallback rebuild then needs network access.
+The updater keeps at most three rollback snapshots plus the current one, five pre-update backups, and the `:previous` image. It does not prune the Docker build cache, because the fallback rebuild uses it offline. BuildKit's garbage collector trims the cache on its own. If an update reports a lack of Docker space, `sudo docker builder prune` frees the cache. Rollback still works afterwards because it uses the `:previous` image. The fallback rebuild then needs network access.
 
 Apply from a URL:
 
