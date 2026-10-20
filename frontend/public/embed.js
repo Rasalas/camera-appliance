@@ -1,4 +1,4 @@
-  import { streamErrorPresentation } from '/embed-status.js';
+  import { playerRetryDelay, playerUnavailablePresentation, streamErrorPresentation } from '/embed-status.js';
 
   const p = new URLSearchParams(location.search);
   const src = p.get('src');
@@ -6,15 +6,18 @@
   const mode = p.get('mode') || 'mse,mp4,mjpeg';
   let muted = true;
   document.documentElement.style.setProperty('--fit', p.get('fit') === 'contain' ? 'contain' : 'cover');
-  if (src) {
-    await import('/go2rtc/video-stream.js'); // registriert <video-stream> same-origin
-    const el = document.createElement('video-stream');
-    el.background = true;            // Stream nicht pausieren, wenn iframe versteckt
-    el.muted = true;
-    el.mode = mode;
-    el.src = '/go2rtc/api/ws?src=' + encodeURIComponent(src);
-    document.body.appendChild(el);
+  const RETRY_PARAM = 'player_retry';
+  const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+  const go2rtcAssetsReachable = async () => {
+    try {
+      const responses = await Promise.all(['video-stream.js', 'video-rtc.js'].map((asset) => fetch('/go2rtc/' + asset, { cache: 'no-store' })));
+      return responses.every((res) => res.ok);
+    } catch {
+      return false;
+    }
+  };
 
+  if (src) {
     const notice = document.createElement('div');
     notice.className = 'stream-error';
     notice.hidden = true;
@@ -22,6 +25,29 @@
     notice.innerHTML = '<div class="stream-error-card"><div class="stream-error-mark" aria-hidden="true"></div><div class="stream-error-label"></div><div class="stream-error-title"></div><div class="stream-error-detail"></div></div>';
     notice.querySelector('.stream-error-label').textContent = label;
     document.body.appendChild(notice);
+
+    try {
+      await import('/go2rtc/video-stream.js'); // registriert <video-stream> same-origin
+    } catch {
+      notice.querySelector('.stream-error-title').textContent = playerUnavailablePresentation.title;
+      notice.querySelector('.stream-error-detail').textContent = playerUnavailablePresentation.detail;
+      notice.hidden = false;
+      let attempt = Number(p.get(RETRY_PARAM)) || 0;
+      do {
+        await sleep(playerRetryDelay(attempt++));
+      } while (!(await go2rtcAssetsReachable()));
+      // A failed module import can stay cached for this document, so reload once go2rtc answers.
+      const next = new URL(location.href);
+      next.searchParams.set(RETRY_PARAM, String(attempt));
+      location.replace(next);
+      await new Promise(() => {});
+    }
+    const el = document.createElement('video-stream');
+    el.background = true;            // Stream nicht pausieren, wenn iframe versteckt
+    el.muted = true;
+    el.mode = mode;
+    el.src = '/go2rtc/api/ws?src=' + encodeURIComponent(src);
+    document.body.appendChild(el);
 
     // Native Controls cross-browser zuverlässig abschalten (auch Firefox):
     let readySent = false;

@@ -730,12 +730,13 @@ async function persistDisplay(slot: ViewerSlot) {
 
 // --- Stream / state helpers --------------------------------------------------
 
+// Playback presence decides, not state: a go2rtc outage only changes the status while players retry.
 function isPlayable(slot: ViewerSlot) {
-  return slot.state === 'online' || slot.state === 'connecting'
+  return !!slot.playback?.page_url
 }
 
 function shouldRenderPlayer(slot: ViewerSlot) {
-  if (!slot.playback?.page_url || !isPlayable(slot)) return false
+  if (!isPlayable(slot)) return false
   if (performanceMode.value === 'low') return slot.alias === primaryLiveAlias.value
   return true
 }
@@ -746,7 +747,7 @@ function shouldRenderHDPlayer(slot: ViewerSlot) {
 }
 
 function isPausedByPerformance(slot: ViewerSlot) {
-  return performanceMode.value === 'low' && !!slot.playback?.page_url && isPlayable(slot) && slot.alias !== primaryLiveAlias.value
+  return performanceMode.value === 'low' && isPlayable(slot) && slot.alias !== primaryLiveAlias.value
 }
 
 function iframeLoading(slot: ViewerSlot): 'eager' | 'lazy' {

@@ -142,7 +142,7 @@ func TestViewerIgnoresWatchdogStateWhenWatchdogIsDisabled(t *testing.T) {
 	}
 }
 
-func TestViewerKeepsPlaybackDuringBriefGo2RTCOutage(t *testing.T) {
+func TestViewerKeepsPlaybackWhileGo2RTCIsUnavailable(t *testing.T) {
 	ctx := context.Background()
 	var down atomic.Bool
 	go2rtc := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -161,25 +161,51 @@ func TestViewerKeepsPlaybackDuringBriefGo2RTCOutage(t *testing.T) {
 		}
 		return viewer.Slots[0]
 	}
-	if slot := slotState(); slot.State != ViewerStateOnline {
-		t.Fatalf("expected online slot, got %s", slot.State)
+	if slot := slotState(); slot.State != ViewerStateOnline || slot.Playback == nil {
+		t.Fatalf("expected online slot with playback, got %s %+v", slot.State, slot.Playback)
 	}
 	down.Store(true)
 	for i := 1; i < viewerGo2RTCFailureLimit; i++ {
 		slot := slotState()
 		if slot.State != ViewerStateOnline || slot.Playback == nil {
-			t.Fatalf("failure %d removed playback: %s %+v", i, slot.State, slot.Playback)
+			t.Fatalf("failure %d changed the slot: %s %+v", i, slot.State, slot.Playback)
 		}
 		if !hasDiagnostic(slot, "go2rtc", "warn") {
 			t.Fatalf("expected go2rtc warning, got %+v", slot.Diagnostics)
 		}
 	}
-	if slot := slotState(); slot.State != ViewerStateStreamUnavailable || slot.Playback != nil {
-		t.Fatalf("expected unavailable after %d failures, got %s %+v", viewerGo2RTCFailureLimit, slot.State, slot.Playback)
+	for i := 0; i < 3; i++ {
+		slot := slotState()
+		if slot.State != ViewerStateStreamUnavailable || !hasDiagnostic(slot, "go2rtc", "failed") {
+			t.Fatalf("expected unavailable status after %d failures, got %s %+v", viewerGo2RTCFailureLimit+i, slot.State, slot.Diagnostics)
+		}
+		if slot.Playback == nil || slot.Playback.PageURL == "" {
+			t.Fatalf("go2rtc outage removed playback: %+v", slot.Playback)
+		}
+		if !strings.Contains(slot.Message, "weiter versucht") {
+			t.Fatalf("expected retry message, got %q", slot.Message)
+		}
 	}
 	down.Store(false)
-	if slot := slotState(); slot.State != ViewerStateOnline {
-		t.Fatalf("expected recovery, got %s", slot.State)
+	if slot := slotState(); slot.State != ViewerStateOnline || slot.Playback == nil {
+		t.Fatalf("expected recovery, got %s %+v", slot.State, slot.Playback)
+	}
+}
+
+func TestViewerKeepsPlaybackWhenGo2RTCWasNeverOnline(t *testing.T) {
+	go2rtc := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusServiceUnavailable)
+	}))
+	defer go2rtc.Close()
+	a := newViewerTestApp(t, go2rtc.URL, "secret")
+	seedViewerCameras(t, a, 1)
+	viewer, err := a.Viewer(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	slot := viewer.Slots[0]
+	if slot.State != ViewerStateStreamUnavailable || slot.Playback == nil {
+		t.Fatalf("expected unavailable status with playback on cold start, got %s %+v", slot.State, slot.Playback)
 	}
 }
 

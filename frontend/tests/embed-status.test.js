@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { streamErrorPresentation } from '../public/embed-status.js'
+import { playerRetryDelay, streamErrorPresentation } from '../public/embed-status.js'
 
 test('turns low-level network errors into a concise camera message', () => {
   assert.deepEqual(
@@ -16,4 +16,10 @@ test('turns low-level network errors into a concise camera message', () => {
 test('distinguishes authentication failures from generic stream errors', () => {
   assert.equal(streamErrorPresentation('401 Unauthorized').title, 'Anmeldung fehlgeschlagen')
   assert.equal(streamErrorPresentation('decoder failed').title, 'Stream nicht verfügbar')
+})
+
+test('retries loading the player with capped exponential backoff', () => {
+  assert.deepEqual([0, 1, 2, 3, 4, 5, 6, 50].map((n) => playerRetryDelay(n)), [1000, 2000, 4000, 8000, 16000, 30000, 30000, 30000])
+  assert.equal(playerRetryDelay(-1), 1000)
+  assert.equal(playerRetryDelay(Number.NaN), 1000)
 })

@@ -224,50 +224,43 @@ func (a *App) viewerSlot(slot config.Slot, binding state.Binding, settings map[s
 		}
 		return item
 	}
-	if go2rtcUnavailable {
-		item.State = ViewerStateStreamUnavailable
-		item.Message = "go2rtc ist nicht erreichbar."
-		item.Diagnostics = []ViewerDiagnostic{
-			{Key: "assignment", Status: "ok", Message: "Gerät ist zugeordnet."},
-			{Key: "path", Status: "ok", Message: streamPathDiagnostic(*pathAssessment.Selected)},
-			{Key: "credentials", Status: "ok", Message: "Zugangsdaten sind hinterlegt."},
-			{Key: "go2rtc", Status: "failed", Message: go2rtcStatus.Message},
-		}
-		return item
-	}
-
-	item.State = ViewerStateOnline
-	item.Message = "Stream-Alias ist bereit."
-	item.Playback = &ViewerPlayback{PageURL: go2rtcStreamPageURL(a.Config.Go2RTCURL, slot.ID)}
-	if aliases[viewerProfileAlias(slot.ID, "stream1")] {
-		item.Playback.HDPageURL = go2rtcStreamPageURL(a.Config.Go2RTCURL, viewerProfileAlias(slot.ID, "stream1"))
-	}
-	item.Diagnostics = []ViewerDiagnostic{
-		{Key: "assignment", Status: "ok", Message: "Gerät ist zugeordnet."},
-		{Key: "network", Status: "ok", Message: "Letzte IP: " + binding.Device.LastIP},
-		{Key: "path", Status: "ok", Message: streamPathDiagnostic(*pathAssessment.Selected)},
-		{Key: "credentials", Status: "ok", Message: "Zugangsdaten sind hinterlegt."},
-		{Key: "go2rtc", Status: "ok", Message: "Alias " + slot.ID + " ist konfiguriert."},
-		go2rtcStreamDiagnostic(streamStatus),
-	}
-	if !go2rtcStatus.Online {
-		// Keep playback during short outages; go2rtc players reconnect on their own.
-		for i := range item.Diagnostics {
-			if item.Diagnostics[i].Key == "go2rtc" {
-				item.Diagnostics[i] = ViewerDiagnostic{Key: "go2rtc", Status: "warn", Message: "go2rtc antwortet gerade nicht; laufende Streams werden weiter versucht."}
-			}
-		}
-	}
-	if item.Playback.PageURL == "" {
+	pageURL := go2rtcStreamPageURL(a.Config.Go2RTCURL, slot.ID)
+	if pageURL == "" {
 		item.State = ViewerStateStreamUnavailable
 		item.Message = "go2rtc-Player-URL konnte nicht gebildet werden."
-		item.Playback = nil
 		item.Diagnostics = []ViewerDiagnostic{
 			{Key: "assignment", Status: "ok", Message: "Gerät ist zugeordnet."},
 			{Key: "path", Status: "ok", Message: streamPathDiagnostic(*pathAssessment.Selected)},
 			{Key: "credentials", Status: "ok", Message: "Zugangsdaten sind hinterlegt."},
 			{Key: "go2rtc", Status: "failed", Message: "go2rtc-URL ist ungültig."},
 		}
+		return item
+	}
+	// go2rtc health never removes playback: the players keep reconnecting on their own.
+	item.Playback = &ViewerPlayback{PageURL: pageURL}
+	if aliases[viewerProfileAlias(slot.ID, "stream1")] {
+		item.Playback.HDPageURL = go2rtcStreamPageURL(a.Config.Go2RTCURL, viewerProfileAlias(slot.ID, "stream1"))
+	}
+	item.State = ViewerStateOnline
+	item.Message = "Stream-Alias ist bereit."
+	item.Diagnostics = []ViewerDiagnostic{
+		{Key: "assignment", Status: "ok", Message: "Gerät ist zugeordnet."},
+		{Key: "network", Status: "ok", Message: "Letzte IP: " + binding.Device.LastIP},
+		{Key: "path", Status: "ok", Message: streamPathDiagnostic(*pathAssessment.Selected)},
+		{Key: "credentials", Status: "ok", Message: "Zugangsdaten sind hinterlegt."},
+	}
+	switch {
+	case go2rtcUnavailable:
+		item.State = ViewerStateStreamUnavailable
+		item.Message = "Videodienst antwortet nicht; Streams werden weiter versucht."
+		item.Diagnostics = append(item.Diagnostics, ViewerDiagnostic{Key: "go2rtc", Status: "failed", Message: go2rtcStatus.Message})
+	case !go2rtcStatus.Online:
+		item.Diagnostics = append(item.Diagnostics, ViewerDiagnostic{Key: "go2rtc", Status: "warn", Message: "go2rtc antwortet gerade nicht; laufende Streams werden weiter versucht."})
+	default:
+		item.Diagnostics = append(item.Diagnostics,
+			ViewerDiagnostic{Key: "go2rtc", Status: "ok", Message: "Alias " + slot.ID + " ist konfiguriert."},
+			go2rtcStreamDiagnostic(streamStatus),
+		)
 	}
 	return item
 }
@@ -482,7 +475,7 @@ const (
 	viewerGo2RTCFailureGrace = 30 * time.Second
 )
 
-// go2rtcAvailability debounces viewer health checks so one slow response does not stop all players.
+// go2rtcAvailability debounces the viewer's go2rtc status so one slow health check does not flag every slot.
 type go2rtcAvailability struct {
 	mu           sync.Mutex
 	seenOnline   bool
@@ -490,7 +483,7 @@ type go2rtcAvailability struct {
 	failingSince time.Time
 }
 
-// observe records one health check and reports whether go2rtc counts as unavailable.
+// observe records one health check and reports whether go2rtc counts as unavailable for the status label.
 func (g *go2rtcAvailability) observe(online bool, now time.Time) bool {
 	g.mu.Lock()
 	defer g.mu.Unlock()
@@ -502,6 +495,6 @@ func (g *go2rtcAvailability) observe(online bool, now time.Time) bool {
 		g.failingSince = now
 	}
 	g.failures++
-	// Without an earlier success there are no running players to protect.
+	// Without an earlier success there is no healthy status to hold on to.
 	return !g.seenOnline || g.failures >= viewerGo2RTCFailureLimit || now.Sub(g.failingSince) >= viewerGo2RTCFailureGrace
 }
