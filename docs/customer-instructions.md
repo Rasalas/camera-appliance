@@ -9,6 +9,8 @@
 5. Wenn das nicht hilft, Laptop neu starten.
 6. Wenn eine Kamera weiterhin fehlt, Stromversorgung der Kamera prüfen.
 
+Wird das Kamerafenster geschlossen, öffnet es sich nach etwa 10 Sekunden von selbst wieder, sofern Chromium oder Google Chrome installiert ist.
+
 ## Kamera benennen
 
 1. Unter **Kameras** bei der gewünschten Kamera auf **Umbenennen** klicken (oder auf der Kameraseite im Bereich **Name** auf **Bearbeiten**).
