@@ -13,6 +13,7 @@ import (
 	"syscall"
 	"time"
 
+	"camera-appliance/camera-manager/internal/redaction"
 	"camera-appliance/camera-manager/internal/streamrouting"
 )
 
@@ -38,6 +39,10 @@ func (a *Manager) startSSHRelayProcess(ctx context.Context, relay ManagedRelay) 
 	if err != nil {
 		return 0, err
 	}
+	var logOffset int64
+	if info, err := logFile.Stat(); err == nil {
+		logOffset = info.Size()
+	}
 	cmd, err := newCommand(args)
 	if err != nil {
 		_ = logFile.Close()
@@ -51,7 +56,7 @@ func (a *Manager) startSSHRelayProcess(ctx context.Context, relay ManagedRelay) 
 		return 0, err
 	}
 	_ = logFile.Close()
-	a.trackChild(relay.ID, cmd)
+	a.trackChild(relay.ID, cmd, logOffset)
 	return cmd.Process.Pid, nil
 }
 
@@ -64,10 +69,14 @@ type relayChild struct {
 	exitedAt  time.Time
 	exitCode  int
 	reported  bool
+	// done is closed after the exit fields are set.
+	done chan struct{}
+	// logOffset is where this run's output starts in the relay log.
+	logOffset int64
 }
 
-func (a *Manager) trackChild(relayID string, cmd *exec.Cmd) {
-	child := &relayChild{pid: cmd.Process.Pid, startedAt: time.Now().UTC()}
+func (a *Manager) trackChild(relayID string, cmd *exec.Cmd, logOffset int64) {
+	child := &relayChild{pid: cmd.Process.Pid, startedAt: time.Now().UTC(), done: make(chan struct{}), logOffset: logOffset}
 	a.childMu.Lock()
 	if a.children == nil {
 		a.children = map[string]*relayChild{}
@@ -85,7 +94,63 @@ func (a *Manager) trackChild(relayID string, cmd *exec.Cmd) {
 		child.exitedAt = time.Now().UTC()
 		child.exitCode = code
 		a.childMu.Unlock()
+		close(child.done)
 	}()
+}
+
+// awaitEarlyExit blocks until the grace window after start has passed and
+// returns an error if the tracked child exited within it.
+func (a *Manager) awaitEarlyExit(ctx context.Context, relayID string, pid int) error {
+	child, ok := a.trackedChild(relayID, pid)
+	if !ok || a.startGrace <= 0 {
+		return nil
+	}
+	timer := time.NewTimer(time.Until(child.startedAt.Add(a.startGrace)))
+	defer timer.Stop()
+	select {
+	case <-child.done:
+	case <-timer.C:
+		return nil
+	case <-ctx.Done():
+		return nil
+	}
+	if child, ok = a.trackedChild(relayID, pid); !ok {
+		return nil
+	}
+	message := "Relay-Prozess wurde direkt nach dem Start durch ein Signal beendet."
+	if child.exitCode >= 0 {
+		message = fmt.Sprintf("Relay-Prozess wurde direkt nach dem Start beendet (Exit-Code %d).", child.exitCode)
+	}
+	if tail := relayLogTail(a.relayLogPath(relayID), child.logOffset); tail != "" {
+		message += " Relay-Log: " + tail
+	}
+	return errors.New(redaction.Text(message))
+}
+
+// relayLogTail returns the last lines written after offset, joined on one line.
+func relayLogTail(path string, offset int64) string {
+	file, err := os.Open(path)
+	if err != nil {
+		return ""
+	}
+	defer file.Close()
+	info, err := file.Stat()
+	if err != nil || info.Size() <= offset {
+		return ""
+	}
+	offset = max(offset, info.Size()-relayLogTailBytes)
+	data := make([]byte, info.Size()-offset)
+	n, _ := file.ReadAt(data, offset)
+	var lines []string
+	for _, line := range strings.Split(string(data[:n]), "\n") {
+		if line = strings.TrimSpace(line); line != "" {
+			lines = append(lines, line)
+		}
+	}
+	if len(lines) > relayLogTailLines {
+		lines = lines[len(lines)-relayLogTailLines:]
+	}
+	return strings.Join(lines, " | ")
 }
 
 // trackedChild returns a snapshot of the child started for relayID if it

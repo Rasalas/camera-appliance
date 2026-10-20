@@ -10,14 +10,17 @@ import (
 	"runtime"
 	"strings"
 	"sync"
+	"syscall"
 	"testing"
 	"time"
 )
 
 // exitingRelayManager replaces ssh with a shell script and counts starts.
+// The grace check is off, so exits behave as if they came after the window.
 func exitingRelayManager(t *testing.T, script string) (*Manager, func() int) {
 	t.Helper()
 	a := newTestManager(t)
+	a.startGrace = 0
 	a.Probe = func(context.Context, string, string) error {
 		return errors.New("closed")
 	}
@@ -69,6 +72,107 @@ func TestRelayStatusReportsExitedChildAsNotRunning(t *testing.T) {
 	status := waitForRelayState(t, a, "stale")
 	if !strings.Contains(status.Message, "Exit-Code 3") {
 		t.Fatalf("expected exit code in message, got %q", status.Message)
+	}
+}
+
+func TestEnsureFailsWhenRelayExitsWithinGrace(t *testing.T) {
+	ctx := context.Background()
+	a, starts := exitingRelayManager(t, "echo 'Warning: rtsp://admin:geheim@192.168.1.20:554/stream1' >&2; echo 'admin@nas: Permission denied (publickey).' >&2; exit 255")
+	a.startGrace = 5 * time.Second
+	if err := os.MkdirAll(a.relayStateDir(), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(a.relayLogPath("nas"), []byte("alte Zeile\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	began := time.Now()
+	statuses, err := a.Ensure(ctx)
+	if err == nil {
+		t.Fatal("expected error for relay that exited within grace")
+	}
+	if elapsed := time.Since(began); elapsed >= a.startGrace {
+		t.Fatalf("expected Ensure to return on exit, took %s", elapsed)
+	}
+	for _, want := range []string{"Exit-Code 255", "Permission denied", "rtsp://admin:******@"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("expected error to contain %q, got %q", want, err)
+		}
+	}
+	for _, leaked := range []string{"geheim", "alte Zeile"} {
+		if strings.Contains(err.Error(), leaked) {
+			t.Errorf("error must not contain %q, got %q", leaked, err)
+		}
+	}
+	if len(statuses) != 1 || statuses[0].ProcessState != "error" || statuses[0].Started || statuses[0].BackoffUntil == "" {
+		t.Fatalf("expected failed start with backoff, got %+v", statuses)
+	}
+	if _, err := os.Stat(a.relayPIDPath("nas")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("expected pidfile to be removed, got %v", err)
+	}
+
+	// Backoff applies and the exit is not reported a second time.
+	statuses, err = a.Ensure(ctx)
+	if err != nil {
+		t.Fatalf("expected backoff without new error, got %v", err)
+	}
+	if starts() != 1 || statuses[0].ProcessState != "backoff" {
+		t.Fatalf("expected backoff after failed start, got %d starts and %+v", starts(), statuses)
+	}
+	events, err := a.store.Events(ctx, 20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	failed := 0
+	for _, event := range events {
+		if event.Type == "relay.exited" {
+			t.Fatalf("early exit must not also emit relay.exited: %+v", event)
+		}
+		if event.Type == "relay.start_failed" {
+			failed++
+		}
+	}
+	if failed != 1 {
+		t.Fatalf("expected one relay.start_failed event, got %d", failed)
+	}
+}
+
+func TestStartFailsWhenRelayExitsWithinGrace(t *testing.T) {
+	a, _ := exitingRelayManager(t, "kill -9 $$")
+	a.startGrace = 5 * time.Second
+
+	status, err := a.Start(context.Background(), "nas")
+	if err == nil || !strings.Contains(err.Error(), "Signal") {
+		t.Fatalf("expected signal exit error, got %v", err)
+	}
+	if status.ProcessState != "error" || status.PID != 0 {
+		t.Fatalf("expected failed status, got %+v", status)
+	}
+}
+
+func TestEnsureSucceedsWhenRelayOutlivesGrace(t *testing.T) {
+	ctx := context.Background()
+	a, _ := exitingRelayManager(t, "exec sleep 30")
+	a.startGrace = 200 * time.Millisecond
+
+	began := time.Now()
+	statuses, err := a.Ensure(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(statuses) != 1 || !statuses[0].Started || statuses[0].ProcessState != "running" {
+		t.Fatalf("expected running relay, got %+v", statuses)
+	}
+	child, ok := a.trackedChild("nas", statuses[0].PID)
+	if !ok {
+		t.Fatal("expected tracked child")
+	}
+	t.Cleanup(func() {
+		_ = syscall.Kill(child.pid, syscall.SIGKILL)
+		<-child.done
+	})
+	if elapsed := time.Since(began); elapsed < a.startGrace || elapsed > 3*time.Second {
+		t.Fatalf("expected Ensure to wait about one grace window, took %s", elapsed)
 	}
 }
 

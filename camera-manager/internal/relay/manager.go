@@ -23,6 +23,10 @@ const (
 	// A relay that exits sooner counts as a failed start and enters backoff.
 	relayMinUptime   = 60 * time.Second
 	relayLogMaxBytes = 1 << 20
+	// A relay that exits within this window makes the start itself fail.
+	relayStartGrace   = 1500 * time.Millisecond
+	relayLogTailBytes = 4 << 10
+	relayLogTailLines = 5
 )
 
 func (a *Manager) Statuses(ctx context.Context) ([]Status, error) {
@@ -44,7 +48,44 @@ func (a *Manager) Start(ctx context.Context, id string) (Status, error) {
 	if err != nil {
 		return Status{}, err
 	}
-	return a.startManagedRelay(ctx, relay, settings)
+	status, err := a.startManagedRelay(ctx, relay, settings)
+	if err != nil {
+		return status, err
+	}
+	return a.confirmStarted(ctx, status)
+}
+
+// confirmStarted turns a relay that exited within the grace window into a
+// failed start with backoff.
+func (a *Manager) confirmStarted(ctx context.Context, status Status) (Status, error) {
+	if !status.Started {
+		return status, nil
+	}
+	exitErr := a.awaitEarlyExit(ctx, status.ID, status.PID)
+	if exitErr == nil {
+		return status, nil
+	}
+	_ = os.Remove(a.relayPIDPath(status.ID))
+	a.forgetChild(status.ID)
+	return a.failStart(ctx, status, exitErr), exitErr
+}
+
+// failStart persists a start failure and puts the relay into backoff.
+func (a *Manager) failStart(ctx context.Context, status Status, startErr error) Status {
+	message := redaction.Text(startErr.Error())
+	backoffUntil := time.Now().UTC().Add(relayBackoffDuration).Format(time.RFC3339)
+	_ = a.store.PutSettings(ctx, map[string]string{
+		relayRuntimeKey(status.ID, "last_error"):    message,
+		relayRuntimeKey(status.ID, "backoff_until"): backoffUntil,
+	})
+	_ = a.store.AddEvent(ctx, "error", "relay.start_failed", "Relay "+status.ID+" konnte nicht gestartet werden", map[string]string{"relay_id": status.ID, "error": message})
+	status.PID = 0
+	status.Started = false
+	status.LastError = message
+	status.BackoffUntil = backoffUntil
+	status.ProcessState = "error"
+	status.Message = message
+	return status
 }
 
 func (a *Manager) Stop(ctx context.Context, id string) (Status, error) {
@@ -127,22 +168,20 @@ func (a *Manager) Ensure(ctx context.Context) ([]Status, error) {
 		}
 		started, startErr := a.startManagedRelay(ctx, relay, settings)
 		if startErr != nil {
-			message := redaction.Text(startErr.Error())
-			backoffUntil := now.Add(relayBackoffDuration)
-			_ = a.store.PutSettings(ctx, map[string]string{
-				relayRuntimeKey(relay.ID, "last_error"):    message,
-				relayRuntimeKey(relay.ID, "backoff_until"): backoffUntil.Format(time.RFC3339),
-			})
-			_ = a.store.AddEvent(ctx, "error", "relay.start_failed", "Relay "+relay.ID+" konnte nicht gestartet werden", map[string]string{"relay_id": relay.ID, "error": message})
-			status.LastError = message
-			status.BackoffUntil = backoffUntil.Format(time.RFC3339)
-			status.ProcessState = "error"
-			status.Message = message
+			status = a.failStart(ctx, status, startErr)
 			statuses = append(statuses, status)
-			failures = append(failures, relay.ID+": "+message)
+			failures = append(failures, relay.ID+": "+status.Message)
 			continue
 		}
 		statuses = append(statuses, started)
+	}
+	// All relays start first, so Ensure waits about one grace window in total.
+	for i, status := range statuses {
+		confirmed, err := a.confirmStarted(ctx, status)
+		if err != nil {
+			statuses[i] = confirmed
+			failures = append(failures, status.ID+": "+confirmed.Message)
+		}
 	}
 	if len(failures) > 0 {
 		return statuses, errors.New(strings.Join(failures, "; "))
@@ -244,10 +283,12 @@ type Manager struct {
 	StopProcess  func(context.Context, Status) error
 	// newCommand builds the relay process from ssh arguments; tests swap the binary.
 	newCommand func(args []string) (*exec.Cmd, error)
+	// startGrace is how long a fresh relay must survive; zero disables the check.
+	startGrace time.Duration
 	childMu    sync.Mutex
 	children   map[string]*relayChild
 }
 
 func New(cfg config.Config, store *state.Store, slots []config.Slot, probe func(context.Context, string, string) error) *Manager {
-	return &Manager{config: cfg, store: store, slots: slots, Probe: probe}
+	return &Manager{config: cfg, store: store, slots: slots, Probe: probe, startGrace: relayStartGrace}
 }
