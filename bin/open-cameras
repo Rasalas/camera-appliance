@@ -12,6 +12,12 @@ elif command -v google-chrome >/dev/null 2>&1; then
   BROWSER="google-chrome"
 else
   xdg-open "$URL"
+  # xdg-open returns at once; under the kiosk unit (Restart=always) exiting would
+  # open a new tab every few seconds. A closed fallback browser is not detected.
+  if [[ -n "${INVOCATION_ID:-}" ]]; then
+    echo "Kein Chromium/Chrome gefunden; Standardbrowser ohne Kiosk-Überwachung geöffnet." >&2
+    exec sleep infinity
+  fi
   exit 0
 fi
 

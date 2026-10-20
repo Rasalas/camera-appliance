@@ -16,13 +16,21 @@ import (
 
 func (s *Server) static(w http.ResponseWriter, r *http.Request) {
 	dist := s.app.Config.FrontendDist
-	path := filepath.Join(dist, filepath.Clean(r.URL.Path))
+	clean := filepath.Clean(r.URL.Path)
+	path := filepath.Join(dist, clean)
 	if info, err := os.Stat(path); err == nil && !info.IsDir() {
+		// Vite content-hashes everything under /assets; other files keep stable names.
+		if strings.HasPrefix(clean, "/assets/") {
+			w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+		} else {
+			w.Header().Set("Cache-Control", "no-cache")
+		}
 		http.ServeFile(w, r, path)
 		return
 	}
 	index := filepath.Join(dist, "index.html")
 	if _, err := os.Stat(index); err == nil {
+		w.Header().Set("Cache-Control", "no-cache")
 		http.ServeFile(w, r, index)
 		return
 	}
@@ -65,7 +73,8 @@ func (s *Server) getGo2RTCAsset(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "text/javascript; charset=utf-8")
-	w.Header().Set("Cache-Control", "no-store")
+	// Every viewer iframe loads these; a short cache still picks up go2rtc upgrades.
+	w.Header().Set("Cache-Control", "private, max-age=300")
 	w.WriteHeader(http.StatusOK)
 	_, _ = io.Copy(w, resp.Body)
 }
