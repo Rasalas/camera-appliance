@@ -32,8 +32,8 @@ sudo ./bin/camera-appliance install --archive /path/to/camera-appliance-latest.t
 
 Install sets up:
 
-- `camera-appliance.service`: starts the Docker Compose stack after Docker and network-online.
-- `camera-kiosk.service`: user service that waits for `http://127.0.0.1:8091/api/status` before opening the viewer.
+- `camera-appliance.service`: starts the Docker Compose stack after Docker and network-online with the existing images (`up -d`, no `--build`), so boot does not depend on a successful image build. Stopping the unit stops the containers without removing them. Images are built by the bootstrap installer and by every update; if they are missing, Compose builds them once.
+- `camera-kiosk.service`: user service that waits for `http://127.0.0.1:8091/api/health` before opening the viewer at `/?kiosk=1`. The browser is restarted 10 seconds after it exits, including a normal close; after 10 starts within 10 minutes the unit gives up until `systemctl --user restart camera-kiosk.service` or the next login. Without Chromium/Chrome it opens the default browser once and cannot detect that browser closing.
 - Desktop launchers for manual open, status, rediscovery, and restart.
 - `/etc/camera-appliance/secrets.env`, only when it does not already exist.
 - `/var/lib/camera-appliance/generated/go2rtc.yaml`, only when it does not already exist.
@@ -86,14 +86,20 @@ When `VERSION` is not passed explicitly, `make release` asks `tagger bump --dry-
 make release VERSION=0.1.0
 ```
 
+`bin/camera-appliance` in the release is always built for `linux/amd64`, also on a Mac; use `make release RELEASE_GOARCH=arm64` for ARM appliances. Install and update refuse an archive whose CLI is built for another OS or CPU.
+
 The archive is written to `.release/` and contains the install tree, `bin/camera-appliance`, `frontend/dist`, `compose.yaml`, `systemd/`, `install.sh`, and `manifest.json`. The release target also writes `.release/camera-appliance-latest.tar.gz` for the bootstrap URL. It excludes `.private`, `.git`, `data`, `node_modules`, `.env`, `local.env`, and `secrets.env`.
 
 Publishing a tag `vX.Y.Z` triggers the GitHub Actions release workflow. The workflow builds the same archive with `VERSION=X.Y.Z` and uploads these assets to the GitHub Release:
 
 - `camera-appliance-X.Y.Z-COMMIT.tar.gz`
 - `camera-appliance-latest.tar.gz`
+- `repair-update.sh`
+- `SHA256SUMS`, listing the SHA-256 of the three files above
 
-The bootstrap installer downloads `camera-appliance-latest.tar.gz` from the latest GitHub Release by default.
+The bootstrap installer downloads `camera-appliance-latest.tar.gz` from the latest GitHub Release by default and verifies it against that release's `SHA256SUMS`.
+
+Every download from a URL is verified before it is used: the bootstrap installer, `camera-appliance install|update --url` and the **Update** button load `SHA256SUMS` from the same release directory and fail if the file is missing, the archive is not listed or its digest differs. Releases published before `SHA256SUMS` existed are refused. An operator can still install such a release from the command line by passing the expected digest explicitly with `--digest sha256:<hex>`. Local `--archive` files are checked only when `--digest` is given.
 
 Apply a local archive on the customer appliance:
 

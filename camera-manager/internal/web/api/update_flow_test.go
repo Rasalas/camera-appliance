@@ -2,6 +2,8 @@ package api
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -54,7 +56,20 @@ const releasesPayload = `[
 		{"tag_name":"v0.1.2","name":"0.1.2","body":"old"}
 	]`
 
+const fakeArchive = "fake-archive-bytes"
+
+func sumsFor(payload, name string) string {
+	sum := sha256.Sum256([]byte(payload))
+	return hex.EncodeToString(sum[:]) + "  " + name + "\n"
+}
+
 func newFlowTestServer(t *testing.T) (*httptest.Server, *updateFlow) {
+	t.Helper()
+	return newFlowTestServerWithSums(t, sumsFor(fakeArchive, "camera-appliance-0.2.0-abc.tar.gz"))
+}
+
+// newFlowTestServerWithSums publishes sums as SHA256SUMS; empty means 404.
+func newFlowTestServerWithSums(t *testing.T, sums string) (*httptest.Server, *updateFlow) {
 	t.Helper()
 	var baseURL string
 	mux := http.NewServeMux()
@@ -63,8 +78,16 @@ func newFlowTestServer(t *testing.T) (*httptest.Server, *updateFlow) {
 		_, _ = w.Write([]byte(strings.ReplaceAll(releasesPayload, "$BASE", baseURL+"/assets")))
 	})
 	mux.HandleFunc("/assets/", func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/SHA256SUMS") {
+			if sums == "" {
+				http.NotFound(w, r)
+				return
+			}
+			_, _ = w.Write([]byte(sums))
+			return
+		}
 		w.Header().Set("Content-Type", "application/gzip")
-		_, _ = w.Write([]byte("fake-archive-bytes"))
+		_, _ = w.Write([]byte(fakeArchive))
 	})
 	server := httptest.NewServer(mux)
 	baseURL = server.URL
@@ -221,6 +244,44 @@ func TestUpdateFlowDownloadReachesReady(t *testing.T) {
 			t.Fatalf("download did not finish in time, last phase %q", st.Phase)
 		}
 		sleepShort()
+	}
+}
+
+func TestUpdateFlowDownloadRefusesUnverifiedArchives(t *testing.T) {
+	for name, tc := range map[string]struct{ sums, want string }{
+		"release without SHA256SUMS": {"", "ohne SHA256SUMS"},
+		"tampered archive":           {sumsFor("other-bytes", "camera-appliance-0.2.0-abc.tar.gz"), "Prüfsumme stimmt nicht"},
+		"archive not listed":         {sumsFor(fakeArchive, "camera-appliance-latest.tar.gz"), "keinen Eintrag"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			server, flow := newFlowTestServerWithSums(t, tc.sums)
+			defer server.Close()
+			if err := flow.check(context.Background()); err != nil {
+				t.Fatal(err)
+			}
+			s := New(newAuthTestApp(t))
+			s.updates = flow
+			if err := s.startUpdateDownload(context.Background()); err != nil {
+				t.Fatal(err)
+			}
+			deadline := timeNowAdd(5 * timeSecond())
+			for flow.status().Phase == updateDownloading {
+				if timeNow().After(deadline) {
+					t.Fatal("download did not finish in time")
+				}
+				sleepShort()
+			}
+			st := flow.status()
+			if st.Phase != updateFailed || !strings.Contains(st.Error, tc.want) {
+				t.Fatalf("unverified archive must fail with %q, got %s: %s", tc.want, st.Phase, st.Error)
+			}
+			if st.ArchiveName != "" || st.Digest != "" {
+				t.Fatalf("failed download must not leave an installable archive: %+v", st)
+			}
+			if entries, _ := os.ReadDir(flow.archiveDir); len(entries) != 0 {
+				t.Fatalf("unverified archive kept on disk: %v", entries)
+			}
+		})
 	}
 }
 

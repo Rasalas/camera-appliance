@@ -2,14 +2,18 @@
 Description=Camera Kiosk Browser
 After=graphical-session.target network-online.target
 Wants=network-online.target
+# A browser that dies on start is retried 10 times in 10 minutes, then left stopped.
+StartLimitIntervalSec=600
+StartLimitBurst=10
 
 [Service]
 Type=simple
-Environment=CAMERA_APPLIANCE_KIOSK_URL=http://127.0.0.1:8091/
+Environment=CAMERA_APPLIANCE_KIOSK_URL=http://127.0.0.1:8091/?kiosk=1
 ExecStartPre=/usr/bin/env bash -lc 'if ! command -v curl >/dev/null 2>&1 && ! command -v wget >/dev/null 2>&1; then exit 0; fi; for i in {1..60}; do if command -v curl >/dev/null 2>&1 && curl -fsS http://127.0.0.1:8091/api/health >/dev/null; then exit 0; fi; if command -v wget >/dev/null 2>&1 && wget -q -O /dev/null http://127.0.0.1:8091/api/health; then exit 0; fi; sleep 2; done; echo "camera-appliance ist nach 120s nicht erreichbar – Kiosk startet trotzdem, aber der Stack ist defekt." >&2; exit 0'
 ExecStart=/opt/camera-appliance/bin/open-cameras
-Restart=on-failure
-RestartSec=5
+# Closing the browser exits 0 as well; the kiosk must come back either way.
+Restart=always
+RestartSec=10
 
 [Install]
 WantedBy=default.target

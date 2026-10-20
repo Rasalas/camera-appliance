@@ -26,7 +26,7 @@
           >
             <div class="viewer-frame-wrap">
               <div
-                v-if="shouldRenderPlayer(pane.slot)"
+                v-if="planFor(pane.alias).sub"
                 class="viewer-frame-transform"
                 :class="displayClass(pane.slot)"
                 :style="displayStyle(pane.slot)"
@@ -36,41 +36,54 @@
                   :ref="(el) => setFrameRef(pane.alias, el)"
                   :src="frameSrc(pane.slot)"
                   :title="pane.slot.label"
-                  :loading="iframeLoading(pane.slot)"
                   allow="autoplay; fullscreen; picture-in-picture"
-                  @load="markFrameReady(pane.alias)"
+                  @load="syncAudioState"
                 />
               </div>
               <div
-                v-if="shouldRenderHDPlayer(pane.slot)"
+                v-if="planFor(pane.alias).hd"
                 class="viewer-frame-transform viewer-frame-transform-hd"
-                :class="[displayClass(pane.slot), { ready: isHDFrameReady(pane.alias) }]"
+                :class="[displayClass(pane.slot), { ready: hdStatus[pane.alias] === 'playing' }]"
                 :style="displayStyle(pane.slot)"
               >
                 <iframe
                   class="viewer-frame"
+                  :ref="(el) => setHDFrameRef(pane.alias, el)"
                   :src="hdFrameSrc(pane.slot)"
                   :title="`${pane.slot.label} HD`"
-                  loading="eager"
                   allow="autoplay; fullscreen; picture-in-picture"
-                  @load="markHDFrameReady(pane.alias)"
+                  @load="syncAudioState"
                 />
               </div>
-              <div v-if="!shouldRenderPlayer(pane.slot)" class="viewer-placeholder" :class="{ paused: isPausedByPerformance(pane.slot) }">
-                <div class="placeholder-mark">{{ pane.alias }}</div>
-                <div>{{ placeholderMessage(pane.slot) }}</div>
+              <div
+                v-if="placeholderKind(pane.slot) === 'offline'"
+                class="viewer-placeholder offline"
+                :title="canAdmin ? pane.slot.message : undefined"
+              >
+                <div class="placeholder-label">{{ pane.slot.label }}</div>
+                <div class="placeholder-message">{{ offlineMessage(pane.slot.state) }}</div>
+                <div v-if="canAdmin && !kioskMode && pane.slot.message" class="placeholder-detail">{{ pane.slot.message }}</div>
+              </div>
+              <div v-else-if="placeholderKind(pane.slot) === 'paused'" class="viewer-placeholder paused">
+                <div class="placeholder-label">{{ pane.slot.label }}</div>
+                <div class="placeholder-message">Pausiert – Leistungsmodus „Niedrig“</div>
               </div>
               <div v-if="isPausedByPerformance(pane.slot)" class="viewer-cover performance-cover">
                 <span>Standby</span>
               </div>
               <div v-if="effectiveState(pane.slot) === 'connecting'" class="viewer-cover">
                 <span class="loader-dot" />
-                <span>Verbindet</span>
+                <span>{{ streamStatus(pane.alias) === 'stalled' ? 'Verbindet neu' : 'Verbindet' }}</span>
               </div>
             </div>
 
             <div
               class="tile-surface"
+              role="button"
+              :tabindex="spotlightAlias && spotlightAlias !== pane.alias ? -1 : 0"
+              :aria-label="spotlightAlias === pane.alias ? `${pane.slot.label} verkleinern` : `${pane.slot.label} groß anzeigen`"
+              @keydown.enter.prevent="onTileKey(pane.alias)"
+              @keydown.space.prevent="onTileKey(pane.alias)"
               @click="onTileClick(pane.alias)"
               @dblclick="onTileDoubleClick(pane.alias)"
               @pointerdown="onTilePointerDown($event, pane.slot)"
@@ -104,6 +117,7 @@
             type="button"
             :style="gutterStyle(gutter)"
             :title="gutter.dir === 'row' ? 'Breite ziehen' : 'Höhe ziehen'"
+            :aria-label="gutter.dir === 'row' ? 'Breite der Kameras ändern' : 'Höhe der Kameras ändern'"
             @pointerdown="startGutterDrag($event, gutter)"
           />
         </template>
@@ -157,11 +171,15 @@
 
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import type { CSSProperties } from 'vue'
+import type { CSSProperties, Ref } from 'vue'
 import { api } from '../api/client'
 import type { AuthStatus, CameraDisplay, ViewerResponse, ViewerSlot, ViewerSlotState } from '../types'
 import { ROOT_TARGET, layoutGeometry, treeSlots, setRatioAtPath, reconcileTree, dockCamera, parseMosaic } from './viewerMosaic'
 import type { MosaicNode, PaneRect, GutterRect, Side } from './viewerMosaic'
+import { STAGGER_MS, offlineMessage, parseEmbedMessage, planPlayer } from './viewerPlayback'
+import type { FrameStatus, PlayerPlan } from './viewerPlayback'
+import { browserStorage, createVersionWatch, resolveKioskFlag } from '../composables/viewerKiosk'
+import { createSnapshotSave } from '../composables/layoutSave'
 
 // --- Mosaic layout model -----------------------------------------------------
 // A binary split tree, like VSCode editor groups. A leaf shows one camera; a
@@ -174,10 +192,11 @@ const auth = ref<AuthStatus>()
 const loading = ref(true)
 const busy = ref(false)
 const error = ref('')
-const frameReady = ref<Record<string, boolean>>({})
-const hdFrameReady = ref<Record<string, boolean>>({})
+const subStatus = ref<Record<string, FrameStatus>>({})
+const hdStatus = ref<Record<string, FrameStatus>>({})
 const performanceMode = ref<'quality' | 'balanced' | 'low' | 'diagnostic'>('quality')
-const audioEnabled = ref(true)
+// Off until someone presses the sound control, so a single tap never starts audio.
+const audioEnabled = ref(false)
 const activeAudioAlias = ref('')
 
 // Normal viewing reserves space for controls. Fullscreen and kiosk modes reveal
@@ -195,11 +214,16 @@ const dragSourceAlias = ref('')
 const dockTarget = ref('')
 const dockSide = ref<Side>('center')
 
+const pageHidden = ref(document.hidden)
+const released = ref<ReadonlySet<string>>(new Set())
+
 let refreshTimer = 0
+let versionTimer = 0
 let controlsTimer = 0
 let tileClickTimer = 0
 let displaySaveTimer = 0
-let mosaicSaveTimer = 0
+let staggerTimer = 0
+let spotlightIdleTimer = 0
 let onAuthChanged: (() => void) | undefined
 let onFullscreenChange: (() => void) | undefined
 let onVisibilityChange: (() => void) | undefined
@@ -208,9 +232,23 @@ let onMessage: ((e: MessageEvent) => void) | undefined
 let stopDrag: (() => void) | undefined
 let stopCropPan: (() => void) | undefined
 const frameEls: Record<string, HTMLIFrameElement> = {}
+const hdFrameEls: Record<string, HTMLIFrameElement> = {}
 const AUDIO_SETTING_KEY = 'camera-appliance.viewer.audioEnabled'
 const LEGACY_AUDIO_SETTING_KEY = 'camera-appliance.viewer.audioHoverEnabled'
-const kioskMode = new URLSearchParams(window.location.search).get('kiosk') === '1'
+const SPOTLIGHT_IDLE_MS = 2 * 60 * 1000
+const VERSION_CHECK_MS = 60 * 1000
+const kioskMode = resolveKioskFlag(window.location.search, browserStorage())
+const versionWatch = createVersionWatch()
+const layoutSave = createSnapshotSave({
+  delay: 400,
+  save: async (json) => {
+    try {
+      await api.saveSettings({ 'viewer.layout.mosaic': json })
+    } catch (err) {
+      error.value = err instanceof Error ? err.message : 'Layout konnte nicht gespeichert werden.'
+    }
+  }
+})
 type ScreenWakeLock = { release: () => Promise<void>; released?: boolean }
 let screenWakeLock: ScreenWakeLock | undefined
 
@@ -219,13 +257,16 @@ const slotByAlias = computed(() => new Map(slots.value.map((slot) => [slot.alias
 const canAdmin = computed(() => (auth.value ? !auth.value.enabled || auth.value.role === 'admin' : false))
 
 const immersive = computed(() => isFullscreen.value || kioskMode)
+// Hidden tabs stop streaming, except on the kiosk which must stay live.
+const playersPaused = computed(() => pageHidden.value && !kioskMode)
 
 const rootClass = computed(() => ({
   editing: editing.value,
   spotlight: !!spotlightAlias.value,
   fullscreen: isFullscreen.value,
   immersive: immersive.value,
-  docking: !!dragSourceAlias.value
+  docking: !!dragSourceAlias.value,
+  'cursor-hidden': immersive.value && !controlsVisible.value && !editing.value
 }))
 const showHud = computed(() => !immersive.value || controlsVisible.value || editing.value)
 
@@ -258,6 +299,51 @@ const primaryLiveAlias = computed(() => {
   }
   return alias
 })
+
+const plans = computed(() => {
+  const ctx = {
+    mode: performanceMode.value,
+    primary: primaryLiveAlias.value,
+    spotlight: spotlightAlias.value,
+    released: released.value,
+    paused: playersPaused.value,
+    hdStatus: hdStatus.value
+  }
+  const result: Record<string, PlayerPlan> = {}
+  for (const pane of panes.value) {
+    const slot = pane.slot
+    const hdURL = slot.playback?.hd_page_url
+    result[pane.alias] = planPlayer({
+      alias: pane.alias,
+      playable: isPlayable(slot),
+      hasHD: !!hdURL && hdURL !== slot.playback?.page_url
+    }, ctx)
+  }
+  return result
+})
+
+function planFor(alias: string): PlayerPlan {
+  return plans.value[alias] ?? { sub: false, hd: false, waiting: false }
+}
+
+// Balanced mode: secondary tiles join one at a time so a weak laptop does not
+// open every stream at once.
+const staggerQueue = computed(() => Object.entries(plans.value).filter(([, plan]) => plan.waiting).map(([alias]) => alias))
+
+watch(staggerQueue, (queue) => {
+  if (!queue.length || staggerTimer) return
+  staggerTimer = window.setTimeout(() => {
+    staggerTimer = 0
+    const next = staggerQueue.value[0]
+    if (next) released.value = new Set([...released.value, next])
+  }, STAGGER_MS)
+})
+
+function restartStagger() {
+  window.clearTimeout(staggerTimer)
+  staggerTimer = 0
+  released.value = new Set()
+}
 
 function paneStyle(pane: PaneRect): CSSProperties {
   const spotlight = spotlightAlias.value
@@ -320,6 +406,11 @@ function onTileClick(alias: string) {
 function onTileDoubleClick(alias: string) {
   if (editing.value) return
   window.clearTimeout(tileClickTimer)
+  toggleSpotlight(alias)
+}
+
+function onTileKey(alias: string) {
+  if (editing.value) return
   toggleSpotlight(alias)
 }
 
@@ -451,23 +542,14 @@ function startGutterDrag(event: PointerEvent, gutter: GutterRect) {
 }
 
 function scheduleMosaicSave() {
-  if (!canAdmin.value) return
-  window.clearTimeout(mosaicSaveTimer)
-  mosaicSaveTimer = window.setTimeout(() => void saveMosaic(), 400)
-}
-
-async function saveMosaic() {
   if (!canAdmin.value || !mosaic.value) return
-  try {
-    await api.saveSettings({ 'viewer.layout.mosaic': JSON.stringify(mosaic.value) })
-  } catch (err) {
-    error.value = err instanceof Error ? err.message : 'Layout konnte nicht gespeichert werden.'
-  }
+  layoutSave.schedule(mosaic.value)
 }
 
 // --- Chrome: controls auto-hide, spotlight, edit, fullscreen -----------------
 
 function revealControls() {
+  armSpotlightIdle()
   controlsVisible.value = true
   window.clearTimeout(controlsTimer)
   if (!immersive.value || editing.value) return
@@ -494,16 +576,29 @@ function onRootMouseLeave() {
 }
 
 function toggleEdit() {
-  editing.value = !editing.value
+  const leaving = editing.value
+  editing.value = !leaving
   spotlightAlias.value = ''
+  // Save the layout as confirmed by "Fertig", before a refresh can replace it.
+  if (leaving) void layoutSave.flush()
   revealControls()
 }
 
 function toggleSpotlight(alias: string) {
-  const next = spotlightAlias.value === alias ? '' : alias
-  spotlightAlias.value = next
-  if (next) hdFrameReady.value = { ...hdFrameReady.value, [next]: false }
+  spotlightAlias.value = spotlightAlias.value === alias ? '' : alias
 }
+
+// Kiosk: an accidental tap must not pin one camera forever.
+function armSpotlightIdle() {
+  window.clearTimeout(spotlightIdleTimer)
+  if (!kioskMode || !spotlightAlias.value) return
+  spotlightIdleTimer = window.setTimeout(() => { spotlightAlias.value = '' }, SPOTLIGHT_IDLE_MS)
+}
+
+watch(spotlightAlias, (next, previous) => {
+  if (previous && !next) restartStagger()
+  armSpotlightIdle()
+})
 
 async function toggleFullscreen() {
   try {
@@ -540,12 +635,24 @@ async function releaseScreenWakeLock() {
 // --- Audio -------------------------------------------------------------------
 
 function setFrameRef(alias: string, el: unknown) {
-  if (el instanceof HTMLIFrameElement) {
-    frameEls[alias] = el
-    window.setTimeout(() => syncAudioState(), 0)
-  } else {
-    delete frameEls[alias]
+  trackFrame(frameEls, subStatus, alias, el)
+}
+
+function setHDFrameRef(alias: string, el: unknown) {
+  trackFrame(hdFrameEls, hdStatus, alias, el)
+}
+
+// A new or removed iframe starts over as "connecting" until its embed reports playback.
+function trackFrame(frames: Record<string, HTMLIFrameElement>, status: Ref<Record<string, FrameStatus>>, alias: string, el: unknown) {
+  const next = el instanceof HTMLIFrameElement ? el : undefined
+  if (frames[alias] === next) return
+  if (next) frames[alias] = next
+  else delete frames[alias]
+  if (alias in status.value) {
+    const { [alias]: _dropped, ...rest } = status.value
+    status.value = rest
   }
+  window.setTimeout(() => syncAudioState(), 0)
 }
 
 function isAudible(alias: string) {
@@ -564,12 +671,15 @@ function muteAllAudio() {
   syncAudioState()
 }
 
+// Exactly one frame per camera carries audio: HD once it plays, otherwise the sub stream.
 function syncAudioState() {
+  const audible = (alias: string) => audioEnabled.value && alias === activeAudioAlias.value
+  const hdPlaying = (alias: string) => !!hdFrameEls[alias] && hdStatus.value[alias] === 'playing'
   for (const [alias, frame] of Object.entries(frameEls)) {
-    frame.contentWindow?.postMessage({
-      type: 'camera-audio',
-      muted: !audioEnabled.value || alias !== activeAudioAlias.value
-    }, window.location.origin)
+    frame.contentWindow?.postMessage({ type: 'camera-audio', muted: !audible(alias) || hdPlaying(alias) }, window.location.origin)
+  }
+  for (const [alias, frame] of Object.entries(hdFrameEls)) {
+    frame.contentWindow?.postMessage({ type: 'camera-audio', muted: !audible(alias) || !hdPlaying(alias) }, window.location.origin)
   }
 }
 
@@ -735,24 +845,8 @@ function isPlayable(slot: ViewerSlot) {
   return !!slot.playback?.page_url
 }
 
-function shouldRenderPlayer(slot: ViewerSlot) {
-  if (!isPlayable(slot)) return false
-  if (performanceMode.value === 'low') return slot.alias === primaryLiveAlias.value
-  return true
-}
-
-function shouldRenderHDPlayer(slot: ViewerSlot) {
-  if (spotlightAlias.value !== slot.alias || !slot.playback?.hd_page_url || !isPlayable(slot)) return false
-  return slot.playback.hd_page_url !== slot.playback.page_url
-}
-
 function isPausedByPerformance(slot: ViewerSlot) {
   return performanceMode.value === 'low' && isPlayable(slot) && slot.alias !== primaryLiveAlias.value
-}
-
-function iframeLoading(slot: ViewerSlot): 'eager' | 'lazy' {
-  if (performanceMode.value === 'balanced' && slot.alias !== primaryLiveAlias.value) return 'lazy'
-  return 'eager'
 }
 
 function appendQuery(url: string, params: Record<string, string>) {
@@ -779,36 +873,44 @@ function hdFrameSrc(slot: ViewerSlot) {
   })
 }
 
-function placeholderMessage(slot: ViewerSlot) {
-  if (isPausedByPerformance(slot)) return 'Im Low-Modus pausiert.'
-  return slot.message
+// Spotlight-hidden, staggered and paused tiles show no placeholder text.
+function placeholderKind(slot: ViewerSlot): 'offline' | 'paused' | '' {
+  const plan = planFor(slot.alias)
+  if (plan.sub || plan.hd) return ''
+  if (isPausedByPerformance(slot)) return 'paused'
+  if (!isPlayable(slot)) return 'offline'
+  return ''
+}
+
+// What the viewer sees: HD once it plays, otherwise the sub stream.
+function streamStatus(alias: string): FrameStatus | undefined {
+  const plan = planFor(alias)
+  if (plan.hd && hdStatus.value[alias] === 'playing') return 'playing'
+  if (plan.sub) return subStatus.value[alias] ?? 'connecting'
+  if (plan.hd) return hdStatus.value[alias] ?? 'connecting'
+  return undefined
 }
 
 function effectiveState(slot: ViewerSlot): ViewerSlotState {
-  if ((slot.state === 'online' || slot.state === 'connecting') && shouldRenderPlayer(slot) && !frameReady.value[slot.alias]) {
-    return 'connecting'
-  }
+  if (!isPlayable(slot)) return slot.state
+  if (planFor(slot.alias).waiting) return 'connecting'
+  const status = streamStatus(slot.alias)
+  // On "error" the embed shows its own explanation, so no overlay on top.
+  if (status === 'connecting' || status === 'stalled') return 'connecting'
   return slot.state
 }
 
-function markFrameReady(alias: string) {
-  frameReady.value = { ...frameReady.value, [alias]: true }
-  syncAudioState()
-}
-
-function markHDFrameReady(alias: string) {
-  hdFrameReady.value = { ...hdFrameReady.value, [alias]: true }
-}
-
-function isHDFrameReady(alias: string) {
-  return hdFrameReady.value[alias] === true
-}
-
 function handleEmbedMessage(event: MessageEvent) {
-  if (event.origin !== window.location.origin || event.data?.type !== 'camera-stream-ready') return
-  const src = typeof event.data.src === 'string' ? event.data.src : ''
-  if (!src.endsWith('_stream1')) return
-  markHDFrameReady(src.slice(0, -'_stream1'.length))
+  if (event.origin !== window.location.origin) return
+  const message = parseEmbedMessage(event.data)
+  if (!message) return
+  const frame = (message.hd ? hdFrameEls : frameEls)[message.alias]
+  // Ignore late messages from iframes that were already replaced.
+  if (!frame || event.source !== frame.contentWindow) return
+  const status = message.hd ? hdStatus : subStatus
+  if (status.value[message.alias] === message.state) return
+  status.value = { ...status.value, [message.alias]: message.state }
+  syncAudioState()
 }
 
 function tileClass(slot: ViewerSlot) {
@@ -839,7 +941,10 @@ async function load() {
     // Only cameras that are activated (have a binding) appear in the viewer; their
     // placement is controlled here, slots are assigned automatically in the background.
     const aliases = viewerData.slots.filter((slot) => slot.binding?.device_id).map((slot) => slot.alias)
-    mosaic.value = aliases.length ? reconcileTree(parseMosaic(viewerData.layout?.mosaic), aliases) : undefined
+    // Keep the local tree while it is being edited or still being saved.
+    if (!editing.value && !layoutSave.busy()) {
+      mosaic.value = aliases.length ? reconcileTree(parseMosaic(viewerData.layout?.mosaic), aliases) : undefined
+    }
     if (spotlightAlias.value && !aliases.includes(spotlightAlias.value)) spotlightAlias.value = ''
     if (activeAudioAlias.value && !aliases.includes(activeAudioAlias.value)) muteAllAudio()
   } catch (err) {
@@ -863,15 +968,40 @@ async function refreshAuth() {
   }
 }
 
+// Kiosks without an admin session would otherwise keep the old frontend after an update.
+async function checkVersion() {
+  try {
+    const health = await api.health()
+    if (versionWatch.changed(`${health.version}@${health.commit}`) && !editing.value) window.location.reload()
+  } catch {
+    // Unreachable during restarts; the next check catches up.
+  }
+}
+
+function readAudioSetting() {
+  try {
+    return (window.localStorage.getItem(AUDIO_SETTING_KEY) ?? window.localStorage.getItem(LEGACY_AUDIO_SETTING_KEY)) === 'true'
+  } catch {
+    return false
+  }
+}
+
 onMounted(() => {
-  audioEnabled.value = (window.localStorage.getItem(AUDIO_SETTING_KEY) ?? window.localStorage.getItem(LEGACY_AUDIO_SETTING_KEY)) !== 'false'
+  audioEnabled.value = readAudioSetting()
   void refreshAuth()
   onAuthChanged = () => void refreshAuth()
   window.addEventListener('auth-changed', onAuthChanged)
   onFullscreenChange = () => syncFullscreen()
   document.addEventListener('fullscreenchange', onFullscreenChange)
   onVisibilityChange = () => {
-    if (document.visibilityState === 'visible' && (isFullscreen.value || kioskMode)) void requestScreenWakeLock()
+    pageHidden.value = document.hidden
+    if (document.hidden) return
+    if (isFullscreen.value || kioskMode) void requestScreenWakeLock()
+    if (!kioskMode) {
+      restartStagger()
+      void load()
+      void checkVersion()
+    }
   }
   document.addEventListener('visibilitychange', onVisibilityChange)
   if (kioskMode) void requestScreenWakeLock()
@@ -880,13 +1010,17 @@ onMounted(() => {
   onKey = (event: KeyboardEvent) => {
     if (event.key !== 'Escape') return
     if (spotlightAlias.value) spotlightAlias.value = ''
-    else if (editing.value) editing.value = false
+    else if (editing.value) toggleEdit()
   }
   window.addEventListener('keydown', onKey)
   void load()
+  void checkVersion()
   refreshTimer = window.setInterval(() => {
-    if (!busy.value && !editing.value && !spotlightAlias.value) void load()
+    if (!busy.value && !playersPaused.value) void load()
   }, 15000)
+  versionTimer = window.setInterval(() => {
+    if (!playersPaused.value) void checkVersion()
+  }, VERSION_CHECK_MS)
 })
 
 onBeforeUnmount(() => {
@@ -894,10 +1028,13 @@ onBeforeUnmount(() => {
   stopDrag?.()
   stopCropPan?.()
   window.clearInterval(refreshTimer)
+  window.clearInterval(versionTimer)
   window.clearTimeout(controlsTimer)
   window.clearTimeout(tileClickTimer)
   window.clearTimeout(displaySaveTimer)
-  window.clearTimeout(mosaicSaveTimer)
+  window.clearTimeout(staggerTimer)
+  window.clearTimeout(spotlightIdleTimer)
+  void layoutSave.flush()
   if (onAuthChanged) window.removeEventListener('auth-changed', onAuthChanged)
   if (onFullscreenChange) document.removeEventListener('fullscreenchange', onFullscreenChange)
   if (onVisibilityChange) document.removeEventListener('visibilitychange', onVisibilityChange)
@@ -970,6 +1107,13 @@ onBeforeUnmount(() => {
   z-index: 2;
 }
 .viewer-root:not(.editing) .tile-surface { cursor: pointer; }
+.tile-surface:focus-visible {
+  outline: 2px solid var(--live);
+  outline-offset: -2px;
+  border-radius: var(--radius-tile);
+}
+.viewer-root.cursor-hidden,
+.viewer-root.cursor-hidden * { cursor: none !important; }
 .viewer-root.editing .tile-surface { cursor: grab; }
 .viewer-root.editing .tile-surface:active { cursor: grabbing; }
 
@@ -1076,9 +1220,23 @@ onBeforeUnmount(() => {
 .controls-enter-from, .controls-leave-to { opacity: 0; transform: translateY(8px); }
 /* pill bar → pill-shaped buttons inside it */
 .viewer-hud :deep(.btn) { border-radius: 999px; }
+/* touch targets of at least 44px with readable labels */
+.viewer-hud :deep(.btn.sm),
+.tile-edit-actions .btn.sm {
+  min-height: 44px;
+  padding: 10px 18px;
+  font-size: 13px;
+}
+.viewer-hud :deep(.btn.icon.sm),
+.tile-edit-actions .btn.icon.sm {
+  width: 44px;
+  min-width: 44px;
+  padding: 0;
+  font-size: 20px;
+}
 .audio-toggle svg {
-  width: 15px;
-  height: 15px;
+  width: 20px;
+  height: 20px;
   fill: none;
   stroke: currentColor;
   stroke-width: 2;
