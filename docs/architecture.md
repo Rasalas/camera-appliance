@@ -102,9 +102,14 @@ Display keys use existing dotted-setting suffixes and string values, including
 `flip` and `crop_x`, `crop_y`, `crop_width`, `crop_height` in percent. Empty endpoint
 fields restore existing defaults. A supplied access section replaces username and
 stream, defaulting empty stream to `stream2`; empty password keeps the saved secret.
-A supplied relay entry replaces its four endpoint fields. Relay process lifecycle
-remains owned by the relay manager; changing SSH target forwarding still requires
-its existing restart operation.
+A supplied relay entry replaces its four endpoint fields. The relay manager
+reconciles changed SSH forward arguments before rendering, including visibility
+and path-policy changes. Removing the last forward stops the managed process.
+Disabled, manual and external relays retain their lifecycle; manual and external
+changes return warnings requiring operator action. Unchanged relays are not started.
+The previous forward definitions commit with desired state as durable retry data
+and remain until the complete apply succeeds. Relay lifecycle locking precedes
+the go2rtc render lock, matching watchdog order.
 
 Visibility selects a free slot under the SQLite write lock, preserves an existing
 slot and never steals another device's slot. Hiding removes the device's bindings.

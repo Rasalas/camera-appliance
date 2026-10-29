@@ -11,6 +11,7 @@ import (
 
 	"camera-appliance/camera-manager/internal/cameraaccess"
 	"camera-appliance/camera-manager/internal/redaction"
+	"camera-appliance/camera-manager/internal/relay"
 	"camera-appliance/camera-manager/internal/secrets"
 	"camera-appliance/camera-manager/internal/state"
 )
@@ -45,6 +46,16 @@ type CameraConfigurationResult struct {
 // ConfigureCamera owns a complete save/apply sequence. Apply failure retains
 // desired state and a pending marker so an identical retry attempts apply again.
 func (a *App) ConfigureCamera(ctx context.Context, id string, req CameraConfiguration) (CameraConfigurationResult, error) {
+	var result CameraConfigurationResult
+	err := a.Relays().Configure(ctx, func(update *relay.ConfigurationUpdate) error {
+		var err error
+		result, err = a.configureCamera(ctx, id, req, update)
+		return err
+	})
+	return result, err
+}
+
+func (a *App) configureCamera(ctx context.Context, id string, req CameraConfiguration, update *relay.ConfigurationUpdate) (CameraConfigurationResult, error) {
 	a.go2rtcMu.Lock()
 	defer a.go2rtcMu.Unlock()
 	result := CameraConfigurationResult{}
@@ -148,6 +159,21 @@ func (a *App) ConfigureCamera(ctx context.Context, id string, req CameraConfigur
 	if streamChange {
 		values[pendingKey] = "true"
 	}
+	// Capture retry data in the same transaction as endpoint/policy/visibility
+	// writes. Keep the original snapshot through failed and superseding saves.
+	relayPendingKey := "camera.configuration." + id + ".relay_before"
+	relayBefore := settings[relayPendingKey]
+	if relayBefore == "" && (len(req.RelayEndpoints) > 0 || req.PathPolicy != nil || req.Visible != nil) {
+		relayBefore = update.Before
+		values[relayPendingKey] = relayBefore
+	}
+	if relayBefore != "" {
+		relayBefore, err = update.RetryData(relayBefore)
+		if err != nil {
+			return result, err
+		}
+		values[relayPendingKey] = relayBefore
+	}
 	// Compare visibility inside the transaction; settings above are compared
 	// separately to avoid treating display changes as stream changes.
 	visibilityChanged, err := a.Store.ConfigureCamera(ctx, id, values, req.Name, req.Visible)
@@ -160,6 +186,11 @@ func (a *App) ConfigureCamera(ctx context.Context, id string, req CameraConfigur
 	}
 	pending := settings[pendingKey] == "true"
 	if !streamChange && !pending {
+		if relayBefore != "" {
+			if err := a.Store.PutSettings(ctx, map[string]string{relayPendingKey: ""}); err != nil {
+				return result, err
+			}
+		}
 		result.Applied = true
 		return result, nil
 	}
@@ -171,11 +202,18 @@ func (a *App) ConfigureCamera(ctx context.Context, id string, req CameraConfigur
 		}
 		return result, nil
 	}
+	if relayBefore != "" {
+		warnings, err := update.Apply(ctx, relayBefore)
+		result.Warnings = append(result.Warnings, warnings...)
+		if err != nil {
+			return fail(err)
+		}
+	}
 	rendered, err := a.RenderGo2RTC(ctx)
 	if err != nil {
 		return fail(err)
 	}
-	result.Warnings = rendered.Warnings
+	result.Warnings = append(result.Warnings, rendered.Warnings...)
 	after, err := os.ReadFile(a.Config.Go2RTCConfigPath())
 	if err != nil {
 		return fail(err)
@@ -186,7 +224,7 @@ func (a *App) ConfigureCamera(ctx context.Context, id string, req CameraConfigur
 		}
 		result.Restarted = true
 	}
-	if err := a.Store.PutSettings(ctx, map[string]string{pendingKey: "false"}); err != nil {
+	if err := a.Store.PutSettings(ctx, map[string]string{pendingKey: "false", relayPendingKey: ""}); err != nil {
 		return fail(err)
 	}
 	result.Applied = true

@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"camera-appliance/camera-manager/internal/cameraaccess"
+	"camera-appliance/camera-manager/internal/relay"
 	"camera-appliance/camera-manager/internal/state"
 )
 
@@ -120,5 +121,94 @@ func TestCameraConfigurationAppliesEndpointAndVisibility(t *testing.T) {
 	bindings, err = a.Store.Bindings(ctx)
 	if err != nil || len(bindings) != 1 || bindings[0].SlotID != "cam1" || bindings[0].Username != "old-user" {
 		t.Fatalf("new binding: %+v %v", bindings, err)
+	}
+}
+
+func TestCameraConfigurationReconcilesRelayTargetAndDurableRetry(t *testing.T) {
+	a := cameraConfigTestApp(t)
+	ctx := context.Background()
+	if err := a.Store.PutSettings(ctx, map[string]string{
+		"camera.relay.ids": "nas,unused", "camera.relay.nas.ssh_target": "nas", "camera.relay.nas.type": "ssh_local_forward", "camera.relay.nas.host": "127.0.0.1",
+		"camera.relay.unused.ssh_target": "unused", "camera.relay.unused.type": "ssh_local_forward", "camera.path_policy.dev1": "auto",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	a.Relays().Probe = func(context.Context, string, string) error { return errors.New("closed") }
+	a.Go2RTCRestart = func(context.Context) error { return nil }
+	if _, err := a.RenderGo2RTC(ctx); err != nil {
+		t.Fatal(err)
+	}
+	// Establish a rendered baseline without touching processes, then change only
+	// the SSH target. Its host never appears in the go2rtc YAML.
+	before, err := os.ReadFile(a.Config.Go2RTCConfigPath())
+	if err != nil {
+		t.Fatal(err)
+	}
+	starts := 0
+	a.Relays().StartProcess = func(_ context.Context, r relay.ManagedRelay) (int, error) {
+		starts++
+		if r.ID != "nas" || len(r.Endpoints) != 1 || r.Endpoints[0].TargetHost != "192.0.2.99" || r.Endpoints[0].TargetPort != "8554" {
+			t.Fatalf("wrong desired forwards: %+v", r)
+		}
+		return 0, errors.New("ssh unavailable")
+	}
+	req := CameraConfiguration{RelayEndpoints: map[string]CameraEndpoint{"nas": {TargetHost: "192.0.2.99", TargetPort: "8554"}}}
+	result, err := a.ConfigureCamera(ctx, "dev1", req)
+	if err != nil || !result.Persisted || result.Applied || !strings.Contains(result.Error, "ssh unavailable") || starts != 1 {
+		t.Fatalf("failed apply: %+v %v starts %d", result, err, starts)
+	}
+	settings, _ := a.Store.Settings(ctx)
+	if settings["camera.configuration.dev1.relay_before"] == "" || settings["camera.configuration.dev1.pending"] != "true" {
+		t.Fatal("retry was not durable")
+	}
+	// Replace the manager, as after an application restart. The retry must use
+	// saved pre-change definitions rather than comparing desired state to itself.
+	a.relays = relay.New(a.Config, a.Store, a.Slots, a.probeRTSP)
+	a.Relays().Probe = func(context.Context, string, string) error { return errors.New("closed") }
+	a.Relays().StartProcess = func(_ context.Context, r relay.ManagedRelay) (int, error) {
+		starts++
+		if r.ID != "nas" || r.Endpoints[0].TargetHost != "192.0.2.99" {
+			t.Fatalf("wrong retry: %+v", r)
+		}
+		return os.Getpid(), nil
+	}
+	result, err = a.ConfigureCamera(ctx, "dev1", req)
+	if err != nil || !result.Applied || starts != 2 {
+		t.Fatalf("retry: %+v %v starts %d", result, err, starts)
+	}
+	after, _ := os.ReadFile(a.Config.Go2RTCConfigPath())
+	if string(before) != string(after) {
+		t.Fatal("target-only change altered go2rtc YAML")
+	}
+	a.Relays().Probe = func(context.Context, string, string) error { t.Fatal("display save probed relay"); return nil }
+	a.Relays().StopProcess = func(context.Context, relay.Status) error { t.Fatal("display save stopped relay"); return nil }
+	result, err = a.ConfigureCamera(ctx, "dev1", CameraConfiguration{Display: map[string]string{"rotation": "90"}})
+	if err != nil || !result.Applied || starts != 2 {
+		t.Fatalf("display touched relay: %+v %v starts %d", result, err, starts)
+	}
+}
+
+func TestCameraConfigurationRevertAfterPartialApplyStillReconcilesRelay(t *testing.T) {
+	a := cameraConfigTestApp(t)
+	ctx := context.Background()
+	if err := a.Store.PutSettings(ctx, map[string]string{"camera.relay.ids": "nas", "camera.relay.nas.ssh_target": "nas", "camera.relay.nas.host": "127.0.0.1"}); err != nil {
+		t.Fatal(err)
+	}
+	a.Relays().Probe = func(context.Context, string, string) error { return errors.New("closed") }
+	var targets []string
+	a.Relays().StartProcess = func(_ context.Context, r relay.ManagedRelay) (int, error) {
+		targets = append(targets, r.Endpoints[0].TargetHost)
+		return os.Getpid(), nil
+	}
+	a.Go2RTCRestart = func(context.Context) error { return errors.New("go2rtc failed") }
+	req := CameraConfiguration{Access: &cameraaccess.CredentialsInput{Username: "changed", Stream: "stream1"}, RelayEndpoints: map[string]CameraEndpoint{"nas": {TargetHost: "192.0.2.99"}}}
+	result, err := a.ConfigureCamera(ctx, "dev1", req)
+	if err != nil || result.Applied || len(targets) != 1 {
+		t.Fatalf("partial apply %+v %v targets %v", result, err, targets)
+	}
+	a.Go2RTCRestart = func(context.Context) error { return nil }
+	result, err = a.ConfigureCamera(ctx, "dev1", CameraConfiguration{RelayEndpoints: map[string]CameraEndpoint{"nas": {}}})
+	if err != nil || !result.Applied || len(targets) != 2 || targets[1] != "192.0.2.1" {
+		t.Fatalf("revert %+v %v targets %v", result, err, targets)
 	}
 }
