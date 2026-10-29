@@ -10,7 +10,12 @@ import (
 	"camera-appliance/camera-manager/internal/streamrouting"
 )
 
+var viewerProfileSettingPattern = regexp.MustCompile(`^viewer\.profiles\.[a-z0-9][a-z0-9_-]{0,47}\.mosaic$`)
+
+var viewerProfileFitPattern = regexp.MustCompile(`^viewer\.profiles\.[a-z0-9][a-z0-9_-]{0,47}\.fit\.[a-zA-Z0-9_-]{1,48}$`)
+
 var editableSettingPatterns = []*regexp.Regexp{
+	viewerProfileSettingPattern,
 	regexp.MustCompile(`^viewer\.layout\.(id|mode|focus_slot_id|split_percent|gap_px|slot_order|custom|mosaic)$`),
 	regexp.MustCompile(`^camera\.display\.[^.]+\.(rotation|mirror|flip|fit_mode|crop_x|crop_y|crop_width|crop_height)$`),
 	regexp.MustCompile(`^camera\.path_policy\.[^.]+$`),
@@ -53,6 +58,11 @@ func (a *App) UpdateSettings(ctx context.Context, input map[string]string) error
 			}
 			writable = true
 		case key == "capture_ssh_host" || key == streamrouting.RelayIDsKey || key == "viewer.layout.mosaic" || key == "viewer.layout.mode" || key == "viewer.layout.order":
+			writable = true
+		case viewerProfileFitPattern.MatchString(key):
+			if value != "contain" && value != "cover" {
+				return errors.New("Bildmodus muss contain oder cover sein")
+			}
 			writable = true
 		case key == viewerPerformanceSettingMode:
 			if value != "quality" && value != "balanced" && value != "low" && value != "diagnostic" {

@@ -191,3 +191,10 @@ function normalizeNode(value: unknown): MosaicNode | undefined {
 function clamp(value: number, min: number, max: number) {
   return Number.isFinite(value) ? Math.min(max, Math.max(min, value)) : min
 }
+
+// Four landscape views on the left and one portrait view spanning both rows.
+export function portraitGridTree(aliases: string[], portrait: string): MosaicNode {
+  if (!aliases.includes(portrait) || aliases.length !== 5) return defaultMosaicTree(aliases)
+  return { type: 'split', dir: 'row', ratio: 256 / 337,
+    a: defaultMosaicTree(aliases.filter((alias) => alias !== portrait)), b: leaf(portrait) }
+}

@@ -299,6 +299,8 @@ export interface ViewerSlot {
 }
 
 export interface ViewerResponse {
+  profiles?: Record<string, string>
+  profile_fits?: Record<string, Record<string, 'contain' | 'cover'>>
   checked_at: string
   go2rtc: ServiceStatus
   generated_config?: string

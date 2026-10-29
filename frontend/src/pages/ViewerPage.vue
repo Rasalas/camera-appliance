@@ -24,7 +24,7 @@
             :class="[tileClass(pane.slot), { dragging: dragSourceAlias === pane.alias, audible: isAudible(pane.alias) }]"
             :data-slot-alias="pane.alias"
           >
-            <div class="viewer-frame-wrap">
+            <div class="viewer-frame-wrap" :ref="(el) => setFrameWrap(pane.alias, el)">
               <div
                 v-if="planFor(pane.alias).sub"
                 class="viewer-frame-transform"
@@ -97,7 +97,9 @@
                 <button
                   class="btn sm"
                   type="button"
-                  :title="effectiveDisplay(pane.slot).fit_mode === 'cover' ? 'Ganzes Bild zeigen' : 'Format füllen'"
+                  :title="(effectiveDisplay(pane.slot).fit_mode === 'cover' ? 'Ganzes Bild zeigen' : 'Format füllen, Bildränder werden abgeschnitten') + (viewName ? ' · nur diese Ansicht' : ' · alle Geräte')"
+                  :aria-label="`${pane.slot.label}: ${effectiveDisplay(pane.slot).fit_mode === 'cover' ? 'Füllen' : 'Ganzes Bild'}`"
+                  :aria-pressed="effectiveDisplay(pane.slot).fit_mode === 'cover'"
                   @click.stop="toggleFitTile(pane.slot)"
                 >{{ effectiveDisplay(pane.slot).fit_mode === 'cover' ? 'Füllen' : 'Ganz' }}</button>
                 <button class="btn icon sm" type="button" title="Hineinzoomen" @click.stop="zoomTile(pane.slot, -1)">＋</button>
@@ -134,9 +136,24 @@
     <transition name="controls">
       <footer v-if="showHud" class="viewer-controls" aria-label="Kamerasteuerung" @pointermove.stop="revealControls" @click.stop>
         <div class="viewer-hud">
+          <label class="view-picker">Ansicht
+            <select :value="viewName" @change="switchView(($event.target as HTMLSelectElement).value)">
+              <option value="">Standard</option>
+              <option v-for="name in Object.keys(viewer?.profiles ?? {}).sort()" :key="name" :value="name">{{ name }}</option>
+              <option v-if="viewName && !viewer?.profiles?.[viewName]" :value="viewName">{{ viewName }}</option>
+            </select>
+          </label>
           <template v-if="canAdmin">
             <button class="btn sm" :class="{ live: editing }" type="button" @click="toggleEdit">{{ editing ? 'Fertig' : 'Bearbeiten' }}</button>
           </template>
+          <template v-if="editing && canAdmin">
+            <span class="view-scope">{{ viewName ? 'Bildmodus je Kamera nur für diese Ansicht' : 'Bildmodus in Standard gilt für alle Geräte' }}</span>
+            <button class="btn sm" type="button" @click="applyPortraitGrid">4 + Hochkant rechts</button>
+            <input v-model="newViewName" class="view-name" aria-label="Name der neuen Ansicht" placeholder="z. B. ipad" maxlength="48" />
+            <button class="btn sm" type="button" @click="createView">Als eigene Ansicht speichern</button>
+          </template>
+          <button class="btn sm" type="button" @click="showViewLink">Link zur Ansicht</button>
+          <a v-if="viewLink" class="view-link" :href="viewLink">{{ viewLink }}</a>
           <button class="btn sm" type="button" @click="toggleFullscreen">{{ isFullscreen ? 'Vollbild aus' : 'Vollbild' }}</button>
           <button
             class="btn icon sm audio-toggle"
@@ -174,11 +191,12 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import type { CSSProperties, Ref } from 'vue'
 import { api } from '../api/client'
 import type { AuthStatus, CameraDisplay, ViewerResponse, ViewerSlot, ViewerSlotState } from '../types'
-import { ROOT_TARGET, layoutGeometry, treeSlots, setRatioAtPath, reconcileTree, dockCamera, parseMosaic } from './viewerMosaic'
+import { ROOT_TARGET, layoutGeometry, treeSlots, setRatioAtPath, reconcileTree, dockCamera, parseMosaic, portraitGridTree } from './viewerMosaic'
 import type { MosaicNode, PaneRect, GutterRect, Side } from './viewerMosaic'
 import { STAGGER_MS, offlineMessage, parseEmbedMessage, planPlayer } from './viewerPlayback'
 import type { FrameStatus, PlayerPlan } from './viewerPlayback'
 import { browserStorage, createVersionWatch, resolveKioskFlag } from '../composables/viewerKiosk'
+import { frameDisplayStyle } from './viewerDisplay'
 import { createSnapshotSave } from '../composables/layoutSave'
 
 // --- Mosaic layout model -----------------------------------------------------
@@ -187,6 +205,40 @@ import { createSnapshotSave } from '../composables/layoutSave'
 // with a ratio for the first child. Cameras dock onto a pane's edge to create a
 // new split, or onto the centre to swap.
 
+const viewName = ref(resolveViewName())
+const newViewName = ref('')
+const viewLink = ref('')
+const frameSizes = ref<Record<string, { width: number; height: number }>>({})
+const frameWraps = new Map<string, HTMLElement>()
+let frameObserver: ResizeObserver | undefined
+function setFrameWrap(alias: string, el: unknown) {
+  const previous = frameWraps.get(alias)
+  if (previous === el) return
+  if (previous) frameObserver?.unobserve(previous)
+  frameWraps.delete(alias)
+  if (!(el instanceof HTMLElement)) return
+  frameWraps.set(alias, el)
+  frameObserver ??= new ResizeObserver((entries) => {
+    const sizes = { ...frameSizes.value }
+    for (const entry of entries) {
+      const name = [...frameWraps].find(([, node]) => node === entry.target)?.[0]
+      if (name) sizes[name] = { width: entry.contentRect.width, height: entry.contentRect.height }
+    }
+    frameSizes.value = sizes
+  })
+  frameObserver.observe(el)
+}
+function resolveViewName() {
+  const param = new URLSearchParams(window.location.search).get('view')
+  let stored = ''
+  try { stored = browserStorage()?.getItem('camera-appliance.viewer.view') ?? '' } catch { /* Storage can be disabled. */ }
+  const name = param ?? stored
+  const valid = /^[a-z0-9][a-z0-9_-]{0,47}$/.test(name) ? name : ''
+  if (param !== null) {
+    try { browserStorage()?.setItem('camera-appliance.viewer.view', valid) } catch { /* URL still applies. */ }
+  }
+  return valid
+}
 const viewer = ref<ViewerResponse>()
 const auth = ref<AuthStatus>()
 const loading = ref(true)
@@ -206,6 +258,7 @@ const spotlightAlias = ref('')
 const controlsVisible = ref(false)
 const isFullscreen = ref(false)
 const displayOverrides = ref<Record<string, CameraDisplay>>({})
+const profileFits = ref<Record<string, CameraDisplay['fit_mode']>>({})
 
 // Layout tree + live drag state.
 const mosaic = ref<MosaicNode>()
@@ -243,9 +296,23 @@ const layoutSave = createSnapshotSave({
   delay: 400,
   save: async (json) => {
     try {
-      await api.saveSettings({ 'viewer.layout.mosaic': json })
+      await api.saveSettings({ [viewName.value ? `viewer.profiles.${viewName.value}.mosaic` : 'viewer.layout.mosaic']: json })
     } catch (err) {
       error.value = err instanceof Error ? err.message : 'Layout konnte nicht gespeichert werden.'
+      throw err
+    }
+  }
+})
+const fitSave = createSnapshotSave({
+  delay: 400,
+  save: async (json) => {
+    if (!viewName.value) return
+    try {
+      const fits = JSON.parse(json) as Record<string, CameraDisplay['fit_mode']>
+      await api.saveSettings(Object.fromEntries(Object.entries(fits).map(([alias, fit]) => [`viewer.profiles.${viewName.value}.fit.${alias}`, fit])))
+    } catch (err) {
+      error.value = err instanceof Error ? err.message : 'Bildmodus konnte nicht gespeichert werden.'
+      throw err
     }
   }
 })
@@ -546,6 +613,49 @@ function scheduleMosaicSave() {
   layoutSave.schedule(mosaic.value)
 }
 
+function applyPortraitGrid() {
+  const aliases = treeSlots(mosaic.value)
+  if (aliases.length !== 5) { error.value = 'Diese Vorlage benötigt fünf Kameras.'; return }
+  const portrait = slots.value.find((slot) => aliases.includes(slot.alias) && [90, 270].includes(effectiveDisplay(slot).rotation))?.alias ?? aliases[4]
+  setTree(portraitGridTree(aliases, portrait))
+}
+
+async function switchView(name: string) {
+  try {
+    await Promise.all([layoutSave.flush(), fitSave.flush()])
+  } catch { return }
+  try { browserStorage()?.setItem('camera-appliance.viewer.view', name) } catch { /* URL still works without storage. */ }
+  const url = new URL(window.location.href)
+  url.searchParams.set('view', name)
+  window.location.assign(url.href)
+}
+
+async function createView() {
+  const name = newViewName.value.trim().toLowerCase()
+  if (!/^[a-z0-9][a-z0-9_-]{0,47}$/.test(name)) {
+    error.value = 'Bitte einen Namen aus a–z, 0–9, Bindestrich oder Unterstrich eingeben.'
+    return
+  }
+  if (viewer.value?.profiles?.[name] || name === viewName.value) {
+    error.value = 'Diese Ansicht existiert bereits. Zum Bearbeiten bitte oben auswählen.'
+    return
+  }
+  if (!mosaic.value) return
+  try {
+    await api.saveSettings({
+      [`viewer.profiles.${name}.mosaic`]: JSON.stringify(mosaic.value),
+      ...Object.fromEntries(slots.value.map((slot) => [`viewer.profiles.${name}.fit.${slot.alias}`, effectiveDisplay(slot).fit_mode]))
+    })
+    await switchView(name)
+  } catch (err) { error.value = err instanceof Error ? err.message : 'Ansicht konnte nicht gespeichert werden.' }
+}
+
+function showViewLink() {
+  const url = new URL(window.location.href)
+  url.searchParams.set('view', viewName.value)
+  viewLink.value = url.href
+}
+
 // --- Chrome: controls auto-hide, spotlight, edit, fullscreen -----------------
 
 function revealControls() {
@@ -580,7 +690,7 @@ function toggleEdit() {
   editing.value = !leaving
   spotlightAlias.value = ''
   // Save the layout as confirmed by "Fertig", before a refresh can replace it.
-  if (leaving) void layoutSave.flush()
+  if (leaving) void Promise.all([layoutSave.flush(), fitSave.flush()]).catch(() => undefined)
   revealControls()
 }
 
@@ -686,7 +796,8 @@ function syncAudioState() {
 // --- Camera display (transform + inline crop) --------------------------------
 
 function effectiveDisplay(slot: ViewerSlot): CameraDisplay {
-  return displayOverrides.value[slot.alias] ?? normalizedDisplay(slot.display)
+  const display = displayOverrides.value[slot.alias] ?? normalizedDisplay(slot.display)
+  return viewName.value ? { ...display, fit_mode: profileFits.value[slot.alias] ?? display.fit_mode } : display
 }
 
 function displayClass(slot: ViewerSlot) {
@@ -698,23 +809,7 @@ function displayClass(slot: ViewerSlot) {
 }
 
 function displayStyle(slot: ViewerSlot) {
-  const display = effectiveDisplay(slot)
-  const crop = display.crop
-  const width = 10000 / crop.width
-  const height = 10000 / crop.height
-  const left = -(crop.x / crop.width) * 100
-  const top = -(crop.y / crop.height) * 100
-  const scaleX = display.mirror ? -1 : 1
-  const scaleY = display.flip ? -1 : 1
-  const rotated = display.rotation === 90 || display.rotation === 270
-  return {
-    left: rotated ? '50%' : `${left}%`,
-    top: rotated ? '50%' : `${top}%`,
-    width: rotated ? `calc(${width / 100} * 100cqh)` : `${width}%`,
-    height: rotated ? `calc(${height / 100} * 100cqw)` : `${height}%`,
-    transform: `${rotated ? 'translate(-50%, -50%) ' : ''}rotate(${display.rotation}deg) scaleX(${scaleX}) scaleY(${scaleY})`,
-    '--display-fit': display.fit_mode
-  }
+  return frameDisplayStyle(effectiveDisplay(slot), frameSizes.value[slot.alias])
 }
 
 function normalizedDisplay(display?: CameraDisplay): CameraDisplay {
@@ -733,6 +828,7 @@ function normalizedDisplay(display?: CameraDisplay): CameraDisplay {
 }
 
 function setDisplayOverride(slot: ViewerSlot, display: CameraDisplay) {
+  if (viewName.value && display.fit_mode !== effectiveDisplay(slot).fit_mode) setProfileFit(slot.alias, display.fit_mode)
   displayOverrides.value = { ...displayOverrides.value, [slot.alias]: display }
 }
 
@@ -743,9 +839,15 @@ function rotateTile(slot: ViewerSlot) {
   scheduleDisplaySave(slot)
 }
 
+function setProfileFit(alias: string, fit: CameraDisplay['fit_mode']) {
+  profileFits.value = { ...profileFits.value, [alias]: fit }
+  if (canAdmin.value) fitSave.schedule(profileFits.value)
+}
+
 function toggleFitTile(slot: ViewerSlot) {
   const display = effectiveDisplay(slot)
   const fit_mode = display.fit_mode === 'cover' ? 'contain' : 'cover'
+  if (viewName.value) { setProfileFit(slot.alias, fit_mode); return }
   setDisplayOverride(slot, { ...display, fit_mode })
   scheduleDisplaySave(slot)
 }
@@ -827,7 +929,7 @@ async function persistDisplay(slot: ViewerSlot) {
       [`camera.display.${deviceID}.rotation`]: String(display.rotation),
       [`camera.display.${deviceID}.mirror`]: String(display.mirror),
       [`camera.display.${deviceID}.flip`]: String(display.flip),
-      [`camera.display.${deviceID}.fit_mode`]: display.fit_mode,
+      ...(!viewName.value ? { [`camera.display.${deviceID}.fit_mode`]: display.fit_mode } : {}),
       [`camera.display.${deviceID}.crop_x`]: String(Math.round(display.crop.x)),
       [`camera.display.${deviceID}.crop_y`]: String(Math.round(display.crop.y)),
       [`camera.display.${deviceID}.crop_width`]: String(Math.round(display.crop.width)),
@@ -937,13 +1039,17 @@ async function load() {
   try {
     const viewerData = await api.viewer()
     viewer.value = viewerData
+    if (!editing.value && !fitSave.busy()) profileFits.value = viewerData.profile_fits?.[viewName.value] ?? {}
     performanceMode.value = normalizedPerformanceMode(viewerData.performance?.mode)
     // Only cameras that are activated (have a binding) appear in the viewer; their
     // placement is controlled here, slots are assigned automatically in the background.
     const aliases = viewerData.slots.filter((slot) => slot.binding?.device_id).map((slot) => slot.alias)
     // Keep the local tree while it is being edited or still being saved.
     if (!editing.value && !layoutSave.busy()) {
-      mosaic.value = aliases.length ? reconcileTree(parseMosaic(viewerData.layout?.mosaic), aliases) : undefined
+      const raw = viewName.value ? viewerData.profiles?.[viewName.value] : viewerData.layout?.mosaic
+      const portrait = viewerData.slots.find((slot) => aliases.includes(slot.alias) && [90, 270].includes(effectiveDisplay(slot).rotation))?.alias
+      const initial = parseMosaic(raw) ?? (portrait ? portraitGridTree(aliases, portrait) : undefined)
+      mosaic.value = aliases.length ? reconcileTree(initial, aliases) : undefined
     }
     if (spotlightAlias.value && !aliases.includes(spotlightAlias.value)) spotlightAlias.value = ''
     if (activeAudioAlias.value && !aliases.includes(activeAudioAlias.value)) muteAllAudio()
@@ -1024,6 +1130,7 @@ onMounted(() => {
 })
 
 onBeforeUnmount(() => {
+  frameObserver?.disconnect()
   muteAllAudio()
   stopDrag?.()
   stopCropPan?.()
@@ -1034,7 +1141,7 @@ onBeforeUnmount(() => {
   window.clearTimeout(displaySaveTimer)
   window.clearTimeout(staggerTimer)
   window.clearTimeout(spotlightIdleTimer)
-  void layoutSave.flush()
+  void Promise.all([layoutSave.flush(), fitSave.flush()]).catch(() => undefined)
   if (onAuthChanged) window.removeEventListener('auth-changed', onAuthChanged)
   if (onFullscreenChange) document.removeEventListener('fullscreenchange', onFullscreenChange)
   if (onVisibilityChange) document.removeEventListener('visibilitychange', onVisibilityChange)
@@ -1045,6 +1152,12 @@ onBeforeUnmount(() => {
 </script>
 
 <style scoped>
+.view-scope { flex-basis: 100%; text-align: center; font-size: 12px; color: var(--ink-mute); }
+.view-picker { display: flex; align-items: center; gap: 8px; font-size: 13px; }
+.view-picker select, .view-name { min-height: 44px; max-width: 170px; background: var(--bg); color: var(--ink); border: 1px solid var(--hairline-strong); border-radius: 8px; padding: 8px; }
+.view-link { flex-basis: 100%; overflow-wrap: anywhere; text-align: center; font-size: 12px; }
+.tile-surface, .mosaic-gutter { touch-action: none; }
+
 /* The camera stage scrolls independently above the intrinsic-height footer. */
 .viewer-root {
   position: relative;
@@ -1262,34 +1375,4 @@ onBeforeUnmount(() => {
 .hud-enter-active, .hud-leave-active { transition: opacity .18s ease, transform .18s ease; }
 .hud-enter-from, .hud-leave-to { opacity: 0; transform: translate(-50%, 8px); }
 
-@media (orientation: portrait) {
-  .viewer-root:not(.editing):not(.spotlight) .viewer-stage {
-    overflow-x: hidden;
-    overflow-y: auto;
-  }
-
-  .viewer-root:not(.editing):not(.spotlight) .mosaic {
-    position: relative;
-    inset: auto;
-    min-height: 100%;
-    padding: 4px;
-  }
-
-  .viewer-root:not(.editing):not(.spotlight) .mosaic-pane {
-    position: relative;
-    left: auto !important;
-    top: auto !important;
-    width: 100% !important;
-    height: auto !important;
-    aspect-ratio: 16 / 9;
-    overflow: hidden;
-  }
-
-  .viewer-root:not(.editing):not(.spotlight) .mosaic-pane > .viewer-tile {
-    inset: 4px;
-    min-height: 0;
-    aspect-ratio: auto;
-    border-radius: clamp(8px, 2.8vw, 14px);
-  }
-}
 </style>
