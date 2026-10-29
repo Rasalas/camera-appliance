@@ -27,7 +27,8 @@ export function useDraftGuard(dirty: () => boolean, discard: () => void | Promis
     return true
   }
   onBeforeRouteLeave(guard)
-  onBeforeRouteUpdate((to, from) => JSON.stringify(to.params) === JSON.stringify(from.params) ? true : guard())
+  // AppLayout keys pages by fullPath, so hash/query changes also remount drafts.
+  onBeforeRouteUpdate((to, from) => to.fullPath === from.fullPath ? true : guard())
   const unload = (event: BeforeUnloadEvent) => {
     if (dirty()) { event.preventDefault(); event.returnValue = '' }
   }

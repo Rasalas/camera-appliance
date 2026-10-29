@@ -60,6 +60,16 @@ test('shared route guard waits for autosave on same-record param changes and req
     save=deferred<boolean>()
     const retry=router.push('/camera/two');await tick();save.resolve(true);await retry
     assert.equal(router.currentRoute.value.params.id,'two')
+    for (const destination of ['/camera/two#privacy', '/camera/two?tab=privacy']) {
+      save=deferred<boolean>()
+      const update=router.push(destination)
+      await tick()
+      assert.equal(router.currentRoute.value.fullPath,'/camera/two')
+      save.resolve(false);await tick()
+      assert.equal(discardOpen.value,true)
+      finishDiscard(false);await update
+      assert.equal(router.currentRoute.value.fullPath,'/camera/two')
+    }
     save=deferred<boolean>()
     const leave=router.push('/other');await tick();save.resolve(false);await tick()
     finishDiscard(true);await leave

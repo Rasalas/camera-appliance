@@ -1,6 +1,32 @@
 import { test, expect } from '@playwright/test'
 import { appliance } from './appliance'
 
+test('hash and query navigation preserve unsaved camera edits until explicitly discarded', async ({ page }) => {
+  await appliance(page)
+  await page.goto('/kamera/hof/bearbeiten#zugang')
+  const username = page.getByLabel('Benutzername', { exact: true })
+  await expect(username).toHaveValue('camera-user')
+  await username.fill('unsaved-user')
+  for (const destination of ['/kamera/hof/bearbeiten#anzeige', '/kamera/hof/bearbeiten?tab=anzeige']) {
+    await page.evaluate(async destination => {
+      const path = '/src/router/index.ts'
+      void (await import(/* @vite-ignore */ path)).default.push(destination)
+    }, destination)
+    const discard = page.getByRole('dialog', { name: 'Änderungen verwerfen?' })
+    await expect(discard).toBeVisible()
+    await discard.getByRole('button', { name: 'Weiter bearbeiten' }).click()
+    await expect(page).toHaveURL(/\/bearbeiten#zugang$/)
+    await expect(username).toHaveValue('unsaved-user')
+  }
+  await page.evaluate(async () => {
+    const path = '/src/router/index.ts'
+    void (await import(/* @vite-ignore */ path)).default.push('/kamera/hof/bearbeiten#anzeige')
+  })
+  await page.getByRole('dialog', { name: 'Änderungen verwerfen?' }).getByRole('button', { name: 'Verwerfen', exact: true }).click()
+  await expect(page).toHaveURL(/\/bearbeiten#anzeige$/)
+  await expect(username).toHaveValue('camera-user')
+})
+
 test('camera save applies one complete configuration and retains apply failures for retry', async ({ page }) => {
   const fixture = await appliance(page)
   fixture.failApply(true)

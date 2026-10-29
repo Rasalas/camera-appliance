@@ -46,13 +46,11 @@ func ExportPortable(dir string, devices, identities []string) ([]byte, error) {
 	}
 	values[envKey] = global
 	for _, id := range devices {
-		value, found, err := exportValue(dir, localEnvCameraKey(id), cameraKey(id))
+		value, _, err := exportValue(dir, localEnvCameraKey(id), cameraKey(id))
 		if err != nil {
 			return nil, err
 		}
-		if !found {
-			value = global
-		}
+		// Empty marks global inheritance, never a copy of the current global secret.
 		values[localEnvCameraKey(id)] = value
 	}
 	for _, id := range identities {
@@ -123,11 +121,8 @@ func updatePortable(dir, key, value string) error {
 	if json.Unmarshal(data, &values) != nil || values == nil {
 		return errors.New("ungültige lokale Zugangsdaten")
 	}
-	if value == "" {
-		delete(values, key)
-	} else {
-		values[key] = value
-	}
+	// An explicit absence must keep suppressing destination keyring/fallback data.
+	values[key] = value
 	data, err = json.Marshal(values)
 	if err != nil {
 		return err
@@ -137,8 +132,14 @@ func updatePortable(dir, key, value string) error {
 
 // ExportLegacyPortable uses only the staged files, never the destination keyring
 // or process environment, when upgrading an archive without a portable entry.
-func ExportLegacyPortable(dir string) ([]byte, error) {
-	values := portable{}
+func ExportLegacyPortable(dir string, devices, identities []string) ([]byte, error) {
+	values := portable{envKey: ""}
+	for _, id := range devices {
+		values[localEnvCameraKey(id)] = ""
+	}
+	for _, id := range identities {
+		values[localEnvIdentityKey(id)] = ""
+	}
 	for _, name := range []string{"secrets.env", "local.env"} {
 		f, err := os.Open(filepath.Join(dir, name))
 		if os.IsNotExist(err) {

@@ -76,6 +76,9 @@ func LoadCamera(configDir, deviceID string) Result {
 		return Load(configDir)
 	}
 	if value, ok := portableValue(configDir, localEnvCameraKey(deviceID)); ok {
+		if value == "" {
+			return inheritedCameraPassword(configDir)
+		}
 		return Result{Value: value, Source: "Backup"}
 	}
 	if value, ok := lookupKeyring(cameraKey(deviceID)); ok {
@@ -84,6 +87,10 @@ func LoadCamera(configDir, deviceID string) Result {
 	if value := readLocalEnvKey(configDir, localEnvCameraKey(deviceID)); value != "" {
 		return Result{Value: value, Source: "local.env"}
 	}
+	return inheritedCameraPassword(configDir)
+}
+
+func inheritedCameraPassword(configDir string) Result {
 	global := Load(configDir)
 	if global.Value != "" {
 		global.Source = "global:" + global.Source

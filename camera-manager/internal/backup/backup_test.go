@@ -285,3 +285,55 @@ func TestLegacyArchiveReplacesPortableCredentials(t *testing.T) {
 		t.Fatal("legacy local.env shadowed by stale portable credentials")
 	}
 }
+
+func TestLegacyRestoreDoesNotInheritDestinationSecrets(t *testing.T) {
+	for _, global := range []string{"source-global", ""} {
+		t.Run("global="+global, func(t *testing.T) {
+			ctx := context.Background()
+			cfg := newBackupTestConfig(t)
+			t.Setenv("TAPO_CAMERA_PASSWORD", "")
+			store, err := state.Open(ctx, cfg.DBPath())
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := store.UpsertDevice(ctx, state.Device{ID: "inherited"}); err != nil {
+				t.Fatal(err)
+			}
+			if err := store.UpsertDevice(ctx, state.Device{ID: "explicit"}); err != nil {
+				t.Fatal(err)
+			}
+			if err := store.PutSettings(ctx, map[string]string{"camera.identity.ids": "identity"}); err != nil {
+				t.Fatal(err)
+			}
+			if err := store.Close(); err != nil {
+				t.Fatal(err)
+			}
+			db, err := os.ReadFile(cfg.DBPath())
+			if err != nil {
+				t.Fatal(err)
+			}
+			archive := filepath.Join(t.TempDir(), "legacy.tar.gz")
+			buildTar(t, archive, map[string]tarEntry{
+				"var/lib/camera-appliance/state.db": {content: string(db), mode: 0600},
+				"etc/camera-appliance/local.env":    {content: "TAPO_CAMERA_PASSWORD='" + global + "'\nCAMERA_PASSWORD_EXPLICIT='source-camera'\n", mode: 0600},
+			})
+			bin := t.TempDir()
+			t.Setenv("PATH", bin)
+			if err := os.WriteFile(filepath.Join(bin, "secret-tool"), []byte("#!/bin/sh\nprintf '%s\\n' destination-secret\n"), 0700); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := Restore(ctx, cfg, archive); err != nil {
+				t.Fatal(err)
+			}
+			if got := secrets.LoadCamera(cfg.ConfigDir, "inherited"); got.Value != global {
+				t.Fatal("legacy camera inherited destination credential")
+			}
+			if got := secrets.LoadCamera(cfg.ConfigDir, "explicit"); got.Value != "source-camera" {
+				t.Fatal("legacy explicit override was lost")
+			}
+			if got := secrets.LoadIdentity(cfg.ConfigDir, "identity"); got.Value != "" {
+				t.Fatal("legacy identity inherited destination credential")
+			}
+		})
+	}
+}

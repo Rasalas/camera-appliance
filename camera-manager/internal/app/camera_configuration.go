@@ -145,8 +145,15 @@ func (a *App) configureCamera(ctx context.Context, id string, req CameraConfigur
 			streamChange = true
 		}
 	}
+	pendingKey := "camera.configuration." + id + ".pending"
 	if req.Access != nil && strings.TrimSpace(req.Access.Password) != "" {
 		if secrets.LoadCamera(a.Config.ConfigDir, id).Value != req.Access.Password {
+			// Secret storage cannot roll back with SQLite. Record apply intent first
+			// so an identical retry still renders after a later transaction failure.
+			if err := a.Store.PutSettings(ctx, map[string]string{pendingKey: "true"}); err != nil {
+				return result, err
+			}
+			settings[pendingKey] = "true"
 			if _, err := secrets.SaveCamera(a.Config.ConfigDir, id, req.Access.Password); err != nil {
 				return result, err
 			}
@@ -155,7 +162,6 @@ func (a *App) configureCamera(ctx context.Context, id string, req CameraConfigur
 			a.InvalidateCredentialPresence(id)
 		}
 	}
-	pendingKey := "camera.configuration." + id + ".pending"
 	if streamChange {
 		values[pendingKey] = "true"
 	}
@@ -168,7 +174,7 @@ func (a *App) configureCamera(ctx context.Context, id string, req CameraConfigur
 		values[relayPendingKey] = relayBefore
 	}
 	if relayBefore != "" {
-		relayBefore, err = update.RetryData(relayBefore)
+		relayBefore, err = update.RetryData(ctx, relayBefore, id)
 		if err != nil {
 			return result, err
 		}
@@ -203,6 +209,15 @@ func (a *App) configureCamera(ctx context.Context, id string, req CameraConfigur
 		return result, nil
 	}
 	if relayBefore != "" {
+		// Persist affected relay IDs before process changes. The earlier snapshot
+		// also lets a retry recover if this planning write fails after the commit.
+		relayBefore, err = update.RetryData(ctx, relayBefore, id)
+		if err != nil {
+			return fail(err)
+		}
+		if err := a.Store.PutSettings(ctx, map[string]string{relayPendingKey: relayBefore}); err != nil {
+			return fail(err)
+		}
 		warnings, err := update.Apply(ctx, relayBefore)
 		result.Warnings = append(result.Warnings, warnings...)
 		if err != nil {

@@ -106,6 +106,11 @@ this file allows the cameras to reconnect on another machine without the old
 keyring. A failed keyring lookup aborts backup creation rather than silently
 producing an incomplete archive.
 
+The snapshot preserves whether a camera has its own password or inherits the
+global password. Changing the global password after restore still updates cameras
+that inherit it. Legacy archives use only their archived credentials; missing
+camera or identity secrets do not fall back to credentials on the destination.
+
 Archives and restored credential files have mode `0600`. They are unencrypted
 and contain passwords. Copy important backups to protected storage on another
 device. Backups on the appliance disk are lost with the disk.

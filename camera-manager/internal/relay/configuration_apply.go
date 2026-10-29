@@ -34,15 +34,17 @@ func (a *Manager) Configure(ctx context.Context, change func(*ConfigurationUpdat
 	return change(&ConfigurationUpdate{manager: a, Before: string(before)})
 }
 
-// RetryData remembers relays already changed during an earlier incomplete apply.
+// RetryData remembers only relays affected by this camera's forwards. Call before
+// and after the desired-state write, persisting the result before applying it.
 // This also handles a superseding save that returns to the original settings:
 // the running process might already have adopted the intermediate settings.
-func (u *ConfigurationUpdate) RetryData(before string) (string, error) {
-	var prior, current configurationSnapshot
+func (u *ConfigurationUpdate) RetryData(ctx context.Context, before, deviceID string) (string, error) {
+	var prior configurationSnapshot
 	if err := json.Unmarshal([]byte(before), &prior); err != nil {
 		return "", err
 	}
-	if err := json.Unmarshal([]byte(u.Before), &current); err != nil {
+	current, _, err := u.manager.managedRelays(ctx)
+	if err != nil {
 		return "", err
 	}
 	if prior.Dirty == nil {
@@ -52,8 +54,8 @@ func (u *ConfigurationUpdate) RetryData(before string) (string, error) {
 	for _, r := range prior.Relays {
 		old[r.ID] = r
 	}
-	for _, r := range current.Relays {
-		if !sameForwards(old[r.ID], r) {
+	for _, r := range current {
+		if !sameCameraForwards(old[r.ID], r, deviceID) {
 			prior.Dirty[r.ID] = true
 		}
 	}
@@ -61,7 +63,20 @@ func (u *ConfigurationUpdate) RetryData(before string) (string, error) {
 	return string(data), err
 }
 
-func sameForwards(a, b ManagedRelay) bool {
+func sameCameraForwards(a, b ManagedRelay, deviceID string) bool {
+	forCamera := func(r ManagedRelay) ManagedRelay {
+		endpoints := make([]RelayEndpoint, 0, 1)
+		for _, endpoint := range r.Endpoints {
+			if endpoint.DeviceID == deviceID {
+				endpoints = append(endpoints, endpoint)
+			}
+		}
+		r.Endpoints = endpoints
+		// Global relay settings belong to relay management, not this camera save.
+		r.RelayDefinition = b.RelayDefinition
+		return r
+	}
+	a, b = forCamera(a), forCamera(b)
 	args, err := sshRelayArgs(a)
 	other, otherErr := sshRelayArgs(b)
 	return reflect.DeepEqual(args, other) && fmt.Sprint(err) == fmt.Sprint(otherErr)
@@ -87,7 +102,7 @@ func (u *ConfigurationUpdate) Apply(ctx context.Context, before string) ([]strin
 	for _, r := range relays {
 		prior := old[r.ID]
 		_, argErr := sshRelayArgs(r)
-		if !previous.Dirty[r.ID] && sameForwards(prior, r) {
+		if !previous.Dirty[r.ID] {
 			continue
 		}
 		if !r.Enabled || r.Type != RelayTypeSSHLocalForward {

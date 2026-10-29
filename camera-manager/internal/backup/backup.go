@@ -53,25 +53,9 @@ func create(ctx context.Context, cfg config.Config, out string, includeSecrets b
 	if err := state.Snapshot(ctx, cfg.DBPath(), snapshot); err != nil {
 		return Result{}, err
 	}
-	store, err := state.Open(ctx, snapshot)
+	ids, identities, err := snapshotCredentialIDs(ctx, snapshot)
 	if err != nil {
 		return Result{}, err
-	}
-	devices, deviceErr := store.Devices(ctx)
-	settings, settingsErr := store.Settings(ctx)
-	closeErr := store.Close()
-	if err := errors.Join(deviceErr, settingsErr, closeErr); err != nil {
-		return Result{}, err
-	}
-	ids := make([]string, 0, len(devices))
-	for _, d := range devices {
-		ids = append(ids, d.ID)
-	}
-	identities := []string{}
-	for _, id := range strings.Split(settings["camera.identity.ids"], ",") {
-		if id = strings.TrimSpace(id); id != "" {
-			identities = append(identities, id)
-		}
 	}
 	portable, err := secrets.ExportPortable(cfg.ConfigDir, ids, identities)
 	if err != nil {
@@ -232,7 +216,11 @@ func Restore(ctx context.Context, cfg config.Config, in string) (Result, error) 
 		if err := os.MkdirAll(dir, 0700); err != nil {
 			return Result{}, err
 		}
-		data, err := secrets.ExportLegacyPortable(dir)
+		ids, identities, err := snapshotCredentialIDs(ctx, snapshot)
+		if err != nil {
+			return Result{}, err
+		}
+		data, err := secrets.ExportLegacyPortable(dir, ids, identities)
 		if err != nil {
 			return Result{}, err
 		}
@@ -318,6 +306,29 @@ var ErrUploadTooLarge = errors.New("Die Sicherungsdatei ist zu groß.")
 
 // ErrInvalidUpload reports an upload that is not a readable backup archive.
 var ErrInvalidUpload = errors.New("Die Datei ist keine gültige Sicherung.")
+
+func snapshotCredentialIDs(ctx context.Context, snapshot string) ([]string, []string, error) {
+	store, err := state.Open(ctx, snapshot)
+	if err != nil {
+		return nil, nil, err
+	}
+	devices, deviceErr := store.Devices(ctx)
+	settings, settingsErr := store.Settings(ctx)
+	if err := errors.Join(deviceErr, settingsErr, store.Close()); err != nil {
+		return nil, nil, err
+	}
+	ids := make([]string, 0, len(devices))
+	for _, d := range devices {
+		ids = append(ids, d.ID)
+	}
+	identities := []string{}
+	for _, id := range strings.Split(settings["camera.identity.ids"], ",") {
+		if id = strings.TrimSpace(id); id != "" {
+			identities = append(identities, id)
+		}
+	}
+	return ids, identities, nil
+}
 
 // RestoreUpload stages an uploaded archive in the state directory, runs Restore
 // on it and always removes the staged copy.

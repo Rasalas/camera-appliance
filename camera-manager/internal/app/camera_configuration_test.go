@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"os"
 	"strings"
@@ -9,6 +10,7 @@ import (
 
 	"camera-appliance/camera-manager/internal/cameraaccess"
 	"camera-appliance/camera-manager/internal/relay"
+	"camera-appliance/camera-manager/internal/secrets"
 	"camera-appliance/camera-manager/internal/state"
 )
 
@@ -22,6 +24,89 @@ func cameraConfigTestApp(t *testing.T) *App {
 		t.Fatal(err)
 	}
 	return a
+}
+
+func TestPasswordOnlyRetryAfterDatabaseFailureAppliesSavedSecret(t *testing.T) {
+	a := cameraConfigTestApp(t)
+	ctx := context.Background()
+	t.Setenv("PATH", t.TempDir())
+	if _, err := a.RenderGo2RTC(ctx); err != nil {
+		t.Fatal(err)
+	}
+	db, err := sql.Open("sqlite", a.Config.DBPath())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if _, err := db.Exec(`CREATE TRIGGER fail_camera_save BEFORE UPDATE OF id ON devices BEGIN SELECT RAISE(ABORT, 'injected write failure'); END`); err != nil {
+		t.Fatal(err)
+	}
+	restarts := 0
+	a.Go2RTCRestart = func(context.Context) error { restarts++; return nil }
+	req := CameraConfiguration{Access: &cameraaccess.CredentialsInput{Username: "old-user", Stream: "stream2", Password: "replacement-password"}}
+	result, err := a.ConfigureCamera(ctx, "dev1", req)
+	if err == nil || result.Persisted || !result.PasswordPersisted {
+		t.Fatalf("expected partial persistence: %+v %v", result, err)
+	}
+	if secrets.LoadCamera(a.Config.ConfigDir, "dev1").Value != req.Access.Password {
+		t.Fatal("secret was not saved before injected failure")
+	}
+	if _, err := db.Exec(`DROP TRIGGER fail_camera_save`); err != nil {
+		t.Fatal(err)
+	}
+	result, err = a.ConfigureCamera(ctx, "dev1", req)
+	if err != nil || !result.Applied || !result.Restarted || restarts != 1 {
+		t.Fatalf("retry skipped apply: %+v %v, restarts %d", result, err, restarts)
+	}
+	data, err := os.ReadFile(a.Config.Go2RTCConfigPath())
+	if err != nil || !strings.Contains(string(data), "replacement-password@") {
+		t.Fatal("retry retained the old rendered secret", err)
+	}
+}
+
+func TestCameraConfigurationRetryDoesNotRestartOtherCamerasRelays(t *testing.T) {
+	a := cameraConfigTestApp(t)
+	ctx := context.Background()
+	if err := a.Store.UpsertDevice(ctx, state.Device{ID: "dev2", LastIP: "192.0.2.2"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := a.Store.UpsertBinding(ctx, state.Binding{SlotID: "cam2", DeviceID: "dev2", Username: "old-user", StreamName: "stream2", Enabled: true}); err != nil {
+		t.Fatal(err)
+	}
+	if err := a.Store.PutSettings(ctx, map[string]string{
+		"camera.relay.ids": "nas,spare", "camera.relay.nas.ssh_target": "nas", "camera.relay.nas.host": "127.0.0.1",
+		"camera.relay.spare.ssh_target": "spare", "camera.relay.spare.host": "127.0.0.1",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	a.Relays().Probe = func(context.Context, string, string) error { return errors.New("closed") }
+	var starts []string
+	a.Relays().StartProcess = func(_ context.Context, r relay.ManagedRelay) (int, error) {
+		starts = append(starts, r.ID)
+		return os.Getpid(), nil
+	}
+	a.Go2RTCRestart = func(context.Context) error { return errors.New("go2rtc failed") }
+	req := CameraConfiguration{RelayEndpoints: map[string]CameraEndpoint{"nas": {TargetHost: "192.0.2.91"}}}
+	result, err := a.ConfigureCamera(ctx, "dev1", req)
+	if err != nil || result.Applied || strings.Join(starts, ",") != "nas" {
+		t.Fatalf("first apply: %+v %v starts %v", result, err, starts)
+	}
+	a.Go2RTCRestart = func(context.Context) error { return nil }
+	result, err = a.ConfigureCamera(ctx, "dev2", CameraConfiguration{RelayEndpoints: map[string]CameraEndpoint{"spare": {TargetHost: "192.0.2.92"}}})
+	if err != nil || !result.Applied || strings.Join(starts, ",") != "nas,spare" {
+		t.Fatalf("second camera: %+v %v starts %v", result, err, starts)
+	}
+	// A fresh manager must recover the operation scope from persisted retry data.
+	a.relays = relay.New(a.Config, a.Store, a.Slots, a.probeRTSP)
+	a.Relays().Probe = func(context.Context, string, string) error { return errors.New("closed") }
+	a.Relays().StartProcess = func(_ context.Context, r relay.ManagedRelay) (int, error) {
+		starts = append(starts, r.ID)
+		return os.Getpid(), nil
+	}
+	result, err = a.ConfigureCamera(ctx, "dev1", req)
+	if err != nil || !result.Applied || strings.Join(starts, ",") != "nas,spare,nas" {
+		t.Fatalf("retry touched unrelated relay: %+v %v starts %v", result, err, starts)
+	}
 }
 
 func TestSavedCameraCredentialsReplaceBoundCredentials(t *testing.T) {

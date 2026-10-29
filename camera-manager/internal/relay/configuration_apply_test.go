@@ -37,7 +37,11 @@ func TestConfigurationApplyChangesActualSSHArgumentsAndStopsLastForward(t *testi
 			if err := a.store.PutSettings(ctx, values); err != nil {
 				return err
 			}
-			_, err := u.Apply(ctx, u.Before)
+			planned, err := u.RetryData(ctx, u.Before, "dev1")
+			if err != nil {
+				return err
+			}
+			_, err = u.Apply(ctx, planned)
 			return err
 		}); err != nil {
 			t.Fatal(err)
@@ -67,7 +71,11 @@ func TestConfigurationApplyChangesActualSSHArgumentsAndStopsLastForward(t *testi
 		if _, err := a.store.ConfigureCamera(ctx, "dev1", nil, nil, &visible); err != nil {
 			return err
 		}
-		_, err := u.Apply(ctx, u.Before)
+		planned, err := u.RetryData(ctx, u.Before, "dev1")
+		if err != nil {
+			return err
+		}
+		_, err = u.Apply(ctx, planned)
 		return err
 	}); err != nil {
 		t.Fatal(err)
@@ -102,7 +110,11 @@ func TestConfigurationApplyPreservesManualDisabledAndExternalRelays(t *testing.T
 				if err := a.store.PutSettings(ctx, map[string]string{"camera.relay_endpoint.dev1.nas.target_host": "192.0.2.99"}); err != nil {
 					return err
 				}
-				warnings, err := u.Apply(ctx, u.Before)
+				planned, err := u.RetryData(ctx, u.Before, "dev1")
+				if err != nil {
+					return err
+				}
+				warnings, err := u.Apply(ctx, planned)
 				if kind != "disabled" && len(warnings) == 0 {
 					t.Fatal("missing manual apply warning")
 				}

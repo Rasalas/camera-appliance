@@ -48,3 +48,48 @@ func TestExportReportsKeyringFailureInsteadOfLosingCredentials(t *testing.T) {
 		t.Fatal("backup silently omitted failed keyring lookup")
 	}
 }
+
+func TestPortableRoundTripPreservesGlobalInheritanceAndExplicitOverrides(t *testing.T) {
+	t.Setenv(envKey, "")
+	t.Setenv("PATH", t.TempDir())
+	source, destination := t.TempDir(), t.TempDir()
+	if _, err := Save(source, "source-global"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := SaveCamera(source, "explicit", "camera-override"); err != nil {
+		t.Fatal(err)
+	}
+	data, err := ExportPortable(source, []string{"inherited", "explicit"}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := SaveCamera(destination, "inherited", "stale-destination"); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(destination, PortableFile), data, 0600); err != nil {
+		t.Fatal(err)
+	}
+	if got := LoadCamera(destination, "inherited"); got.Value != "source-global" {
+		t.Fatalf("restored inheritance: %+v", got)
+	}
+	if _, err := Save(destination, "changed-global"); err != nil {
+		t.Fatal(err)
+	}
+	if got := LoadCamera(destination, "inherited"); got.Value != "changed-global" {
+		t.Fatalf("global change did not reach inheriting camera: %+v", got)
+	}
+	if got := LoadCamera(destination, "explicit"); got.Value != "camera-override" {
+		t.Fatalf("explicit override changed: %+v", got)
+	}
+	data, err = ExportPortable(destination, []string{"inherited", "explicit"}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var values portable
+	if err := json.Unmarshal(data, &values); err != nil {
+		t.Fatal(err)
+	}
+	if value, found := values[localEnvCameraKey("inherited")]; !found || value != "" {
+		t.Fatal("re-export lost global inheritance")
+	}
+}
