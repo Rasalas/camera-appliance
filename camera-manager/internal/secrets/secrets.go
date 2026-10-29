@@ -39,6 +39,9 @@ func Load(configDir string) Result {
 	if value := os.Getenv(envKey); value != "" {
 		return Result{Value: value, Source: "environment"}
 	}
+	if value, ok := portableValue(configDir, envKey); ok {
+		return Result{Value: value, Source: "Backup"}
+	}
 	if value, ok := lookupKeyring(keyringAccount); ok {
 		return Result{Value: value, Source: "keyring"}
 	}
@@ -56,6 +59,9 @@ func Save(configDir, password string) (string, error) {
 	if password == "" {
 		return "", errors.New("password is empty")
 	}
+	if err := updatePortable(configDir, envKey, password); err != nil {
+		return "", err
+	}
 	if saveKeyring(keyringAccount, password) == nil {
 		return "keyring", nil
 	}
@@ -68,6 +74,9 @@ func Save(configDir, password string) (string, error) {
 func LoadCamera(configDir, deviceID string) Result {
 	if deviceID == "" {
 		return Load(configDir)
+	}
+	if value, ok := portableValue(configDir, localEnvCameraKey(deviceID)); ok {
+		return Result{Value: value, Source: "Backup"}
 	}
 	if value, ok := lookupKeyring(cameraKey(deviceID)); ok {
 		return Result{Value: value, Source: "keyring"}
@@ -86,6 +95,9 @@ func LoadIdentity(configDir, identityID string) Result {
 	if identityID == "" {
 		return Result{}
 	}
+	if value, ok := portableValue(configDir, localEnvIdentityKey(identityID)); ok {
+		return Result{Value: value, Source: "Backup"}
+	}
 	if value, ok := lookupKeyring(identityKey(identityID)); ok {
 		return Result{Value: value, Source: "keyring"}
 	}
@@ -103,6 +115,9 @@ func SaveIdentity(configDir, identityID, password string) (string, error) {
 	if password == "" {
 		return "", errors.New("password is empty")
 	}
+	if err := updatePortable(configDir, localEnvIdentityKey(identityID), password); err != nil {
+		return "", err
+	}
 	if saveKeyring(identityKey(identityID), password) == nil {
 		return "keyring", nil
 	}
@@ -119,6 +134,9 @@ func SaveCamera(configDir, deviceID, password string) (string, error) {
 	}
 	if password == "" {
 		return "", errors.New("password is empty")
+	}
+	if err := updatePortable(configDir, localEnvCameraKey(deviceID), password); err != nil {
+		return "", err
 	}
 	if saveKeyring(cameraKey(deviceID), password) == nil {
 		return "keyring", nil
@@ -284,6 +302,7 @@ func DeleteCamera(configDir, deviceID string) {
 	if deviceID == "" {
 		return
 	}
+	_ = updatePortable(configDir, localEnvCameraKey(deviceID), "")
 	deleteKeyring(cameraKey(deviceID))
 	removeLocalEnvKey(configDir, localEnvCameraKey(deviceID))
 }
@@ -294,6 +313,7 @@ func DeleteIdentity(configDir, identityID string) {
 	if identityID == "" {
 		return
 	}
+	_ = updatePortable(configDir, localEnvIdentityKey(identityID), "")
 	deleteKeyring(identityKey(identityID))
 	removeLocalEnvKey(configDir, localEnvIdentityKey(identityID))
 }

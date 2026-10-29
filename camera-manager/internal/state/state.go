@@ -437,6 +437,17 @@ func (s *Store) Settings(ctx context.Context) (map[string]string, error) {
 }
 
 func (s *Store) PutSettings(ctx context.Context, values map[string]string) error {
+	for key := range values {
+		if strings.HasPrefix(key, "auth.") || strings.HasPrefix(key, "network.") {
+			unlock, err := s.lockAccessPolicy(ctx)
+			if err != nil {
+				return err
+			}
+			defer unlock()
+			break
+		}
+	}
+
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
