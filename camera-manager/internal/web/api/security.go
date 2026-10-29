@@ -46,29 +46,20 @@ func originMatchesRequest(origin, host string) bool {
 }
 
 type loginLimiter struct {
-	mu    sync.Mutex
-	fails map[string]*loginFailures
+	now    func() time.Time
+	active int
+	mu     sync.Mutex
+	fails  map[string]*loginFailures
 }
 
 type loginFailures struct {
+	inflight int
 	count    int
 	windowAt time.Time
 }
 
 func newLoginLimiter() *loginLimiter {
-	return &loginLimiter{fails: map[string]*loginFailures{}}
-}
-
-// Allow reports whether a login attempt from addr may proceed or the failure
-// limit within the current window has been exhausted.
-func (l *loginLimiter) Allow(addr string, now time.Time) bool {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	f := l.fails[clientKey(addr)]
-	if f == nil || now.Sub(f.windowAt) >= loginFailWindow {
-		return true
-	}
-	return f.count < loginFailLimit
+	return &loginLimiter{now: time.Now, fails: map[string]*loginFailures{}}
 }
 
 func (l *loginLimiter) RecordFailure(addr string, now time.Time) {
@@ -76,7 +67,7 @@ func (l *loginLimiter) RecordFailure(addr string, now time.Time) {
 	defer l.mu.Unlock()
 	key := clientKey(addr)
 	f := l.fails[key]
-	if f == nil || now.Sub(f.windowAt) >= loginFailWindow {
+	if f == nil {
 		l.fails[key] = &loginFailures{count: 1, windowAt: now}
 		return
 	}
@@ -95,3 +86,41 @@ const (
 	loginFailLimit  = 10
 	loginFailWindow = time.Minute
 )
+
+// Reserve bounds password work globally and per client before hashing begins.
+func (l *loginLimiter) Reserve(addr string) bool {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	now := l.now()
+	for k, f := range l.fails {
+		if f.inflight == 0 && now.Sub(f.windowAt) >= loginFailWindow {
+			delete(l.fails, k)
+		}
+	}
+	if l.active >= 4 {
+		return false
+	}
+	key := clientKey(addr)
+	f := l.fails[key]
+	if f == nil {
+		if len(l.fails) >= 4096 {
+			return false
+		}
+		f = &loginFailures{windowAt: now}
+		l.fails[key] = f
+	}
+	if f.count+f.inflight >= loginFailLimit {
+		return false
+	}
+	f.inflight++
+	l.active++
+	return true
+}
+func (l *loginLimiter) Release(addr string) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if f := l.fails[clientKey(addr)]; f != nil && f.inflight > 0 {
+		f.inflight--
+		l.active--
+	}
+}

@@ -281,18 +281,14 @@ async function confirmVisibility() {
   visibilityError.value = ''
   error.value = ''
   try {
-    const credentials = isShown(device) ? undefined : await api.deviceCredentials(device.id).catch(() => undefined)
     const result = await changeCameraVisibility(api, {
       deviceId: device.id,
-      label: cameraName(device),
-      bindings: bindings.value,
-      slots: slots.value,
-      username: credentials?.username,
-      stream: credentials?.stream
+      bindings: bindings.value
     })
+    if (result.restartError) { visibilityError.value = result.restartError; return }
     visibilityTarget.value = undefined
-    error.value = result.restartError
     await load()
+    if (result.warnings.length) error.value = result.warnings.join(' ')
   } catch (err) {
     visibilityError.value = err instanceof Error ? err.message : 'Die Anzeige konnte nicht geändert werden.'
   } finally {

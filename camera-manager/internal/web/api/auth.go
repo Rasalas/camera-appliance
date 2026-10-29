@@ -31,13 +31,14 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err, http.StatusBadRequest)
 		return
 	}
-	if !s.logins.Allow(r.RemoteAddr, time.Now()) {
+	if !s.logins.Reserve(r.RemoteAddr) {
 		writeError(w, errors.New("zu viele fehlgeschlagene Anmeldeversuche, bitte kurz warten"), http.StatusTooManyRequests)
 		return
 	}
+	defer s.logins.Release(r.RemoteAddr)
 	token, result, err := s.app.Login(r.Context(), req.Username, req.Password, req.Remember)
 	if err != nil {
-		s.logins.RecordFailure(r.RemoteAddr, time.Now())
+		s.logins.RecordFailure(r.RemoteAddr, s.logins.now())
 		writeError(w, err, http.StatusUnauthorized)
 		return
 	}
@@ -97,7 +98,7 @@ func (s *Server) authMiddleware(next http.Handler) http.Handler {
 
 		status, err := s.app.AuthStatus(r.Context(), info.Role, info.ExpiresAt, info.LocalAdminBypass)
 		if err != nil {
-			if strings.HasPrefix(r.URL.Path, "/api/") {
+			if strings.HasPrefix(r.URL.Path, "/api/") || strings.HasPrefix(r.URL.Path, "/go2rtc/") {
 				writeError(w, err, http.StatusInternalServerError)
 				return
 			}

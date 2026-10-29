@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"io"
@@ -13,6 +14,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"gopkg.in/yaml.v3"
 )
 
 // Files with these extensions may have a build-time .gz sibling (see frontend/precompress.ts).
@@ -162,6 +165,45 @@ func (s *Server) proxyGo2RTCWebSocket(w http.ResponseWriter, r *http.Request) {
 		writeError(w, errors.New("websocket-origin abgelehnt"), http.StatusForbidden)
 		return
 	}
+	// Only player handshakes with a single, rendered, active alias may reach go2rtc.
+	query, err := neturl.ParseQuery(r.URL.RawQuery)
+	if err != nil || len(query) != 1 || len(query["src"]) != 1 {
+		writeError(w, errors.New("ungültige Stream-Anfrage"), http.StatusBadRequest)
+		return
+	}
+	key, keyErr := base64.StdEncoding.DecodeString(r.Header.Get("Sec-WebSocket-Key"))
+	if keyErr != nil || len(key) != 16 || !strings.EqualFold(r.Header.Get("Upgrade"), "websocket") || !headerHasToken(r.Header.Get("Connection"), "upgrade") || r.Header.Get("Sec-WebSocket-Version") != "13" || r.Header.Get("Sec-WebSocket-Key") == "" {
+		writeError(w, errors.New("WebSocket-Handshake erforderlich"), http.StatusBadRequest)
+		return
+	}
+	bindings, err := s.app.Store.Bindings(r.Context())
+	if err != nil {
+		writeError(w, err, http.StatusServiceUnavailable)
+		return
+	}
+	data, err := os.ReadFile(s.app.Config.Go2RTCConfigPath())
+	var rendered struct {
+		Streams map[string][]string `yaml:"streams"`
+	}
+	if err != nil || yaml.Unmarshal(data, &rendered) != nil {
+		writeError(w, errors.New("Streams nicht verfügbar"), http.StatusServiceUnavailable)
+		return
+	}
+	allowed := false
+	for _, b := range bindings {
+		if !b.Enabled {
+			continue
+		}
+		for _, alias := range []string{b.SlotID, b.SlotID + "_stream1", b.SlotID + "_stream2"} {
+			if query.Get("src") == alias && len(rendered.Streams[alias]) > 0 {
+				allowed = true
+			}
+		}
+	}
+	if !allowed {
+		writeError(w, errors.New("Stream nicht verfügbar"), http.StatusForbidden)
+		return
+	}
 	target, err := neturl.Parse(strings.TrimSpace(s.app.Config.Go2RTCURL))
 	if err != nil || target.Scheme == "" || target.Host == "" {
 		writeError(w, errors.New("go2rtc url is invalid"), http.StatusBadGateway)
@@ -174,7 +216,7 @@ func (s *Server) proxyGo2RTCWebSocket(w http.ResponseWriter, r *http.Request) {
 		req.URL.Scheme = target.Scheme
 		req.URL.Host = target.Host
 		req.URL.Path = basePath + "/api/ws"
-		req.URL.RawQuery = r.URL.RawQuery
+		req.URL.RawQuery = query.Encode()
 		req.Host = target.Host
 		req.Header.Set("Origin", target.Scheme+"://"+target.Host)
 	}
@@ -182,4 +224,13 @@ func (s *Server) proxyGo2RTCWebSocket(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err, http.StatusBadGateway)
 	}
 	proxy.ServeHTTP(w, r)
+}
+
+func headerHasToken(value, token string) bool {
+	for _, part := range strings.Split(value, ",") {
+		if strings.EqualFold(strings.TrimSpace(part), token) {
+			return true
+		}
+	}
+	return false
 }

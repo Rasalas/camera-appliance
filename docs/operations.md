@@ -98,11 +98,28 @@ admin-only and accepts only names that match the pattern above, without symlinks
 `POST /api/backup` always writes to the backup directory and never includes
 `secrets.env`. Use `camera-appliance backup --out … --include-secrets` for that.
 
-Every archive contains the SQLite state (password hashes only), the generated
-`go2rtc.yaml` (camera passwords in RTSP URLs), `local.env` (camera passwords if
-the keyring is unavailable) and the upload password file. Keyring entries are
-never included. Archives are created with mode `0600`. Copy important backups to
-another device. Backups on the appliance disk are lost with the disk.
+Every archive contains the SQLite state, the generated `go2rtc.yaml`, available
+local configuration files and the upload password file. It also contains
+`restored-secrets.json` with the camera and shared-identity passwords resolved
+for the snapshot, including passwords stored only in the OS keyring. Restoring
+this file allows the cameras to reconnect on another machine without the old
+keyring. A failed keyring lookup aborts backup creation rather than silently
+producing an incomplete archive.
+
+The snapshot preserves whether a camera has its own password or inherits the
+global password. Changing the global password after restore still updates cameras
+that inherit it. Legacy archives use only their archived credentials; missing
+camera or identity secrets do not fall back to credentials on the destination.
+
+Archives and restored credential files have mode `0600`. They are unencrypted
+and contain passwords. Copy important backups to protected storage on another
+device. Backups on the appliance disk are lost with the disk.
+
+Restoring onto a station with an admin password preserves that station's
+authentication and network-access settings. Older backups cannot remove its
+login protection. A fresh station can recover the archived login settings.
+Restored sessions are always discarded; sign in again after recovery. Restart
+the services to activate restored stream and environment configuration.
 
 ## Updates and Rollback
 

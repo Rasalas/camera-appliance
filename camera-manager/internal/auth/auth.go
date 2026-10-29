@@ -1,7 +1,6 @@
 package auth
 
 import (
-	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha256"
 	"crypto/subtle"
@@ -10,6 +9,8 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+
+	"golang.org/x/crypto/pbkdf2"
 )
 
 const (
@@ -47,20 +48,23 @@ func HashPassword(password string) (string, error) {
 }
 
 func VerifyPassword(storedHash, password string) bool {
+	if len(storedHash) > 512 {
+		return false
+	}
 	parts := strings.Split(storedHash, "$")
 	if len(parts) != 4 || parts[0] != passwordScheme {
 		return false
 	}
 	iterations, err := strconv.Atoi(parts[1])
-	if err != nil || iterations < 10000 {
+	if err != nil || iterations < 10000 || iterations > 1000000 {
 		return false
 	}
 	salt, err := base64.RawStdEncoding.DecodeString(parts[2])
-	if err != nil || len(salt) == 0 {
+	if err != nil || len(salt) < 16 || len(salt) > 64 {
 		return false
 	}
 	expected, err := base64.RawStdEncoding.DecodeString(parts[3])
-	if err != nil || len(expected) == 0 {
+	if err != nil || len(expected) != hashBytes {
 		return false
 	}
 	got := pbkdf2SHA256([]byte(password), salt, iterations, len(expected))
@@ -81,29 +85,5 @@ func TokenHash(token string) string {
 }
 
 func pbkdf2SHA256(password, salt []byte, iterations, keyLen int) []byte {
-	hashLen := sha256.Size
-	blocks := (keyLen + hashLen - 1) / hashLen
-	out := make([]byte, 0, blocks*hashLen)
-	for block := 1; block <= blocks; block++ {
-		u := pbkdf2Block(password, salt, iterations, block)
-		out = append(out, u...)
-	}
-	return out[:keyLen]
-}
-
-func pbkdf2Block(password, salt []byte, iterations, block int) []byte {
-	mac := hmac.New(sha256.New, password)
-	_, _ = mac.Write(salt)
-	_, _ = mac.Write([]byte{byte(block >> 24), byte(block >> 16), byte(block >> 8), byte(block)})
-	u := mac.Sum(nil)
-	result := append([]byte(nil), u...)
-	for i := 1; i < iterations; i++ {
-		mac = hmac.New(sha256.New, password)
-		_, _ = mac.Write(u)
-		u = mac.Sum(nil)
-		for j := range result {
-			result[j] ^= u[j]
-		}
-	}
-	return result
+	return pbkdf2.Key(password, salt, iterations, keyLen, sha256.New)
 }

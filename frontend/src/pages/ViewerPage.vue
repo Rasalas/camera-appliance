@@ -104,6 +104,12 @@
                 >{{ effectiveDisplay(pane.slot).fit_mode === 'cover' ? 'Füllen' : 'Ganz' }}</button>
                 <button class="btn icon sm" type="button" title="Hineinzoomen" @click.stop="zoomTile(pane.slot, -1)">＋</button>
                 <button class="btn icon sm" type="button" title="Herauszoomen" @click.stop="zoomTile(pane.slot, 1)">－</button>
+                <button
+                  v-for="direction in panDirections" :key="direction.label" class="btn sm"
+                  :aria-label="`Bildausschnitt ${direction.label} verschieben`"
+                  @click.stop="panTile(pane.slot,direction.axis,direction.amount)"
+                >{{ direction.icon }}</button>
+                <ViewerArrangementControls :alias="pane.alias" :label="pane.slot.label" :peers="panes.map(p => ({alias:p.alias,label:p.slot.label}))" @dock="(target,side) => applyDock(pane.alias,target,side)" />
                 <button class="btn icon sm" type="button" title="Zuschnitt zurücksetzen" @click.stop="resetTile(pane.slot)">⟲</button>
               </div>
             </div>
@@ -118,6 +124,12 @@
             :class="gutter.dir"
             type="button"
             :style="gutterStyle(gutter)"
+            role="separator"
+            :aria-orientation="gutter.dir === 'row' ? 'vertical' : 'horizontal'"
+            aria-valuemin="5" aria-valuemax="95"
+            :aria-valuenow="Math.round(gutterRatio(gutter)*100)"
+            :aria-valuetext="`${Math.round(gutterRatio(gutter)*100)} Prozent`"
+            @keydown="resizeGutter($event,gutter)"
             :title="gutter.dir === 'row' ? 'Breite ziehen' : 'Höhe ziehen'"
             :aria-label="gutter.dir === 'row' ? 'Breite der Kameras ändern' : 'Höhe der Kameras ändern'"
             @pointerdown="startGutterDrag($event, gutter)"
@@ -181,22 +193,27 @@
     </transition>
 
     <transition name="hud">
-      <div v-if="error" class="viewer-error" @click="error = ''">{{ error }}</div>
+      <div v-if="error" class="viewer-error" role="alert">{{ error }} <button class="btn" @click="flushViewer().then(saved => { if(saved) error = '' })">Erneut speichern</button></div>
     </transition>
   </div>
 </template>
 
 <script setup lang="ts">
+import ViewerArrangementControls from '../components/ViewerArrangementControls.vue'
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import type { CSSProperties, Ref } from 'vue'
+import type { CSSProperties } from 'vue'
 import { api } from '../api/client'
 import type { AuthStatus, CameraDisplay, ViewerResponse, ViewerSlot, ViewerSlotState } from '../types'
-import { ROOT_TARGET, layoutGeometry, treeSlots, setRatioAtPath, reconcileTree, dockCamera, parseMosaic, portraitGridTree } from './viewerMosaic'
+import { ROOT_TARGET, layoutGeometry, treeSlots, reconcileTree, dockCamera, parseMosaic, portraitGridTree } from './viewerMosaic'
 import type { MosaicNode, PaneRect, GutterRect, Side } from './viewerMosaic'
-import { STAGGER_MS, offlineMessage, parseEmbedMessage, planPlayer } from './viewerPlayback'
+import { STAGGER_MS, offlineMessage, planPlayer } from './viewerPlayback'
 import type { FrameStatus, PlayerPlan } from './viewerPlayback'
 import { browserStorage, createVersionWatch, resolveKioskFlag } from '../composables/viewerKiosk'
 import { frameDisplayStyle } from './viewerDisplay'
+import { useViewerFrames } from '../composables/viewerFrames'
+import { useDraftGuard } from '../composables/discardChanges'
+import { createDisplayPersistence } from './viewerPersistence'
+import { gutterRatio, createViewerLayoutEditing } from './viewerLayoutEditing'
 import { createSnapshotSave } from '../composables/layoutSave'
 
 // --- Mosaic layout model -----------------------------------------------------
@@ -244,12 +261,12 @@ const auth = ref<AuthStatus>()
 const loading = ref(true)
 const busy = ref(false)
 const error = ref('')
-const subStatus = ref<Record<string, FrameStatus>>({})
-const hdStatus = ref<Record<string, FrameStatus>>({})
 const performanceMode = ref<'quality' | 'balanced' | 'low' | 'diagnostic'>('quality')
 // Off until someone presses the sound control, so a single tap never starts audio.
 const audioEnabled = ref(false)
 const activeAudioAlias = ref('')
+const frames = useViewerFrames({enabled: () => audioEnabled.value, alias: () => activeAudioAlias.value})
+const {subStatus,hdStatus,setFrameRef,setHDFrameRef,syncAudioState,handleEmbedMessage} = frames
 
 // Normal viewing reserves space for controls. Fullscreen and kiosk modes reveal
 // them temporarily without resizing the camera surface.
@@ -274,7 +291,7 @@ let refreshTimer = 0
 let versionTimer = 0
 let controlsTimer = 0
 let tileClickTimer = 0
-let displaySaveTimer = 0
+
 let staggerTimer = 0
 let spotlightIdleTimer = 0
 let onAuthChanged: (() => void) | undefined
@@ -284,8 +301,6 @@ let onKey: ((e: KeyboardEvent) => void) | undefined
 let onMessage: ((e: MessageEvent) => void) | undefined
 let stopDrag: (() => void) | undefined
 let stopCropPan: (() => void) | undefined
-const frameEls: Record<string, HTMLIFrameElement> = {}
-const hdFrameEls: Record<string, HTMLIFrameElement> = {}
 const AUDIO_SETTING_KEY = 'camera-appliance.viewer.audioEnabled'
 const LEGACY_AUDIO_SETTING_KEY = 'camera-appliance.viewer.audioHoverEnabled'
 const SPOTLIGHT_IDLE_MS = 2 * 60 * 1000
@@ -499,6 +514,7 @@ function onTileWheel(event: WheelEvent, slot: ViewerSlot) {
 }
 
 function startPaneDrag(event: PointerEvent, alias: string) {
+  layoutEditor.stop()
   if (treeSlots(mosaic.value).length < 2) return
   const startX = event.clientX
   const startY = event.clientY
@@ -576,36 +592,13 @@ function applyDock(sourceAlias: string, targetAlias: string, side: Side) {
   if (mosaic.value) setTree(dockCamera(mosaic.value, sourceAlias, targetAlias, side))
 }
 
+const layoutEditor = createViewerLayoutEditing(() => mosaic.value,setTree)
 function startGutterDrag(event: PointerEvent, gutter: GutterRect) {
   const el = gridEl.value
   if (!el || !mosaic.value) return
   event.preventDefault()
   stopDrag?.()
-  const box = el.getBoundingClientRect()
-  const move = (moveEvent: PointerEvent) => {
-    if (!mosaic.value) return
-    let ratio: number
-    if (gutter.dir === 'row') {
-      const px = ((moveEvent.clientX - box.left) / box.width) * 100
-      ratio = (px - gutter.rect.x) / gutter.rect.w
-    } else {
-      const py = ((moveEvent.clientY - box.top) / box.height) * 100
-      ratio = (py - gutter.rect.y) / gutter.rect.h
-    }
-    mosaic.value = setRatioAtPath(mosaic.value, gutter.path, ratio)
-    moveEvent.preventDefault()
-  }
-  const up = () => {
-    stopDrag?.()
-    stopDrag = undefined
-    scheduleMosaicSave()
-  }
-  stopDrag = () => {
-    window.removeEventListener('pointermove', move)
-    window.removeEventListener('pointerup', up)
-  }
-  window.addEventListener('pointermove', move)
-  window.addEventListener('pointerup', up)
+  layoutEditor.beginResize(event,gutter,el)
 }
 
 function scheduleMosaicSave() {
@@ -622,7 +615,7 @@ function applyPortraitGrid() {
 
 async function switchView(name: string) {
   try {
-    await Promise.all([layoutSave.flush(), fitSave.flush()])
+    if (!await flushViewer()) return
   } catch { return }
   try { browserStorage()?.setItem('camera-appliance.viewer.view', name) } catch { /* URL still works without storage. */ }
   const url = new URL(window.location.href)
@@ -690,7 +683,7 @@ function toggleEdit() {
   editing.value = !leaving
   spotlightAlias.value = ''
   // Save the layout as confirmed by "Fertig", before a refresh can replace it.
-  if (leaving) void Promise.all([layoutSave.flush(), fitSave.flush()]).catch(() => undefined)
+  if (leaving) void flushViewer()
   revealControls()
 }
 
@@ -744,34 +737,13 @@ async function releaseScreenWakeLock() {
 
 // --- Audio -------------------------------------------------------------------
 
-function setFrameRef(alias: string, el: unknown) {
-  trackFrame(frameEls, subStatus, alias, el)
-}
-
-function setHDFrameRef(alias: string, el: unknown) {
-  trackFrame(hdFrameEls, hdStatus, alias, el)
-}
-
-// A new or removed iframe starts over as "connecting" until its embed reports playback.
-function trackFrame(frames: Record<string, HTMLIFrameElement>, status: Ref<Record<string, FrameStatus>>, alias: string, el: unknown) {
-  const next = el instanceof HTMLIFrameElement ? el : undefined
-  if (frames[alias] === next) return
-  if (next) frames[alias] = next
-  else delete frames[alias]
-  if (alias in status.value) {
-    const { [alias]: _dropped, ...rest } = status.value
-    status.value = rest
-  }
-  window.setTimeout(() => syncAudioState(), 0)
-}
-
 function isAudible(alias: string) {
   return audioEnabled.value && activeAudioAlias.value === alias
 }
 
 function toggleAudioEnabled() {
   audioEnabled.value = !audioEnabled.value
-  window.localStorage.setItem(AUDIO_SETTING_KEY, audioEnabled.value ? 'true' : 'false')
+  try { browserStorage()?.setItem(AUDIO_SETTING_KEY, audioEnabled.value ? 'true' : 'false') } catch { /* Audio still works without storage. */ }
   if (!audioEnabled.value) activeAudioAlias.value = ''
   syncAudioState()
 }
@@ -779,18 +751,6 @@ function toggleAudioEnabled() {
 function muteAllAudio() {
   activeAudioAlias.value = ''
   syncAudioState()
-}
-
-// Exactly one frame per camera carries audio: HD once it plays, otherwise the sub stream.
-function syncAudioState() {
-  const audible = (alias: string) => audioEnabled.value && alias === activeAudioAlias.value
-  const hdPlaying = (alias: string) => !!hdFrameEls[alias] && hdStatus.value[alias] === 'playing'
-  for (const [alias, frame] of Object.entries(frameEls)) {
-    frame.contentWindow?.postMessage({ type: 'camera-audio', muted: !audible(alias) || hdPlaying(alias) }, window.location.origin)
-  }
-  for (const [alias, frame] of Object.entries(hdFrameEls)) {
-    frame.contentWindow?.postMessage({ type: 'camera-audio', muted: !audible(alias) || !hdPlaying(alias) }, window.location.origin)
-  }
 }
 
 // --- Camera display (transform + inline crop) --------------------------------
@@ -899,6 +859,7 @@ function startCropPan(event: PointerEvent, slot: ViewerSlot) {
       y: clamp(base.crop.y - dy, 0, 100 - base.crop.height)
     }
     setDisplayOverride(slot, { ...base, crop })
+    scheduleDisplaySave(slot)
     moveEvent.preventDefault()
   }
   const up = () => {
@@ -914,32 +875,36 @@ function startCropPan(event: PointerEvent, slot: ViewerSlot) {
   window.addEventListener('pointerup', up)
 }
 
+const displaySave = createDisplayPersistence(values => api.saveSettings(values), err => {
+  error.value = err instanceof Error ? err.message : 'Anzeige konnte nicht gespeichert werden.'
+})
 function scheduleDisplaySave(slot: ViewerSlot) {
-  if (!canAdmin.value) return
-  window.clearTimeout(displaySaveTimer)
-  displaySaveTimer = window.setTimeout(() => void persistDisplay(slot), 500)
+  const id = slot.binding?.device_id, display = displayOverrides.value[slot.alias]
+  if (canAdmin.value && id && display) displaySave.schedule(id,display,viewName.value)
 }
-
-async function persistDisplay(slot: ViewerSlot) {
-  const deviceID = slot.binding?.device_id
-  const display = displayOverrides.value[slot.alias]
-  if (!deviceID || !display) return
-  try {
-    await api.saveSettings({
-      [`camera.display.${deviceID}.rotation`]: String(display.rotation),
-      [`camera.display.${deviceID}.mirror`]: String(display.mirror),
-      [`camera.display.${deviceID}.flip`]: String(display.flip),
-      ...(!viewName.value ? { [`camera.display.${deviceID}.fit_mode`]: display.fit_mode } : {}),
-      [`camera.display.${deviceID}.crop_x`]: String(Math.round(display.crop.x)),
-      [`camera.display.${deviceID}.crop_y`]: String(Math.round(display.crop.y)),
-      [`camera.display.${deviceID}.crop_width`]: String(Math.round(display.crop.width)),
-      [`camera.display.${deviceID}.crop_height`]: String(Math.round(display.crop.height))
-    })
-  } catch (err) {
-    error.value = err instanceof Error ? err.message : 'Anzeige konnte nicht gespeichert werden.'
-  }
+async function flushViewer() {
+  try { await Promise.all([layoutSave.flush(),fitSave.flush(),displaySave.flush()]); return true }
+  catch { return false }
 }
-
+useDraftGuard(() => layoutSave.busy() || fitSave.busy() || displaySave.busy(), async () => {
+  layoutSave.cancel();fitSave.cancel();await displaySave.discard()
+  await Promise.all([layoutSave.idle(),fitSave.idle()])
+}, flushViewer)
+function resizeGutter(event: KeyboardEvent, gutter: GutterRect) {
+  if (layoutEditor.resizeKey(gutter,event.key,event.shiftKey)) event.preventDefault()
+}
+const panDirections = [
+  { axis: 'x', amount: -2, label: 'nach links', icon: '←' },
+  { axis: 'x', amount: 2, label: 'nach rechts', icon: '→' },
+  { axis: 'y', amount: -2, label: 'nach oben', icon: '↑' },
+  { axis: 'y', amount: 2, label: 'nach unten', icon: '↓' }
+] as const
+function panTile(slot: ViewerSlot, axis: 'x'|'y', amount: number) {
+  const display = normalizedDisplay(effectiveDisplay(slot))
+  const size = axis === 'x' ? display.crop.width : display.crop.height
+  display.crop[axis] = clamp(display.crop[axis]+amount,0,100-size)
+  setDisplayOverride(slot,display);scheduleDisplaySave(slot)
+}
 // --- Stream / state helpers --------------------------------------------------
 
 // Playback presence decides, not state: a go2rtc outage only changes the status while players retry.
@@ -1002,19 +967,6 @@ function effectiveState(slot: ViewerSlot): ViewerSlotState {
   return slot.state
 }
 
-function handleEmbedMessage(event: MessageEvent) {
-  if (event.origin !== window.location.origin) return
-  const message = parseEmbedMessage(event.data)
-  if (!message) return
-  const frame = (message.hd ? hdFrameEls : frameEls)[message.alias]
-  // Ignore late messages from iframes that were already replaced.
-  if (!frame || event.source !== frame.contentWindow) return
-  const status = message.hd ? hdStatus : subStatus
-  if (status.value[message.alias] === message.state) return
-  status.value = { ...status.value, [message.alias]: message.state }
-  syncAudioState()
-}
-
 function tileClass(slot: ViewerSlot) {
   const state = effectiveState(slot)
   return {
@@ -1035,7 +987,6 @@ function clamp(value: number, min: number, max: number) {
 
 async function load() {
   busy.value = true
-  error.value = ''
   try {
     const viewerData = await api.viewer()
     viewer.value = viewerData
@@ -1132,16 +1083,17 @@ onMounted(() => {
 onBeforeUnmount(() => {
   frameObserver?.disconnect()
   muteAllAudio()
+  frames.dispose()
+  layoutEditor.stop()
   stopDrag?.()
   stopCropPan?.()
   window.clearInterval(refreshTimer)
   window.clearInterval(versionTimer)
   window.clearTimeout(controlsTimer)
   window.clearTimeout(tileClickTimer)
-  window.clearTimeout(displaySaveTimer)
   window.clearTimeout(staggerTimer)
   window.clearTimeout(spotlightIdleTimer)
-  void Promise.all([layoutSave.flush(), fitSave.flush()]).catch(() => undefined)
+  void flushViewer()
   if (onAuthChanged) window.removeEventListener('auth-changed', onAuthChanged)
   if (onFullscreenChange) document.removeEventListener('fullscreenchange', onFullscreenChange)
   if (onVisibilityChange) document.removeEventListener('visibilitychange', onVisibilityChange)
@@ -1272,6 +1224,7 @@ onBeforeUnmount(() => {
   z-index: 4;
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   justify-content: space-between;
   gap: 8px;
   pointer-events: none;
@@ -1293,6 +1246,8 @@ onBeforeUnmount(() => {
 }
 .tile-edit-actions {
   display: flex;
+  flex-wrap: wrap;
+  max-width: 100%;
   gap: 4px;
   background: rgba(7, 7, 9, .72);
   border-radius: var(--radius-sm);

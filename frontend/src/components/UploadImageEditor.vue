@@ -6,8 +6,8 @@
         <label :class="{ selected: crop.enabled }"><input type="radio" name="upload-area" :checked="crop.enabled" @click="chooseCrop(true)" />Ausschnitt</label>
       </fieldset>
       <div class="mask-tools">
-        <button class="btn" :class="{ armed: tool === 'black' }" :disabled="disabled || config.masks.length >= 16" @click="arm('black')">+ Schwärzen</button>
-        <button class="btn" :class="{ armed: tool === 'pixelate' }" :disabled="disabled || config.masks.length >= 16" @click="arm('pixelate')">+ Verpixeln</button>
+        <button class="btn" :class="{ armed: tool === 'black' }" :disabled="disabled || config.masks.length >= 16" @click="arm('black', $event)">+ Schwärzen</button>
+        <button class="btn" :class="{ armed: tool === 'pixelate' }" :disabled="disabled || config.masks.length >= 16" @click="arm('pixelate', $event)">+ Verpixeln</button>
       </div>
     </div>
     <div class="btn-row"><span class="mono-mute">Privatbereiche und Zeitangabe werden automatisch gespeichert.</span><button class="btn ghost" :disabled="disabled || !imageChanged" @click="restoreImage">Änderungen seit Öffnen zurücknehmen</button></div>
@@ -25,7 +25,7 @@
       </template>
     </div>
     <div v-if="renderError" class="notice err" role="alert">{{ renderError }}</div>
-    <div v-if="error" class="notice err" role="alert">{{ error }}<button v-if="loading" class="btn" @click="loadSettings">Erneut laden</button></div>
+    <div v-if="error" class="notice err" role="alert">{{ error }}<button v-if="loading" class="btn" @click="loadSettings">Erneut laden</button><button v-else class="btn" @click="flush">Erneut speichern</button></div>
     <div v-if="config.masks.length" class="mask-list" aria-label="Privatbereiche">
       <button v-for="(mask,index) in config.masks" :key="mask.id" type="button" :aria-pressed="selectedId === mask.id" :disabled="disabled" @click="select(mask.id)">{{ index + 1 }} · {{ mask.mode === 'black' ? 'Schwarz' : 'Verpixelt' }}</button>
     </div>
@@ -33,7 +33,7 @@
       <label>Bereich {{ config.masks.indexOf(selected) + 1 }} <select v-model="selected.mode" aria-label="Darstellung des Privatbereichs"><option value="black">Schwarz</option><option value="pixelate">Stark verpixelt</option></select></label>
       <button class="btn" type="button" @click="removeSelected">Entfernen</button>
       <details class="advanced"><summary>Genaue Position</summary><div class="mask-values">
-        <label v-for="field in fields" :key="field.key" class="field"><span class="lbl">{{ field.label }} %</span><input aria-label="{{ field.label }} %" v-model.number="selected[field.key]" type="number" min="0" max="100" step="0.1" /></label>
+        <label v-for="field in fields" :key="field.key" class="field"><span class="lbl">{{ field.label }} %</span><input :aria-label="`${field.label} %`" v-model.number="selected[field.key]" type="number" min="0" max="100" step="0.1" /></label>
       </div></details>
     </fieldset>
     <label class="timestamp-option"><input v-model="config.timestamp" type="checkbox" :disabled="disabled" />Datum und Uhrzeit einblenden <span class="mono-mute">Aufnahmezeit des Geräts · unten rechts</span></label>
@@ -81,7 +81,8 @@ function paint() {
     // protected frame and cannot flash a partially processed source image.
     scratch ||= document.createElement('canvas')
     paintImagePreview(scratch,source,draft,props.crop,props.capturedAt)
-    canvas.value.width=scratch.width;canvas.value.height=scratch.height
+    if(canvas.value.width!==scratch.width)canvas.value.width=scratch.width
+    if(canvas.value.height!==scratch.height)canvas.value.height=scratch.height
     const ctx=canvas.value.getContext('2d')
     if(!ctx)throw new Error('Bildvorschau kann nicht bearbeitet werden. Upload gesperrt.')
     ctx.drawImage(scratch,0,0);hasRendered.value=true
@@ -108,7 +109,11 @@ watch(() => props.src,(src) => {
 },{immediate:true})
 
 function chooseCrop(enabled: boolean) { tool.value='crop';selectedId.value='';emit('update:crop',{...props.crop,enabled}) }
-function arm(mode: UploadMask['mode']) { tool.value=mode;selectedId.value='' }
+function arm(mode: UploadMask['mode'], event: MouseEvent) {
+  if (event.detail !== 0) { tool.value=mode;selectedId.value='';return }
+  const mask: UploadMask = {id:`mask-${Date.now().toString(36)}`,mode,x:25,y:25,width:25,height:25}
+  config.value.masks.push(mask);select(mask.id)
+}
 function select(id: string) { selectedId.value=id;tool.value='edit' }
 function removeSelected() { config.value.masks=config.value.masks.filter(m=>m.id!==selectedId.value);selectedId.value='' }
 function point(event: PointerEvent): Point {
@@ -127,7 +132,7 @@ function start(event: PointerEvent) {
     selectedId.value=mask.id;original={...mask,enabled:true}
     kind=(event.target as HTMLElement).hasAttribute('data-resize')?'resize':'move'
   } else if(!props.crop.enabled)return
-  event.preventDefault();autosave.cancelPending()
+  event.preventDefault()
   const element=event.currentTarget as HTMLElement
   drag={kind,start:point(event),original,settings:cloneImageSettings(config.value),pointer:event.pointerId,element,mode:tool.value==='pixelate'?'pixelate':'black'}
   drawing.value=true;emit('selecting',true);element.focus({preventScroll:true});element.setPointerCapture(event.pointerId)
@@ -163,8 +168,7 @@ async function flush() {
   if(loading.value || drag || !sourceReady.value || !validImageSettings(config.value))return false
   paint()
   if(renderError.value)return false
-  await autosave.flush()
-  return !error.value
+  return await autosave.flush() && !error.value
 }
 async function loadSettings() {
   try {
@@ -175,8 +179,8 @@ async function loadSettings() {
   } catch(err){error.value=err instanceof Error?err.message:'Privatbereiche konnten nicht geladen werden. Upload gesperrt.'}
 }
 onMounted(()=>void loadSettings())
-onBeforeUnmount(()=>{if(drag)cancel();disposed=true;generation++;cancelAnimationFrame(animation);void autosave.close()})
-defineExpose({flush})
+onBeforeUnmount(()=>{if(drag)cancel();disposed=true;generation++;cancelAnimationFrame(animation);void autosave.close().catch(() => undefined)})
+defineExpose({flush, dirty: () => !!drag || autosave.busy() || imageStatus.value === 'Nicht gespeichert', discard: async () => { if(drag)cancel(); await autosave.discard() }})
 </script>
 
 <style scoped>

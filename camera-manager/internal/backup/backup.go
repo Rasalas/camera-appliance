@@ -36,6 +36,11 @@ func CreateKind(ctx context.Context, cfg config.Config, kind Kind) (Result, erro
 }
 
 func create(ctx context.Context, cfg config.Config, out string, includeSecrets bool, prune Kind) (Result, error) {
+	unlock, err := state.LockAccessPolicy(ctx, cfg.DBPath())
+	if err != nil {
+		return Result{}, err
+	}
+	defer unlock()
 	if err := os.MkdirAll(filepath.Dir(out), 0o750); err != nil {
 		return Result{}, err
 	}
@@ -46,6 +51,18 @@ func create(ctx context.Context, cfg config.Config, out string, includeSecrets b
 	defer os.RemoveAll(snapshotDir)
 	snapshot := filepath.Join(snapshotDir, "state.db")
 	if err := state.Snapshot(ctx, cfg.DBPath(), snapshot); err != nil {
+		return Result{}, err
+	}
+	ids, identities, err := snapshotCredentialIDs(ctx, snapshot)
+	if err != nil {
+		return Result{}, err
+	}
+	portable, err := secrets.ExportPortable(cfg.ConfigDir, ids, identities)
+	if err != nil {
+		return Result{}, err
+	}
+	portablePath := filepath.Join(snapshotDir, secrets.PortableFile)
+	if err := os.WriteFile(portablePath, portable, 0o600); err != nil {
 		return Result{}, err
 	}
 	// go2rtc.yaml embeds camera passwords and local.env may hold them; keep archives private.
@@ -64,6 +81,7 @@ func create(ctx context.Context, cfg config.Config, out string, includeSecrets b
 		name string
 	}{
 		{snapshot, "var/lib/camera-appliance/state.db"},
+		{portablePath, "etc/camera-appliance/" + secrets.PortableFile},
 		{cfg.Go2RTCConfigPath(), "var/lib/camera-appliance/generated/go2rtc.yaml"},
 		{filepath.Join(cfg.ConfigDir, "local.env"), "etc/camera-appliance/local.env"},
 		{filepath.Join(cfg.ConfigDir, secrets.UploadPasswordFile), "etc/camera-appliance/" + secrets.UploadPasswordFile},
@@ -184,6 +202,43 @@ func Restore(ctx context.Context, cfg config.Config, in string) (Result, error) 
 		return Result{}, err
 	}
 
+	unlock, err := state.LockAccessPolicy(ctx, cfg.DBPath())
+	if err != nil {
+		return Result{}, err
+	}
+	defer unlock()
+	if err := state.PrepareRestoreSafety(ctx, cfg.DBPath(), snapshot); err != nil {
+		return Result{}, err
+	}
+	portableName := "etc/camera-appliance/" + secrets.PortableFile
+	if !seen[portableName] {
+		dir := filepath.Join(stage, "etc/camera-appliance")
+		if err := os.MkdirAll(dir, 0700); err != nil {
+			return Result{}, err
+		}
+		ids, identities, err := snapshotCredentialIDs(ctx, snapshot)
+		if err != nil {
+			return Result{}, err
+		}
+		data, err := secrets.ExportLegacyPortable(dir, ids, identities)
+		if err != nil {
+			return Result{}, err
+		}
+		if err := os.WriteFile(filepath.Join(stage, portableName), data, 0600); err != nil {
+			return Result{}, err
+		}
+		restored = append(restored, portableName)
+		seen[portableName] = true
+	}
+	if seen["etc/camera-appliance/"+secrets.PortableFile] {
+		data, err := os.ReadFile(filepath.Join(stage, "etc/camera-appliance/"+secrets.PortableFile))
+		if err != nil {
+			return Result{}, err
+		}
+		if err := secrets.ValidatePortable(data); err != nil {
+			return Result{}, err
+		}
+	}
 	// Prepare replacements on each target filesystem. Keep originals until the
 	// SQLite transaction commits so an I/O error leaves existing files intact.
 	type replacement struct {
@@ -251,6 +306,29 @@ var ErrUploadTooLarge = errors.New("Die Sicherungsdatei ist zu groß.")
 
 // ErrInvalidUpload reports an upload that is not a readable backup archive.
 var ErrInvalidUpload = errors.New("Die Datei ist keine gültige Sicherung.")
+
+func snapshotCredentialIDs(ctx context.Context, snapshot string) ([]string, []string, error) {
+	store, err := state.Open(ctx, snapshot)
+	if err != nil {
+		return nil, nil, err
+	}
+	devices, deviceErr := store.Devices(ctx)
+	settings, settingsErr := store.Settings(ctx)
+	if err := errors.Join(deviceErr, settingsErr, store.Close()); err != nil {
+		return nil, nil, err
+	}
+	ids := make([]string, 0, len(devices))
+	for _, d := range devices {
+		ids = append(ids, d.ID)
+	}
+	identities := []string{}
+	for _, id := range strings.Split(settings["camera.identity.ids"], ",") {
+		if id = strings.TrimSpace(id); id != "" {
+			identities = append(identities, id)
+		}
+	}
+	return ids, identities, nil
+}
 
 // RestoreUpload stages an uploaded archive in the state directory, runs Restore
 // on it and always removes the staged copy.
@@ -348,6 +426,8 @@ func restoreTarget(cfg config.Config, name string) (string, bool) {
 		return filepath.Join(cfg.ConfigDir, "local.env"), true
 	case "etc/camera-appliance/" + secrets.UploadPasswordFile:
 		return filepath.Join(cfg.ConfigDir, secrets.UploadPasswordFile), true
+	case "etc/camera-appliance/" + secrets.PortableFile:
+		return filepath.Join(cfg.ConfigDir, secrets.PortableFile), true
 	case "etc/camera-appliance/secrets.env":
 		return filepath.Join(cfg.ConfigDir, "secrets.env"), true
 	default:
@@ -362,5 +442,5 @@ func ExplainSensitive(includeSecrets bool) string {
 	if includeSecrets {
 		return "Dieses Backup enthält lokale Secrets."
 	}
-	return "Dieses Backup enthält Kamera-Passwörter (go2rtc.yaml, local.env) und gegebenenfalls das Upload-Passwort; secrets.env wird standardmäßig ausgeschlossen."
+	return "Dieses Backup enthält Kamera- und Identitätspasswörter einschließlich Keyring-Zugangsdaten und gegebenenfalls das Upload-Passwort; secrets.env wird standardmäßig ausgeschlossen."
 }

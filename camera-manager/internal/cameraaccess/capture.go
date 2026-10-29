@@ -212,7 +212,9 @@ func (s *Service) finishFrame(requestCtx context.Context, device state.Device, r
 		_ = s.store.PutSettings(requestCtx, map[string]string{"camera.reference_image." + device.ID: imagePath, "camera.reference_hash." + device.ID: hex.EncodeToString(sum[:])})
 	}
 	if used.IdentityID != "" {
-		_ = s.rememberIdentityForDevice(requestCtx, device.ID, used)
+		if err := s.rememberIdentityForDevice(requestCtx, device.ID, used); err != nil {
+			return Frame{}, err
+		}
 	}
 	return Frame{CapturedAt: capturedAt, ContentType: "image/jpeg", ImageBase64: base64.StdEncoding.EncodeToString(image), SHA256: hex.EncodeToString(sum[:]), URLRedacted: redaction.URL(rawURL), SavedPath: imagePath, CredentialSource: used.Source, IdentityID: used.IdentityID}, nil
 }

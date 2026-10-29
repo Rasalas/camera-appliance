@@ -4,6 +4,8 @@ import (
 	"archive/tar"
 	"compress/gzip"
 	"context"
+	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -145,5 +147,193 @@ func buildTar(t *testing.T, path string, files map[string]tarEntry) {
 	}
 	if err := file.Close(); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestKeyringCredentialsSurviveReplacementMachine(t *testing.T) {
+	ctx := context.Background()
+	cfg := newBackupTestConfig(t)
+	bin := t.TempDir()
+	ring := t.TempDir()
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv("TEST_KEYRING", ring)
+	t.Setenv("TAPO_CAMERA_PASSWORD", "")
+	tool := `#!/bin/sh
+for account do :; done
+case "$1" in
+store) cat > "$TEST_KEYRING/$account" ;;
+lookup) cat "$TEST_KEYRING/$account" 2>/dev/null ;;
+clear) rm -f "$TEST_KEYRING/$account" ;;
+esac
+`
+	if err := os.WriteFile(filepath.Join(bin, "secret-tool"), []byte(tool), 0700); err != nil {
+		t.Fatal(err)
+	}
+	store, err := state.Open(ctx, cfg.DBPath())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	if err := store.UpsertDevice(ctx, state.Device{ID: "stable-device"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.PutSettings(ctx, map[string]string{"camera.identity.ids": "unused-identity"}); err != nil {
+		t.Fatal(err)
+	}
+	for _, save := range []func() (string, error){
+		func() (string, error) { return secrets.Save(cfg.ConfigDir, "global-secret") },
+		func() (string, error) { return secrets.SaveCamera(cfg.ConfigDir, "stable-device", "camera-secret") },
+		func() (string, error) {
+			return secrets.SaveIdentity(cfg.ConfigDir, "unused-identity", "identity-secret")
+		},
+	} {
+		source, err := save()
+		if err != nil || source != "keyring" {
+			t.Fatalf("save %s %v", source, err)
+		}
+	}
+	archive, err := Create(ctx, cfg, "", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.RemoveAll(ring); err != nil {
+		t.Fatal(err)
+	}
+	// An open store survives restore, and the old machine's keyring is gone.
+	if _, err := Restore(ctx, cfg, archive.Path); err != nil {
+		t.Fatal(err)
+	}
+	if got := secrets.Load(cfg.ConfigDir).Value; got != "global-secret" {
+		t.Fatalf("global credential lost")
+	}
+	if got := secrets.LoadCamera(cfg.ConfigDir, "stable-device").Value; got != "camera-secret" {
+		t.Fatalf("camera credential lost")
+	}
+	if got := secrets.LoadIdentity(cfg.ConfigDir, "unused-identity").Value; got != "identity-secret" {
+		t.Fatalf("identity credential lost")
+	}
+	info, err := os.Stat(filepath.Join(cfg.ConfigDir, secrets.PortableFile))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode().Perm() != 0600 {
+		t.Fatalf("credential permissions %o", info.Mode().Perm())
+	}
+	if _, err := secrets.SaveCamera(cfg.ConfigDir, "stable-device", "changed-secret"); err != nil {
+		t.Fatal(err)
+	}
+	if secrets.LoadCamera(cfg.ConfigDir, "stable-device").Value != "changed-secret" {
+		t.Fatal("restored credential shadows edit")
+	}
+}
+
+func TestLegacyArchiveReplacesPortableCredentials(t *testing.T) {
+	ctx := context.Background()
+	cfg := newBackupTestConfig(t)
+	t.Setenv("TAPO_CAMERA_PASSWORD", "")
+	archive, err := Create(ctx, cfg, "", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Construct the installed legacy format without a portable credentials entry.
+	legacy := filepath.Join(t.TempDir(), "legacy.tar.gz")
+	source, err := os.Open(archive.Path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer source.Close()
+	gz, err := gzip.NewReader(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer gz.Close()
+	dest, err := os.Create(legacy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	outgz := gzip.NewWriter(dest)
+	outtar := tar.NewWriter(outgz)
+	tr := tar.NewReader(gz)
+	for {
+		h, err := tr.Next()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+		if h.Name == "etc/camera-appliance/"+secrets.PortableFile {
+			continue
+		}
+		if err := outtar.WriteHeader(h); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := io.Copy(outtar, tr); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := errors.Join(outtar.Close(), outgz.Close(), dest.Close()); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(cfg.ConfigDir, secrets.PortableFile), []byte(`{"TAPO_CAMERA_PASSWORD":"stale"}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Restore(ctx, cfg, legacy); err != nil {
+		t.Fatal(err)
+	}
+	if secrets.Load(cfg.ConfigDir).Value != "x" {
+		t.Fatal("legacy local.env shadowed by stale portable credentials")
+	}
+}
+
+func TestLegacyRestoreDoesNotInheritDestinationSecrets(t *testing.T) {
+	for _, global := range []string{"source-global", ""} {
+		t.Run("global="+global, func(t *testing.T) {
+			ctx := context.Background()
+			cfg := newBackupTestConfig(t)
+			t.Setenv("TAPO_CAMERA_PASSWORD", "")
+			store, err := state.Open(ctx, cfg.DBPath())
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := store.UpsertDevice(ctx, state.Device{ID: "inherited"}); err != nil {
+				t.Fatal(err)
+			}
+			if err := store.UpsertDevice(ctx, state.Device{ID: "explicit"}); err != nil {
+				t.Fatal(err)
+			}
+			if err := store.PutSettings(ctx, map[string]string{"camera.identity.ids": "identity"}); err != nil {
+				t.Fatal(err)
+			}
+			if err := store.Close(); err != nil {
+				t.Fatal(err)
+			}
+			db, err := os.ReadFile(cfg.DBPath())
+			if err != nil {
+				t.Fatal(err)
+			}
+			archive := filepath.Join(t.TempDir(), "legacy.tar.gz")
+			buildTar(t, archive, map[string]tarEntry{
+				"var/lib/camera-appliance/state.db": {content: string(db), mode: 0600},
+				"etc/camera-appliance/local.env":    {content: "TAPO_CAMERA_PASSWORD='" + global + "'\nCAMERA_PASSWORD_EXPLICIT='source-camera'\n", mode: 0600},
+			})
+			bin := t.TempDir()
+			t.Setenv("PATH", bin)
+			if err := os.WriteFile(filepath.Join(bin, "secret-tool"), []byte("#!/bin/sh\nprintf '%s\\n' destination-secret\n"), 0700); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := Restore(ctx, cfg, archive); err != nil {
+				t.Fatal(err)
+			}
+			if got := secrets.LoadCamera(cfg.ConfigDir, "inherited"); got.Value != global {
+				t.Fatal("legacy camera inherited destination credential")
+			}
+			if got := secrets.LoadCamera(cfg.ConfigDir, "explicit"); got.Value != "source-camera" {
+				t.Fatal("legacy explicit override was lost")
+			}
+			if got := secrets.LoadIdentity(cfg.ConfigDir, "identity"); got.Value != "" {
+				t.Fatal("legacy identity inherited destination credential")
+			}
+		})
 	}
 }

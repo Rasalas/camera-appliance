@@ -154,6 +154,7 @@ release:
 	  --exclude "local.env" \
 	  --exclude "secrets.env" \
 	  --exclude "snapshot-upload-password.json" \
+	  --exclude "restored-secrets.json" \
 	  --exclude ".upload-password-*" \
 	  --exclude "private" \
 	  --exclude ".claude" \

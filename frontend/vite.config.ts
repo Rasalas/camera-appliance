@@ -2,6 +2,8 @@ import { defineConfig } from 'vite'
 import vue from '@vitejs/plugin-vue'
 import { precompress } from './precompress.ts'
 
+const backend = process.env.CAMERA_APPLIANCE_DEV_API_TARGET || 'http://127.0.0.1:8091'
+
 export default defineConfig({
   plugins: [vue(), precompress()],
   build: {
@@ -13,7 +15,8 @@ export default defineConfig({
   },
   server: {
     proxy: {
-      '/api': 'http://127.0.0.1:8091'
+      '/api': backend,
+      '/go2rtc': { target: backend, ws: true }
     }
   }
 })

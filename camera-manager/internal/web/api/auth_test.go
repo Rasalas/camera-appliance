@@ -7,6 +7,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -15,6 +16,8 @@ import (
 	"camera-appliance/camera-manager/internal/app"
 	"camera-appliance/camera-manager/internal/config"
 	"camera-appliance/camera-manager/internal/state"
+
+	"camera-appliance/camera-manager/internal/backup"
 )
 
 func TestAdminAPIRequiresSessionAfterPasswordIsSet(t *testing.T) {
@@ -101,6 +104,7 @@ func TestGo2RTCAssetProxyServesAllowedPlayerModule(t *testing.T) {
 
 	a := newAuthTestApp(t)
 	a.Config.Go2RTCURL = go2rtc.URL
+	preparePlayer(t, a)
 	handler := New(a).Handler()
 
 	req := httptest.NewRequest(http.MethodGet, "/go2rtc/video-stream.js", nil)
@@ -117,6 +121,30 @@ func TestGo2RTCAssetProxyServesAllowedPlayerModule(t *testing.T) {
 	}
 }
 
+func preparePlayer(t *testing.T, a *app.App) {
+	t.Helper()
+	ctx := context.Background()
+	if err := a.Store.UpsertDevice(ctx, state.Device{ID: "player", LastIP: "192.0.2.1"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := a.Store.UpsertBinding(ctx, state.Binding{SlotID: "cam1", DeviceID: "player", Enabled: true}); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Dir(a.Config.Go2RTCConfigPath()), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(a.Config.Go2RTCConfigPath(), []byte("streams:\n  cam1: [rtsp://example/stream1]\n  cam1_stream1: [rtsp://example/stream1]\n  cam1_stream2: [rtsp://example/stream2]\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+}
+func playerHeaders(req *http.Request) {
+	req.Header.Set("Origin", "http://"+req.Host)
+	req.Header.Set("Connection", "keep-alive, Upgrade")
+	req.Header.Set("Upgrade", "websocket")
+	req.Header.Set("Sec-WebSocket-Version", "13")
+	req.Header.Set("Sec-WebSocket-Key", "dGhlIHNhbXBsZSBub25jZQ==")
+}
+
 func TestGo2RTCWebSocketProxyUsesGo2RTCOrigin(t *testing.T) {
 	var seenPath, seenQuery, seenOrigin, seenHost string
 	go2rtc := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -130,10 +158,11 @@ func TestGo2RTCWebSocketProxyUsesGo2RTCOrigin(t *testing.T) {
 
 	a := newAuthTestApp(t)
 	a.Config.Go2RTCURL = go2rtc.URL
+	preparePlayer(t, a)
 	handler := New(a).Handler()
 
 	req := httptest.NewRequest(http.MethodGet, "/go2rtc/api/ws?src=cam1", nil)
-	req.Header.Set("Origin", "http://"+req.Host)
+	playerHeaders(req)
 	res := httptest.NewRecorder()
 	handler.ServeHTTP(res, req)
 	if res.Code != http.StatusOK {
@@ -155,6 +184,7 @@ func TestGo2RTCWebSocketProxyRejectsCrossOrigin(t *testing.T) {
 
 	a := newAuthTestApp(t)
 	a.Config.Go2RTCURL = go2rtc.URL
+	preparePlayer(t, a)
 	handler := New(a).Handler()
 
 	for _, origin := range []string{"", "http://evil.example", "https://127.0.0.1:9999"} {
@@ -178,6 +208,7 @@ func TestGo2RTCWebSocketRequiresViewerRoleWhenAuthEnabled(t *testing.T) {
 
 	a := newAuthTestApp(t)
 	a.Config.Go2RTCURL = go2rtc.URL
+	preparePlayer(t, a)
 	if err := a.Store.PutSettings(context.Background(), map[string]string{
 		app.AuthSettingAdminPasswordHash: "x",
 		app.AuthSettingViewerPublic:      "false",
@@ -187,7 +218,7 @@ func TestGo2RTCWebSocketRequiresViewerRoleWhenAuthEnabled(t *testing.T) {
 	handler := New(a).Handler()
 
 	req := httptest.NewRequest(http.MethodGet, "/go2rtc/api/ws?src=cam1", nil)
-	req.Header.Set("Origin", "http://"+req.Host)
+	playerHeaders(req)
 	res := httptest.NewRecorder()
 	handler.ServeHTTP(res, req)
 	if res.Code != http.StatusUnauthorized {
@@ -195,7 +226,7 @@ func TestGo2RTCWebSocketRequiresViewerRoleWhenAuthEnabled(t *testing.T) {
 	}
 
 	publicReq := httptest.NewRequest(http.MethodGet, "/go2rtc/api/ws?src=cam1", nil)
-	publicReq.Header.Set("Origin", "http://"+publicReq.Host)
+	playerHeaders(publicReq)
 	publicRes := httptest.NewRecorder()
 	if err := a.Store.PutSettings(context.Background(), map[string]string{app.AuthSettingViewerPublic: "true"}); err != nil {
 		t.Fatal(err)
@@ -211,7 +242,9 @@ func TestLoginRateLimitBlocksAfterRepeatedFailures(t *testing.T) {
 	if err := a.SetAuthPassword(context.Background(), "admin", "secret-password"); err != nil {
 		t.Fatal(err)
 	}
-	handler := New(a).Handler()
+	server := New(a)
+	server.logins.now = func() time.Time { return time.Unix(100, 0) }
+	handler := server.Handler()
 	body := strings.NewReader(`{"username":"admin","password":"wrong"}`)
 
 	var status int
@@ -515,4 +548,125 @@ func TestNormalLoginUsesBrowserSessionCookie(t *testing.T) {
 	if cookies[0].MaxAge != 0 || !cookies[0].Expires.IsZero() {
 		t.Fatalf("expected browser-session cookie, got MaxAge=%d Expires=%v", cookies[0].MaxAge, cookies[0].Expires)
 	}
+}
+
+func TestPlayerQueryCannotMutateStreams(t *testing.T) {
+	a := newAuthTestApp(t)
+	preparePlayer(t, a)
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(204) }))
+	defer upstream.Close()
+	a.Config.Go2RTCURL = upstream.URL
+	ctx := context.Background()
+	if err := a.SetAuthPassword(ctx, "admin", "admin-pass"); err != nil {
+		t.Fatal(err)
+	}
+	if err := a.SetAuthPassword(ctx, "viewer", "viewer-pass"); err != nil {
+		t.Fatal(err)
+	}
+	handler := New(a).Handler()
+	admin := loginCookie(t, handler, "admin", "admin-pass")
+	viewer := loginCookie(t, handler, "viewer", "viewer-pass")
+	for _, cookie := range []*http.Cookie{nil, viewer, admin} {
+		for _, query := range []string{"src=cam1&name=evil", "src=cam1&dst=rtsp://evil", "src=rtsp://evil", "src=cam1&src=cam2", "src=cam1&video=h264", "src=cam2", "src=cam1_stream3", "src=cam1;name=evil"} {
+			req := httptest.NewRequest("GET", "/go2rtc/api/ws?"+query, nil)
+			playerHeaders(req)
+			if cookie != nil {
+				req.AddCookie(cookie)
+			}
+			res := httptest.NewRecorder()
+			handler.ServeHTTP(res, req)
+			if res.Code < 400 {
+				t.Fatalf("unsafe query accepted: %s status %d", query, res.Code)
+			}
+		}
+		for _, alias := range []string{"cam1", "cam1_stream1", "cam1_stream2"} {
+			req := httptest.NewRequest("GET", "/go2rtc/api/ws?src="+alias, nil)
+			playerHeaders(req)
+			if cookie != nil {
+				req.AddCookie(cookie)
+			}
+			res := httptest.NewRecorder()
+			handler.ServeHTTP(res, req)
+			if res.Code != 204 {
+				t.Fatalf("player %s: %d %s", alias, res.Code, res.Body.String())
+			}
+		}
+	}
+	req := httptest.NewRequest("GET", "/go2rtc/api/ws?src=cam1", nil)
+	req.Header.Set("Origin", "http://"+req.Host)
+	res := httptest.NewRecorder()
+	handler.ServeHTTP(res, req)
+	if res.Code != 400 {
+		t.Fatalf("non-handshake: %d", res.Code)
+	}
+}
+func TestGo2RTCStoreErrorFailsClosed(t *testing.T) {
+	a := newAuthTestApp(t)
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { t.Error("proxied on auth store failure") }))
+	defer upstream.Close()
+	a.Config.Go2RTCURL = upstream.URL
+	handler := New(a).Handler()
+	a.Store.Close()
+	res := performJSON(handler, "GET", "/go2rtc/video-rtc.js", nil, nil)
+	if res.Code != 500 {
+		t.Fatalf("status %d", res.Code)
+	}
+}
+func TestLiveRestoreKeepsDestinationAccessPolicy(t *testing.T) {
+	ctx := context.Background()
+	a := newAuthTestApp(t)
+	archive, err := backup.Create(ctx, a.Config, "", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := a.SetAuthPassword(ctx, "admin", "current-pass"); err != nil {
+		t.Fatal(err)
+	}
+	if err := a.Store.PutSettings(ctx, map[string]string{app.NetworkSettingLANAccess: "true", app.AuthSettingViewerPublic: "false"}); err != nil {
+		t.Fatal(err)
+	}
+	handler := New(a).Handler()
+	cookie := loginCookie(t, handler, "admin", "current-pass")
+	if _, err := backup.Restore(ctx, a.Config, archive.Path); err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range []*http.Cookie{nil, cookie} {
+		res := performJSON(handler, "GET", "/api/settings", nil, c)
+		if res.Code != 401 {
+			t.Fatalf("restore reopened access: %d", res.Code)
+		}
+	}
+	loginCookie(t, handler, "admin", "current-pass")
+	settings, err := a.Store.Settings(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if settings[app.NetworkSettingLANAccess] != "true" || settings[app.AuthSettingViewerPublic] != "false" {
+		t.Fatal("destination policy changed")
+	}
+}
+
+func TestRestoreDiscardsArchivedSessionsAndKeepsCurrentPassword(t *testing.T) {
+	ctx := context.Background()
+	a := newAuthTestApp(t)
+	if err := a.SetAuthPassword(ctx, "admin", "archived-pass"); err != nil {
+		t.Fatal(err)
+	}
+	handler := New(a).Handler()
+	archivedCookie := loginCookie(t, handler, "admin", "archived-pass")
+	archive, err := backup.Create(ctx, a.Config, "", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := a.SetAuthPassword(ctx, "admin", "current-pass"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := backup.Restore(ctx, a.Config, archive.Path); err != nil {
+		t.Fatal(err)
+	}
+	res := performJSON(handler, "GET", "/api/settings", nil, archivedCookie)
+	if res.Code != 401 {
+		t.Fatalf("archived session restored: %d", res.Code)
+	}
+	loginCookie(t, handler, "admin", "current-pass")
 }

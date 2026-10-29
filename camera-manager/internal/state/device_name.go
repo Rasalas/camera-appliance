@@ -51,19 +51,6 @@ func (s *Store) SetDeviceName(ctx context.Context, id, name string) (Device, err
 	return s.Device(ctx, id)
 }
 
-// ensureDeviceNameColumn upgrades databases created before display names.
-func ensureDeviceNameColumn(ctx context.Context, db querier) error {
-	var count int
-	if err := db.QueryRowContext(ctx, `SELECT count(*) FROM pragma_table_info('devices') WHERE name='name'`).Scan(&count); err != nil {
-		return err
-	}
-	if count > 0 {
-		return nil
-	}
-	_, err := db.ExecContext(ctx, `ALTER TABLE devices ADD COLUMN name TEXT`)
-	return err
-}
-
 type querier interface {
 	executor
 	QueryRowContext(context.Context, string, ...any) *sql.Row

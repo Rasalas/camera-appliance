@@ -1,4 +1,5 @@
-import type { Binding, Device, Slot, ViewerSlotState } from '../types'
+import type { Binding, Device, ViewerSlotState } from '../types'
+import { cameraConfigurationError, type CameraConfiguration, type CameraConfigurationResult } from '../api/cameraConfiguration.ts'
 
 // Mirrors state.DeviceNameMaxLength in the Go manager.
 export const cameraNameMaxLength = 40
@@ -52,45 +53,18 @@ export function streamLabel(stream: string): string {
 }
 
 export interface VisibilityApi {
-  saveBinding: (binding: Omit<Binding, 'device' | 'slot'>) => Promise<unknown>
-  removeBinding: (slotId: string) => Promise<unknown>
-  renderGo2RTC: () => Promise<unknown>
-  restartGo2RTC: () => Promise<unknown>
+  configureCamera: (id: string, body: CameraConfiguration) => Promise<CameraConfigurationResult>
 }
 
 export interface VisibilityInput {
   deviceId: string
-  label: string
   bindings: Pick<Binding, 'slot_id' | 'device_id'>[]
-  slots: Pick<Slot, 'id' | 'default_stream'>[]
-  username?: string
-  stream?: string
 }
 
 // Toggles live-view visibility. The change is saved even when the video
 // service restart fails; that failure is returned so the page can show it.
-export async function changeCameraVisibility(api: VisibilityApi, input: VisibilityInput): Promise<{ restartError: string }> {
+export async function changeCameraVisibility(api: VisibilityApi, input: VisibilityInput): Promise<{ restartError: string; warnings: string[] }> {
   const existing = input.bindings.find(binding => binding.device_id === input.deviceId)
-  if (existing) {
-    await api.removeBinding(existing.slot_id)
-  } else {
-    const used = new Set(input.bindings.map(binding => binding.slot_id))
-    const free = input.slots.find(slot => !used.has(slot.id))
-    if (!free) throw new Error(`Maximal ${input.slots.length} Kameras gleichzeitig sichtbar. Blende zuerst eine andere aus.`)
-    await api.saveBinding({
-      slot_id: free.id,
-      device_id: input.deviceId,
-      label: input.label,
-      username: input.username || '',
-      stream_name: input.stream || free.default_stream || 'stream2',
-      enabled: true
-    })
-  }
-  await api.renderGo2RTC()
-  try {
-    await api.restartGo2RTC()
-    return { restartError: '' }
-  } catch {
-    return { restartError: 'Die Änderung ist gespeichert, aber der Videodienst ließ sich nicht neu starten. Bitte erneut versuchen oder auf dem Laptop „Kamera-Server neu starten“ ausführen.' }
-  }
+  const result = await api.configureCamera(input.deviceId, { visible: !existing })
+  return { restartError: cameraConfigurationError(result), warnings: result.warnings || [] }
 }

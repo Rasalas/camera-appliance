@@ -36,6 +36,9 @@ bin/go2rtc
 
 # Node
 node_modules/
+frontend/test-results/
+frontend/playwright-report/
+__pycache__/
 
 # Go
 coverage.out
@@ -47,4 +50,5 @@ coverage.out
 .release/
 bin/
 snapshot-upload-password.json
+restored-secrets.json
 .upload-password-*

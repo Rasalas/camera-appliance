@@ -1,5 +1,5 @@
 import { onBeforeUnmount } from 'vue'
-import { onBeforeRouteLeave } from 'vue-router'
+import { onBeforeRouteLeave, onBeforeRouteUpdate } from 'vue-router'
 import { ref } from 'vue'
 
 export const discardOpen = ref(false)
@@ -17,14 +17,18 @@ export function finishDiscard(discard: boolean) {
   resolveDiscard?.(discard)
   resolveDiscard = undefined
 }
-export function useDraftGuard(dirty: () => boolean, discard: () => void) {
+export function useDraftGuard(dirty: () => boolean, discard: () => void | Promise<void>, save?: () => Promise<boolean>) {
   draftChecks.add(dirty)
-  onBeforeRouteLeave(async () => {
+  const guard = async () => {
     if (!dirty()) return true
+    if (save && await save().catch(() => false)) return true
     if (!await askDiscard()) return false
-    discard()
+    await discard()
     return true
-  })
+  }
+  onBeforeRouteLeave(guard)
+  // AppLayout keys pages by fullPath, so hash/query changes also remount drafts.
+  onBeforeRouteUpdate((to, from) => to.fullPath === from.fullPath ? true : guard())
   const unload = (event: BeforeUnloadEvent) => {
     if (dirty()) { event.preventDefault(); event.returnValue = '' }
   }

@@ -34,3 +34,65 @@ test('privacy autosave retains complete mask sets during slow and failed writes'
   assert.equal(states.at(-1),'saved')
   await autosave.close()
 })
+
+test('navigation waits for the newest privacy edit and blocks on failure until retry', async () => {
+  let release!: () => void
+  let calls = 0
+  const draft:UploadImageSettings={masks:[],timestamp:false}
+  const autosave=createDraftAutosave(async () => {
+    if (++calls === 1) await new Promise<void>(resolve => {release=resolve})
+    else if (calls === 2) throw new Error('Offline')
+  },()=>{},cloneImageSettings,validImageSettings)
+  autosave.change(draft)
+  const initial=autosave.flush()
+  autosave.change({...draft,timestamp:true})
+  const navigation=autosave.flush()
+  release()
+  assert.equal(await initial,false)
+  assert.equal(await navigation,false)
+  assert.equal(autosave.busy(),true)
+  assert.equal(await autosave.flush(),true)
+  assert.equal(autosave.busy(),false)
+})
+
+test('failed close reports error and keeps the draft open for retry', async () => {
+  let fail=true
+  const states:string[]=[]
+  const autosave=createDraftAutosave(async () => {if(fail)throw new Error('Offline')},state=>states.push(state),cloneImageSettings,validImageSettings)
+  autosave.change({masks:[],timestamp:true})
+  await assert.rejects(autosave.close())
+  assert.equal(states.at(-1),'error')
+  assert.equal(autosave.busy(),true)
+  fail=false
+  await autosave.close()
+  assert.equal(states.at(-1),'saved')
+})
+
+test('40MP preview work is bounded, source pixels cached, and timestamp uses original coordinates', async () => {
+  const {paintImagePreview,previewDimensions}=await import('./uploadImagePreview.ts')
+  assert.deepEqual(previewDimensions(8000,5000),{width:960,height:600})
+  let reads=0, draws=0, resets=0
+  const rectangles:number[][]=[]
+  const context={
+    drawImage(...args:unknown[]){if(args.length===5){draws++;assert.deepEqual(args.slice(1),[0,0,960,600])}},
+    getImageData(_x:number,_y:number,w:number,h:number){reads++;assert.ok(w*h<=960*960);return {data:new Uint8ClampedArray(w*h*4).fill(80)}},
+    fillRect(...rect:number[]){rectangles.push(rect)}, fillStyle:'',save(){},restore(){},scale(){}
+  }
+  const makeCanvas=()=>{
+    let w=0,h=0
+    return {get width(){return w},set width(value:number){w=value;resets++},get height(){return h},set height(value:number){h=value;resets++},getContext:()=>context} as unknown as HTMLCanvasElement
+  }
+  globalThis.document={createElement:makeCanvas} as unknown as Document
+  const source={naturalWidth:8000,naturalHeight:5000} as HTMLImageElement
+  const canvas=makeCanvas()
+  const settings:UploadImageSettings={masks:[{id:'privacy',mode:'black',x:10,y:20,width:30,height:40}],timestamp:false}
+  const crop={enabled:false,x:0,y:0,width:100,height:100}
+  paintImagePreview(canvas,source,settings,crop,'')
+  assert.deepEqual(rectangles.at(-1),[96,120,288,240])
+  const firstResets=resets
+  settings.masks[0].mode='pixelate'
+  paintImagePreview(canvas,source,settings,crop,'')
+  assert.equal(reads,1);assert.equal(draws,1);assert.equal(resets,firstResets)
+  // 160x50 original pixels, only 19x6 preview pixels. Validation uses the original.
+  paintImagePreview(canvas,source,{masks:[],timestamp:true},{enabled:true,x:0,y:0,width:2,height:1},'2026-09-05T12:34:56+02:00')
+})

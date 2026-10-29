@@ -95,6 +95,11 @@ func (a *Manager) Stop(ctx context.Context, id string) (Status, error) {
 	if err != nil {
 		return Status{}, err
 	}
+	return a.stopManagedRelay(ctx, relay, settings)
+}
+
+func (a *Manager) stopManagedRelay(ctx context.Context, relay ManagedRelay, settings map[string]string) (Status, error) {
+	var err error
 	status := a.relayStatus(ctx, relay, settings)
 	if status.PID <= 0 || !a.relayRunning(relay.ID, status.PID) {
 		_ = os.Remove(a.relayPIDPath(relay.ID))

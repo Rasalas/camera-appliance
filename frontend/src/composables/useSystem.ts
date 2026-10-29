@@ -234,31 +234,42 @@ function loadAll(): Promise<void> {
 async function loadSystem() {
   error.value = ''
   loadError.value = ''
-  const [fresh, auth, current, identities, recent] = await Promise.allSettled([
-    api.settings(), api.authStatus(), api.status(), api.credentialIdentities(), api.events()
-  ])
-  if (auth.status === 'fulfilled') { authStatus.value = auth.value; sectionsLoaded.auth = true }
-  if (current.status === 'fulfilled') { status.value = current.value; sectionsLoaded.status = true }
-  if (identities.status === 'fulfilled') { credentialIdentities.value = identities.value; sectionsLoaded.identities = true }
-  if (recent.status === 'fulfilled') { events.value = recent.value; sectionsLoaded.events = true }
-  if (fresh.status === 'fulfilled') {
+  function withDefaultBaseline(apply: () => void) {
     const pending = settingsPatch(settings, baseline, Object.keys(settings))
-    for (const key of Object.keys(settings)) delete settings[key]
-    Object.assign(settings, fresh.value)
-    passwordSource.value = settings.camera_password_source === 'keyring' ? 'Betriebssystem-Keyring' : (settings.camera_password_source || 'unbekannt')
-    ensureAuthDefaults()
-    if (current.status === 'fulfilled') applyStatusDefaults()
-    ensurePerformanceDefault()
-    baseline = { ...settings }
+    apply()
+    for (const key of Object.keys(settings)) if (!(key in pending)) baseline[key] = settings[key]
+    Object.assign(settings,pending)
     baselineRevision.value++
-    sectionsLoaded.settings = true
-    Object.assign(settings, pending)
   }
-  const failed = [fresh, auth, current, identities, recent].find((result) => result.status === 'rejected')
-  if (failed?.status === 'rejected') {
-    const reason = failed.reason instanceof Error ? failed.reason.message : ''
-    loadError.value = `Einige Systemdaten konnten nicht geladen werden.${reason ? ' ' + reason : ''}`
+  const load = async <T>(request: Promise<T>, apply: (value: T) => void) => {
+    try { apply(await request) }
+    catch (err) { loadError.value = `Einige Systemdaten konnten nicht geladen werden. ${err instanceof Error ? err.message : ''}` }
   }
+  await Promise.all([
+    load(api.settings(), fresh => {
+      const pending = sectionsLoaded.settings ? settingsPatch(settings, baseline, Object.keys(settings)) : {}
+      for (const key of Object.keys(settings)) delete settings[key]
+      Object.assign(settings, fresh)
+      passwordSource.value = settings.camera_password_source === 'keyring' ? 'Betriebssystem-Keyring' : (settings.camera_password_source || 'unbekannt')
+      ensureAuthDefaults()
+      if (sectionsLoaded.status) applyStatusDefaults()
+      ensurePerformanceDefault()
+      baseline = {...settings}
+      baselineRevision.value++
+      sectionsLoaded.settings = true
+      Object.assign(settings, pending)
+    }),
+    load(api.authStatus(), auth => {
+      authStatus.value = auth; sectionsLoaded.auth = true
+      if (sectionsLoaded.settings) withDefaultBaseline(ensureAuthDefaults)
+    }),
+    load(api.status(), current => {
+      status.value = current; sectionsLoaded.status = true
+      if (sectionsLoaded.settings) withDefaultBaseline(applyStatusDefaults)
+    }),
+    load(api.credentialIdentities(), identities => { credentialIdentities.value = identities; sectionsLoaded.identities = true }),
+    load(api.events(), recent => { events.value = recent; sectionsLoaded.events = true })
+  ])
 }
 
 function applyStatusDefaults() {

@@ -9,6 +9,11 @@ import (
 // ReplaceAuthPassword invalidates the role's sessions in the same transaction
 // as the new hash. A password change also works across CLI and server processes.
 func (s *Store) ReplaceAuthPassword(ctx context.Context, key, role, hash string) error {
+	unlock, err := s.lockAccessPolicy(ctx)
+	if err != nil {
+		return err
+	}
+	defer unlock()
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
@@ -26,6 +31,11 @@ func (s *Store) ReplaceAuthPassword(ctx context.Context, key, role, hash string)
 // SaveAuthSessionForPassword prevents a login verified against an old password
 // from creating a new session after a concurrent password change.
 func (s *Store) SaveAuthSessionForPassword(ctx context.Context, key, verifiedHash string, session AuthSession) error {
+	unlock, err := s.lockAccessPolicy(ctx)
+	if err != nil {
+		return err
+	}
+	defer unlock()
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
