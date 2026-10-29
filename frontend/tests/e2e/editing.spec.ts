@@ -61,7 +61,7 @@ test('keyboard controls resize the mosaic, pan crops and dock cameras', async ({
   await expect(gutter).toHaveAttribute('aria-valuenow', '52')
   const tile = page.locator('[data-slot-alias="cam1"]')
   await tile.getByTitle('Hineinzoomen', { exact: true }).press('Enter')
-  await tile.getByRole('button', { name: 'Bildausschnitt rechts verschieben' }).press('Enter')
+  await tile.getByRole('button', { name: 'Bildausschnitt nach rechts verschieben' }).press('Enter')
   await tile.locator('summary').press('Enter')
   await tile.getByLabel('Hof: Zielkamera').selectOption('cam2')
   await tile.getByLabel('Hof: Anordnung').selectOption('bottom')
