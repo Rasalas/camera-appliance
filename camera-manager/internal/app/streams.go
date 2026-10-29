@@ -3,7 +3,6 @@ package app
 import (
 	"context"
 	"fmt"
-	"strings"
 
 	"camera-appliance/camera-manager/internal/config"
 	go2rtcrender "camera-appliance/camera-manager/internal/go2rtc"
@@ -16,12 +15,18 @@ func (a *App) RenderGo2RTC(ctx context.Context) (go2rtcrender.RenderResult, erro
 	if err != nil {
 		return go2rtcrender.RenderResult{}, err
 	}
-	settings, _ := a.Store.Settings(ctx)
+	settings, err := a.Store.Settings(ctx)
+	if err != nil {
+		return go2rtcrender.RenderResult{}, err
+	}
 	passwords := map[string]string{}
 	for i := range bindings {
 		deviceID := bindings[i].DeviceID
-		if strings.TrimSpace(bindings[i].Username) == "" {
-			bindings[i].Username = settings["camera.credentials."+deviceID+".username"]
+		if username, ok := settings["camera.credentials."+deviceID+".username"]; ok {
+			bindings[i].Username = username
+		}
+		if stream, ok := settings["camera.credentials."+deviceID+".stream"]; ok {
+			bindings[i].StreamName = stream
 		}
 		secret := secrets.LoadCamera(a.Config.ConfigDir, deviceID)
 		if secret.Value != "" {

@@ -38,6 +38,12 @@ func newService(t *testing.T) (*cameraaccess.Service, *state.Store) {
 func TestFrameTriesIdentityAndPersistsReferenceWithoutExposingSecrets(t *testing.T) {
 	ctx := context.Background()
 	s, store := newService(t)
+	if err := store.UpsertSlots(ctx, config.DefaultSlots()); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.UpsertBinding(ctx, state.Binding{SlotID: "cam1", DeviceID: "device", Username: "stale-user", StreamName: "stream2", Enabled: true}); err != nil {
+		t.Fatal(err)
+	}
 	identity, err := s.SaveIdentity(ctx, cameraaccess.IdentityInput{ID: "office", Name: "Büro", Username: "right-user", Password: "right secret"})
 	if err != nil {
 		t.Fatal(err)
@@ -86,6 +92,10 @@ func TestFrameTriesIdentityAndPersistsReferenceWithoutExposingSecrets(t *testing
 	settings, err := store.Settings(ctx)
 	if err != nil {
 		t.Fatal(err)
+	}
+	bindings, err := store.Bindings(ctx)
+	if err != nil || bindings[0].Username != "right-user" {
+		t.Fatalf("identity left stale binding: %+v %v", bindings, err)
 	}
 	if settings["camera.credentials.device.identity_id"] != "office" {
 		t.Fatal("successful identity was not remembered")

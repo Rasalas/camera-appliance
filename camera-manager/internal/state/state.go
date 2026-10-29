@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"camera-appliance/camera-manager/internal/config"
@@ -122,31 +123,6 @@ func (s *Store) Close() error {
 
 func (s *Store) Migrate(ctx context.Context) error {
 	return migrate(ctx, s.db)
-}
-
-func migrate(ctx context.Context, db querier) error {
-	stmts := []string{
-		`PRAGMA journal_mode=WAL;`,
-		`PRAGMA busy_timeout=5000;`,
-		`CREATE TABLE IF NOT EXISTS slots (id TEXT PRIMARY KEY, label TEXT NOT NULL, role TEXT NOT NULL, default_stream TEXT NOT NULL, required INTEGER NOT NULL DEFAULT 0, sort_order INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL, updated_at TEXT NOT NULL);`,
-		`CREATE TABLE IF NOT EXISTS devices (id TEXT PRIMARY KEY, first_seen_at TEXT NOT NULL, last_seen_at TEXT NOT NULL, last_ip TEXT, mac_address TEXT, onvif_endpoint_ref TEXT, serial_number TEXT, manufacturer TEXT, model TEXT, hardware_id TEXT, hostname TEXT, raw_json TEXT, name TEXT);`,
-		`CREATE TABLE IF NOT EXISTS bindings (slot_id TEXT PRIMARY KEY, device_id TEXT NOT NULL, label TEXT, username TEXT, stream_name TEXT NOT NULL DEFAULT 'stream2', enabled INTEGER NOT NULL DEFAULT 1, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, FOREIGN KEY(slot_id) REFERENCES slots(id), FOREIGN KEY(device_id) REFERENCES devices(id));`,
-		`CREATE TABLE IF NOT EXISTS scan_runs (id TEXT PRIMARY KEY, started_at TEXT NOT NULL, finished_at TEXT, status TEXT NOT NULL, message TEXT);`,
-		`CREATE TABLE IF NOT EXISTS stream_checks (id TEXT PRIMARY KEY, device_id TEXT NOT NULL, checked_at TEXT NOT NULL, stream_name TEXT NOT NULL, url_redacted TEXT NOT NULL, success INTEGER NOT NULL, latency_ms INTEGER, message TEXT, FOREIGN KEY(device_id) REFERENCES devices(id));`,
-		`CREATE TABLE IF NOT EXISTS events (id TEXT PRIMARY KEY, created_at TEXT NOT NULL, level TEXT NOT NULL, type TEXT NOT NULL, message TEXT NOT NULL, details_json TEXT);`,
-		`CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TEXT NOT NULL);`,
-		`CREATE TABLE IF NOT EXISTS auth_sessions (token_hash TEXT PRIMARY KEY, role TEXT NOT NULL, created_at TEXT NOT NULL, expires_at TEXT NOT NULL);`,
-		`CREATE INDEX IF NOT EXISTS idx_auth_sessions_expires_at ON auth_sessions(expires_at);`,
-		`CREATE INDEX IF NOT EXISTS idx_events_created_at ON events(created_at);`,
-		`CREATE INDEX IF NOT EXISTS idx_stream_checks_checked_at ON stream_checks(checked_at);`,
-		`CREATE INDEX IF NOT EXISTS idx_scan_runs_started_at ON scan_runs(started_at);`,
-	}
-	for _, stmt := range stmts {
-		if _, err := db.ExecContext(ctx, stmt); err != nil {
-			return err
-		}
-	}
-	return ensureDeviceNameColumn(ctx, db)
 }
 
 func (s *Store) UpsertSlots(ctx context.Context, slots []config.Slot) error {
@@ -271,15 +247,39 @@ func (s *Store) RecentStreamChecks(ctx context.Context, limit int) ([]StreamChec
 }
 
 func (s *Store) UpsertBinding(ctx context.Context, b Binding) error {
-	now := time.Now().UTC()
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	// Reserve the writer before reading canonical values. Concurrent legacy
+	// binding writes must not upgrade a stale read snapshot to a writer.
+	if _, err := tx.ExecContext(ctx, `UPDATE devices SET id=id WHERE id=?`, b.DeviceID); err != nil {
+		return err
+	}
+	prefix := "camera.credentials." + b.DeviceID + "."
+	if b.Username == "" {
+		if err := tx.QueryRowContext(ctx, `SELECT value FROM settings WHERE key=?`, prefix+"username").Scan(&b.Username); err != nil && !errors.Is(err, sql.ErrNoRows) {
+			return err
+		}
+	}
+	if b.StreamName == "" {
+		if err := tx.QueryRowContext(ctx, `SELECT value FROM settings WHERE key=?`, prefix+"stream").Scan(&b.StreamName); err != nil && !errors.Is(err, sql.ErrNoRows) {
+			return err
+		}
+	}
 	if b.StreamName == "" {
 		b.StreamName = "stream2"
 	}
-	_, err := s.db.ExecContext(ctx, `INSERT INTO bindings (slot_id,device_id,label,username,stream_name,enabled,created_at,updated_at)
-		VALUES (?,?,?,?,?,?,?,?)
-		ON CONFLICT(slot_id) DO UPDATE SET device_id=excluded.device_id,label=excluded.label,username=excluded.username,stream_name=excluded.stream_name,enabled=excluded.enabled,updated_at=excluded.updated_at`,
-		b.SlotID, b.DeviceID, b.Label, b.Username, b.StreamName, boolInt(b.Enabled), formatTime(now), formatTime(now))
-	return err
+	now := formatTime(time.Now().UTC())
+	_, err = tx.ExecContext(ctx, `INSERT INTO bindings (slot_id,device_id,label,username,stream_name,enabled,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?) ON CONFLICT(slot_id) DO UPDATE SET device_id=excluded.device_id,label=excluded.label,username=excluded.username,stream_name=excluded.stream_name,enabled=excluded.enabled,updated_at=excluded.updated_at`, b.SlotID, b.DeviceID, b.Label, b.Username, b.StreamName, boolInt(b.Enabled), now, now)
+	if err != nil {
+		return err
+	}
+	if err := putSettings(ctx, tx, map[string]string{prefix + "username": b.Username, prefix + "stream": b.StreamName}); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 func (s *Store) Bindings(ctx context.Context) ([]Binding, error) {
@@ -442,14 +442,30 @@ func (s *Store) PutSettings(ctx context.Context, values map[string]string) error
 		return err
 	}
 	defer tx.Rollback()
-	now := formatTime(time.Now().UTC())
-	for key, value := range values {
-		_, err := tx.ExecContext(ctx, `INSERT INTO settings (key,value,updated_at) VALUES (?,?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at`, key, value, now)
-		if err != nil {
-			return err
-		}
+	if err := putSettings(ctx, tx, values); err != nil {
+		return err
 	}
 	return tx.Commit()
+}
+
+func putSettings(ctx context.Context, tx executor, values map[string]string) error {
+	now := formatTime(time.Now().UTC())
+	for key, value := range values {
+		if _, err := tx.ExecContext(ctx, `INSERT INTO settings (key,value,updated_at) VALUES (?,?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at`, key, value, now); err != nil {
+			return err
+		}
+		if strings.HasPrefix(key, "camera.credentials.") {
+			for suffix, column := range map[string]string{".username": "username", ".stream": "stream_name"} {
+				if strings.HasSuffix(key, suffix) {
+					id := strings.TrimSuffix(strings.TrimPrefix(key, "camera.credentials."), suffix)
+					if _, err := tx.ExecContext(ctx, "UPDATE bindings SET "+column+"=?,updated_at=? WHERE device_id=?", value, now, id); err != nil {
+						return err
+					}
+				}
+			}
+		}
+	}
+	return nil
 }
 
 func (s *Store) SaveAuthSession(ctx context.Context, session AuthSession) error {

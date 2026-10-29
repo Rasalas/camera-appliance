@@ -111,12 +111,11 @@ func (s *Service) rememberIdentityForDevice(ctx context.Context, deviceID string
 		"camera.credentials." + deviceID + ".stream":      candidate.Stream,
 		"camera.credentials." + deviceID + ".identity_id": candidate.IdentityID,
 	}
-	if err := s.store.PutSettings(ctx, values); err != nil {
+	if _, err := secrets.SaveCamera(s.config.ConfigDir, deviceID, candidate.Password); err != nil {
 		return err
 	}
-	_, err := secrets.SaveCamera(s.config.ConfigDir, deviceID, candidate.Password)
 	s.credentialsChanged(deviceID)
-	return err
+	return s.store.PutSettings(ctx, values)
 }
 
 type CredentialsInput struct {

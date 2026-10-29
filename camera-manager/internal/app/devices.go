@@ -112,9 +112,6 @@ func (a *App) Assign(ctx context.Context, binding state.Binding) error {
 	if binding.SlotID == "" || binding.DeviceID == "" {
 		return fmt.Errorf("slot and device are required")
 	}
-	if binding.StreamName == "" {
-		binding.StreamName = "stream2"
-	}
 	knownSlot := false
 	for _, slot := range a.Slots {
 		if slot.ID == binding.SlotID {
