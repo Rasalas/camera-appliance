@@ -6,11 +6,11 @@
     </div>
   </header>
 
-  <div v-if="error" class="notice err" role="alert"><span class="tag">FEHLER</span>{{ error }}</div>
+  <div v-if="error" class="notice err" role="alert"><span class="tag">FEHLER</span>{{ error }}<button v-if="!ready" class="btn" :disabled="loading" @click="loadDevice(String(route.params.id))">Erneut laden</button></div>
 
   <div v-if="loading" class="empty">Wird geladen…</div>
 
-  <template v-else-if="device">
+  <template v-else-if="device && ready">
     <div v-if="!editing && !uploadEditing" class="btn-row">
       <span class="pill" :class="{ live: shown }">{{ shown ? 'In der Live-Ansicht' : 'Ausgeblendet' }}</span>
       <button class="btn" type="button" :disabled="busyShow" @click="openVisibility">{{ shown ? 'Ausblenden' : 'Einblenden' }}</button>
@@ -655,30 +655,40 @@ watch(() => route.params.id, (id) => {
 })
 
 onBeforeUnmount(() => {
+  loadGeneration++
   stopStagePan?.()
 })
 
+let loadGeneration = 0
 async function loadDevice(id: string) {
+  const generation = ++loadGeneration
   loading.value = true
   ready.value = false
+  error.value = ''
   try {
-    device.value = await api.device(id)
-    credentials.value = await api.deviceCredentials(device.value.id)
-    credentialIdentities.value = await api.credentialIdentities()
-    bindings.value = await api.bindings()
-    slots.value = await api.slots()
-    settings.value = await api.settings()
-    username.value = credentials.value.username || ''
-    stream.value = credentials.value.stream || 'stream2'
+    const [nextDevice, nextCredentials, identities, nextBindings, nextSlots, nextSettings, relays] = await Promise.all([
+      api.device(id), api.deviceCredentials(id), api.credentialIdentities(), api.bindings(), api.slots(), api.settings(),
+      api.relayStatus().catch(() => [])
+    ])
+    if (generation !== loadGeneration) return
+    device.value = nextDevice
+    credentials.value = nextCredentials
+    credentialIdentities.value = identities
+    bindings.value = nextBindings
+    slots.value = nextSlots
+    settings.value = nextSettings
+    relayStatuses.value = relays
+    password.value = ''
+    username.value = nextCredentials.username || ''
+    stream.value = nextCredentials.stream || 'stream2'
     loadDisplaySettings()
-    await loadRelayStatuses()
     credentialBaseline.value=JSON.stringify({username:username.value,password:password.value})
     editBaseline.value = editSnapshot.value
     ready.value = true
   } catch (err) {
-    error.value = err instanceof Error ? err.message : 'Kamera konnte nicht geladen werden.'
+    if (generation === loadGeneration) error.value = err instanceof Error ? err.message : 'Kamera konnte nicht geladen werden.'
   } finally {
-    loading.value = false
+    if (generation === loadGeneration) loading.value = false
   }
 }
 

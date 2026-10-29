@@ -52,10 +52,12 @@ test('reports busy while a save is scheduled or in flight', async () => {
   assert.equal(saver.busy(), false)
 })
 
-test('a failed save does not leave the saver busy', async () => {
+test('a failed save retains work until explicit discard', async () => {
   const timers = fakeTimers()
   const saver = createSnapshotSave({ delay: 400, save: async () => { throw new Error('offline') }, ...timers })
   saver.schedule({ a: 1 })
   await assert.rejects(saver.flush())
+  assert.equal(saver.busy(), true)
+  saver.cancel()
   assert.equal(saver.busy(), false)
 })

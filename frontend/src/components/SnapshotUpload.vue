@@ -4,7 +4,7 @@
       <h2>Bild-Upload</h2>
       <RouterLink class="server-link mono-mute" to="/kameras/bild-upload">Server einstellen</RouterLink>
     </div>
-    <div v-if="settingsError || saveError" class="notice err" role="alert">{{ settingsError || saveError }}</div>
+    <div v-if="settingsError || saveError" class="notice err" role="alert">{{ settingsError || saveError }}<button v-if="saveError" class="btn" @click="autosave.flush()">Erneut speichern</button></div>
     <UploadImageEditor ref="imageEditor" v-model:crop="crop" :device-id="deviceId" :camera-label="cameraLabel" :src="previewSrc" :captured-at="capturedAt" :busy="uploading" :crop-loading="cropLoading" :crop-status="saveStatus" :preview-loading="previewLoading" :preview-error="previewError" @selecting="selectionChanged" />
     <div v-if="previewError" class="preview-error mono-mute" role="alert">{{ previewSrc ? previewError : '' }} <button v-if="canCapture" class="retry-link" type="button" :disabled="previewLoading" @click="loadPreview">Erneut laden</button></div>
     <div class="btn-row"><span class="mono-mute">Der Ausschnitt wird automatisch gespeichert.</span><button class="btn ghost" :disabled="cropLoading || uploading || !cropChanged" @click="restoreCrop">Ausschnitt seit Öffnen zurücknehmen</button></div>
@@ -31,6 +31,7 @@
 
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { useDraftGuard } from '../composables/discardChanges'
 import { api } from '../api/client'
 import UploadSchedule from './UploadSchedule.vue'
 import UploadNaming from './UploadNaming.vue'
@@ -76,8 +77,8 @@ function scheduleSave() {
 }
 async function prepareSchedule() {
   if (cropLoading.value || !validCrop.value || selecting.value) return false
-  await autosave.flush()
-  return !saveError.value && !!await imageEditor.value?.flush() && !!await naming.value?.flush()
+  const saved = await autosave.flush()
+  return saved && !saveError.value && !!await imageEditor.value?.flush() && !!await naming.value?.flush()
 }
 function selectionChanged(active: boolean) {
   selecting.value = active
@@ -109,7 +110,16 @@ onMounted(() => {
   void api.uploadSettings().then((settings) => { destination.value = settings }).catch((err) => { settingsError.value = err instanceof Error ? err.message : 'Upload-Server konnte nicht geladen werden.' })
   void loadPreview()
 })
-onBeforeUnmount(() => { void autosave.close() })
+useDraftGuard(
+  () => selecting.value || autosave.busy() || !validCrop.value || !!imageEditor.value?.dirty(),
+  async () => { await Promise.all([autosave.discard(), imageEditor.value?.discard()]) },
+  async () => {
+    if (selecting.value || !validCrop.value) return false
+    const [cropSaved, imageSaved] = await Promise.all([autosave.flush(), imageEditor.value?.flush()])
+    return cropSaved && !!imageSaved
+  }
+)
+onBeforeUnmount(() => { void autosave.close().catch(() => undefined) })
 </script>
 
 <style scoped>

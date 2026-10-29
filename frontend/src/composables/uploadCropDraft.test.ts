@@ -16,6 +16,7 @@ test('automatically saves only the latest valid selection after editing stops', 
   autosave.change({ ...crop, width: 200 })
   await pause(20)
   assert.equal(saved.length, 1)
+  await autosave.discard()
   await autosave.close()
 })
 
@@ -37,6 +38,7 @@ test('serializes requests and retains the latest edit while an earlier save is s
   await running
   assert.deepEqual(saved, [full, crop])
   assert.equal(states.filter((state) => state === 'saved').length, 1)
+  await autosave.discard()
   await autosave.close()
 })
 
@@ -58,17 +60,18 @@ test('reports failed saves without retry loops and retries the latest edit', asy
   await autosave.flush()
   assert.deepEqual(saved, [crop])
   assert.equal(states.at(-1), 'saved')
+  await autosave.discard()
   await autosave.close()
 })
 
-test('flushes a pending selection on page leave without updating the removed UI', async () => {
+test('reports completion before closing a pending selection on page leave', async () => {
   const saved: typeof crop[] = []
   const states: string[] = []
   const autosave = createCropAutosave(async (draft) => { saved.push(draft) }, (state) => states.push(state))
   autosave.change(crop)
   await autosave.close()
   assert.deepEqual(saved, [crop])
-  assert.deepEqual(states, ['pending'])
+  assert.deepEqual(states, ['pending','saving','saved'])
 })
 
 test('does not label a newer invalid draft as saved when an older request completes', async () => {
@@ -84,5 +87,7 @@ test('does not label a newer invalid draft as saved when an older request comple
   assert.equal(validUploadCrop({ ...crop, x: NaN }), false)
   assert.equal(validUploadCrop({ ...crop, width: 0 }), false)
   assert.equal(validUploadCrop(full), true)
+  await assert.rejects(autosave.close())
+  await autosave.discard()
   await autosave.close()
 })

@@ -20,18 +20,36 @@ export function timestampText(capturedAt: string) {
   return `${capturedAt.slice(8,10)}.${capturedAt.slice(5,7)}.${capturedAt.slice(0,4)} ${capturedAt.slice(11,19)}`
 }
 
+// Percent coordinates always refer to the original frame; only raster work is bounded.
+export function previewDimensions(width: number, height: number) {
+  const scale = Math.min(1, 960 / Math.max(width, height))
+  return { width: Math.max(1, Math.round(width * scale)), height: Math.max(1, Math.round(height * scale)) }
+}
+const previewSources = new WeakMap<HTMLImageElement, { canvas: HTMLCanvasElement; pixels: Uint8ClampedArray }>()
+
 export function paintImagePreview(canvas: HTMLCanvasElement, source: HTMLImageElement, settings: UploadImageSettings, crop: UploadCrop, capturedAt: string) {
   if (!validImageSettings(settings) || !validUploadCrop(crop)) throw new Error('Privatbereiche oder Bildausschnitt ungültig. Upload gesperrt.')
-  const width = source.naturalWidth, height = source.naturalHeight
-  if (!width || !height || width * height > 40_000_000) throw new Error('Vorschaubild ist ungültig oder zu groß.')
-  canvas.width = width; canvas.height = height
+  const originalWidth = source.naturalWidth, originalHeight = source.naturalHeight
+  const {width,height} = previewDimensions(originalWidth, originalHeight)
+  if (!originalWidth || !originalHeight || originalWidth * originalHeight > 40_000_000) throw new Error('Vorschaubild ist ungültig oder zu groß.')
+  if (canvas.width !== width) canvas.width = width
+  if (canvas.height !== height) canvas.height = height
   const ctx = canvas.getContext('2d', { willReadFrequently: true })
   if (!ctx) throw new Error('Bildvorschau kann nicht bearbeitet werden. Upload gesperrt.')
-  ctx.drawImage(source, 0, 0)
-  const pixels = settings.masks.some(m => m.mode === 'pixelate') ? ctx.getImageData(0, 0, width, height).data : undefined
+  let cached = previewSources.get(source)
+  if (!cached) {
+    const base = document.createElement('canvas'); base.width=width; base.height=height
+    const baseContext = base.getContext('2d', {willReadFrequently:true})
+    if (!baseContext) throw new Error('Bildvorschau kann nicht bearbeitet werden. Upload gesperrt.')
+    baseContext.drawImage(source,0,0,width,height)
+    cached = {canvas:base,pixels:baseContext.getImageData(0,0,width,height).data}
+    previewSources.set(source,cached)
+  }
+  ctx.drawImage(cached.canvas, 0, 0)
+  const pixels = cached.pixels
   for (const mask of settings.masks) {
     if (mask.mode !== 'pixelate' || !pixels) continue
-    const r = frameRect(mask, width, height), block = Math.max(16, Math.ceil(Math.max(r.width,r.height)/8))
+    const r = frameRect(mask, width, height), block = Math.max(1, Math.ceil(16 * width / originalWidth), Math.ceil(Math.max(r.width,r.height)/8))
     for (let y=r.y; y<r.y+r.height; y+=block) for (let x=r.x; x<r.x+r.width; x+=block) {
       const right = Math.min(x+block,r.x+r.width), bottom = Math.min(y+block,r.y+r.height)
       let red=0, green=0, blue=0
@@ -45,14 +63,17 @@ export function paintImagePreview(canvas: HTMLCanvasElement, source: HTMLImageEl
   for (const mask of settings.masks) { if (mask.mode==='black') { const r=frameRect(mask,width,height); ctx.fillRect(r.x,r.y,r.width,r.height) } }
   if (!settings.timestamp) return
   const text=timestampText(capturedAt)
-  const r=crop.enabled ? frameRect(crop,width,height) : {x:0,y:0,width,height}
+  const r=crop.enabled ? frameRect(crop,originalWidth,originalHeight) : {x:0,y:0,width:originalWidth,height:originalHeight}
   if(r.width<127 || r.height<21) throw new Error('Für Datum und Uhrzeit muss das fertige Bild mindestens 127 × 21 Pixel groß sein.')
   const scale=Math.min(Math.max(2,Math.floor(r.width/600)),Math.floor(r.width/127),Math.floor(r.height/21)), padding=3*scale, margin=4*scale
   const boxWidth=(text.length*6-1)*scale+2*padding, boxHeight=7*scale+2*padding
   if(r.width<boxWidth+2*margin || r.height<boxHeight+2*margin) throw new Error('Für Datum und Uhrzeit muss das fertige Bild mindestens 127 × 21 Pixel groß sein.')
   const left=r.x+r.width-margin-boxWidth, top=r.y+r.height-margin-boxHeight
+  ctx.save()
+  ctx.scale(width/originalWidth,height/originalHeight)
   ctx.fillRect(left,top,boxWidth,boxHeight)
   ctx.fillStyle='#fff'
   const font: Record<string,number[]> = fontData
   for (let i=0;i<text.length;i++) font[text[i]].forEach((row,y)=>{for(let x=0;x<5;x++) if(row&(1<<(4-x))) ctx.fillRect(left+padding+(i*6+x)*scale,top+padding+y*scale,scale,scale)})
+  ctx.restore()
 }
