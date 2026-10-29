@@ -96,6 +96,36 @@ The viewer consumes only stable go2rtc aliases:
 
 Do not put camera DHCP IPs into viewer configuration.
 
+### Eigene Ansichten für Remote-Geräte
+
+Als Admin in der Live-Ansicht „Bearbeiten“ öffnen. Die Vorlage „4 + Hochkant rechts“
+ordnet fünf Kameras als 2×2-Raster mit einer durchgehenden Hochkantkamera rechts an.
+Eine bereits um 90° oder 270° gedrehte Kamera kommt nach rechts, sonst Kamera 5.
+Die Trennlinien lassen sich auch per Touch verschieben. Die Anordnung bleibt im
+Hoch- und Querformat erhalten. Der Kachelmodus „Ganz“ zeigt das ganze Bild mit möglichen
+schwarzen Rändern; „Füllen“ nutzt die Kachel vollständig und beschneidet das Bild.
+
+Einen Namen wie `ipad` oder `buero` eingeben und „Als eigene Ansicht speichern“
+wählen. Namen erlauben bis zu 48 Zeichen aus a–z, 0–9, Bindestrich und Unterstrich.
+Die neue Ansicht kopiert die aktuelle Anordnung. Weitere Änderungen speichern
+sich in der ausgewählten Ansicht. Andere Ansichten bleiben unabhängig.
+Die Auswahl oben ist auch für Viewer verfügbar und wird pro Browser gemerkt.
+Ansichten werden auf dem Server gespeichert und sind damit auf anderen Geräten
+unter derselben URL verfügbar:
+
+- `/?view=ipad` öffnet die Ansicht `ipad`.
+- `/?view=buero` öffnet die Ansicht `buero`.
+- `/?view=` wählt ausdrücklich die Standardansicht.
+- `/?view=ipad&kiosk=1` blendet die Steuerung nach kurzer Zeit aus.
+
+„Link zur Ansicht“ zeigt die vollständige URL zum Kopieren in einen Shortcut.
+Die URL-Auswahl hat Vorrang vor der gemerkten Browser-Auswahl. In einer benannten Ansicht lässt sich unter „Bearbeiten“ pro Kamera zwischen
+„Ganz“ und „Füllen“ umschalten. Der Bildmodus wird nur für diese Ansicht gespeichert.
+Beim Kopieren einer Ansicht werden die aktuellen Bildmodi mitkopiert.
+Der Bildmodus der Standardansicht, Kamera-Drehung, Bildausschnitt und
+Leistungsmodus gelten weiterhin für alle Geräte.
+Im Leistungsmodus „Niedrig“ läuft weiterhin nur die Hauptkamera.
+
 ## Einzelbilder per FTP/SFTP hochladen
 
 Die Seitenleiste trennt **Live-Ansicht**, **Kameras**, **System** und **Wartung**.

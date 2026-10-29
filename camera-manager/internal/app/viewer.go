@@ -39,13 +39,15 @@ const (
 )
 
 type Viewer struct {
-	CheckedAt       time.Time            `json:"checked_at"`
-	Go2RTC          system.ServiceStatus `json:"go2rtc"`
-	GeneratedConfig string               `json:"generated_config,omitempty"`
-	StreamCount     int                  `json:"stream_count"`
-	Layout          display.ViewerLayout `json:"layout"`
-	Performance     ViewerPerformance    `json:"performance"`
-	Slots           []ViewerSlot         `json:"slots"`
+	ProfileFits     map[string]map[string]string `json:"profile_fits"`
+	Profiles        map[string]string            `json:"profiles"`
+	CheckedAt       time.Time                    `json:"checked_at"`
+	Go2RTC          system.ServiceStatus         `json:"go2rtc"`
+	GeneratedConfig string                       `json:"generated_config,omitempty"`
+	StreamCount     int                          `json:"stream_count"`
+	Layout          display.ViewerLayout         `json:"layout"`
+	Performance     ViewerPerformance            `json:"performance"`
+	Slots           []ViewerSlot                 `json:"slots"`
 }
 
 type ViewerSlot struct {
@@ -116,6 +118,8 @@ func (a *App) Viewer(ctx context.Context) (Viewer, error) {
 	pathAssessments := a.viewerPathAssessments(ctx, bindings, settings, now)
 
 	viewer := Viewer{
+		Profiles:        viewerProfiles(settings),
+		ProfileFits:     viewerProfileFits(settings),
 		CheckedAt:       now,
 		Go2RTC:          go2rtcStatus,
 		GeneratedConfig: generatedPath,
@@ -490,4 +494,34 @@ func (g *go2rtcAvailability) observe(online bool, now time.Time) bool {
 	g.failures++
 	// Without an earlier success there is no healthy status to hold on to.
 	return !g.seenOnline || g.failures >= viewerGo2RTCFailureLimit || now.Sub(g.failingSince) >= viewerGo2RTCFailureGrace
+}
+
+// Only layout data is public to viewers, never the underlying settings map.
+func viewerProfiles(settings map[string]string) map[string]string {
+	profiles := map[string]string{}
+	for key, value := range settings {
+		if strings.HasPrefix(key, "viewer.profiles.") && strings.HasSuffix(key, ".mosaic") {
+			name := strings.TrimSuffix(strings.TrimPrefix(key, "viewer.profiles."), ".mosaic")
+			if viewerProfileSettingPattern.MatchString(key) {
+				profiles[name] = value
+			}
+		}
+	}
+	return profiles
+}
+
+func viewerProfileFits(settings map[string]string) map[string]map[string]string {
+	profiles := map[string]map[string]string{}
+	for key, value := range settings {
+		if !viewerProfileFitPattern.MatchString(key) || (value != "contain" && value != "cover") {
+			continue
+		}
+		parts := strings.Split(key, ".")
+		name, alias := parts[2], parts[4]
+		if profiles[name] == nil {
+			profiles[name] = map[string]string{}
+		}
+		profiles[name][alias] = value
+	}
+	return profiles
 }

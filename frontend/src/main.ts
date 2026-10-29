@@ -7,4 +7,7 @@ import router from './router'
 import './styles/base.css'
 import './styles/admin.css'
 
-createApp(App).use(router).mount('#app')
+const app = createApp(App).use(router)
+// Resolve the initial route and its auth guard before rendering the shell.
+// Otherwise a direct viewer visit briefly renders the admin navigation.
+void router.isReady().then(() => app.mount('#app'))

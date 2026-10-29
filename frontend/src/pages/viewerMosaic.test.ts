@@ -53,3 +53,20 @@ test('reconciliation removes missing cameras and resizing keeps panes visible', 
   assert.ok(panes.every((pane) => pane.rect.w > 0 && pane.rect.h > 0))
   assert.equal(panes.reduce((sum, pane) => sum + pane.rect.w * pane.rect.h, 0), 10000)
 })
+
+test('four plus portrait preserves every camera and gives the fifth a full-height pane', async () => {
+  const { portraitGridTree } = await import('./viewerMosaic.ts')
+  const aliases = ['cam1', 'cam2', 'cam3', 'cam4', 'cam5']
+  const tree = portraitGridTree(aliases, 'cam5')
+  const leaves = layoutGeometry(tree).leaves
+  assert.deepEqual(treeSlots(tree), aliases)
+  const portrait = leaves.find((pane) => pane.alias === 'cam5')!.rect
+  assert.equal(portrait.h, 100)
+  assert.equal(portrait.y, 0)
+  assert.ok(portrait.x > 70 && portrait.x < 80)
+  assert.equal(leaves[0].rect.y, leaves[1].rect.y)
+  assert.equal(leaves[2].rect.y, leaves[3].rect.y)
+  assert.equal(leaves[2].rect.y, 50)
+  assert.ok(Math.abs(leaves.reduce((sum, pane) => sum + pane.rect.w * pane.rect.h, 0) - 10000) < 0.001)
+  assert.deepEqual(portraitGridTree(['cam1'], 'cam1'), defaultMosaicTree(['cam1']))
+})
