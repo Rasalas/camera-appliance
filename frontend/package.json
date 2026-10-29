@@ -5,12 +5,13 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "test:browser": "playwright test",
     "build": "vue-tsc --noEmit && vite build",
     "test:embed": "node --test tests/embed-status.test.js tests/embed-watchdog.test.js",
     "test:mosaic": "node --test --experimental-strip-types src/pages/viewerMosaic.test.ts",
-    "test:viewer": "node --test --experimental-strip-types src/pages/viewerPlayback.test.ts src/pages/viewerDisplay.test.ts src/composables/viewerKiosk.test.ts src/composables/layoutSave.test.ts",
+    "test:viewer": "node --test --experimental-strip-types src/pages/viewerPlayback.test.ts src/pages/viewerDisplay.test.ts src/pages/viewerPersistence.test.ts src/composables/viewerKiosk.test.ts src/composables/layoutSave.test.ts",
     "preview": "vite preview",
-    "test:settings": "node --test --experimental-strip-types src/composables/settingsDraft.test.ts",
+    "test:settings": "node --test --experimental-strip-types src/composables/settingsDraft.test.ts src/composables/frontendFlows.test.ts",
     "test:upload-crop": "node --test --experimental-strip-types src/composables/uploadCropDraft.test.ts",
     "test:upload-image": "node --test --experimental-strip-types src/composables/uploadImagePreview.test.ts",
     "test:updates": "node --test --experimental-strip-types src/composables/updateClient.test.ts",
@@ -28,9 +29,12 @@
     "vue-router": "^4.5.0"
   },
   "devDependencies": {
+    "@playwright/test": "^1.64.1",
+    "@types/ws": "^8.18.2",
     "@vitejs/plugin-vue": "^6.0.7",
     "typescript": "^5.6.3",
     "vite": "^8.0.16",
-    "vue-tsc": "^2.1.10"
+    "vue-tsc": "^2.1.10",
+    "ws": "^8.22.0"
   }
 }

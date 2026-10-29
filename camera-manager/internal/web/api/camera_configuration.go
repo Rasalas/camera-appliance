@@ -22,7 +22,9 @@ func (s *Server) putDeviceConfiguration(w http.ResponseWriter, r *http.Request) 
 		writeError(w, errors.New("Ungültige Kamera-Konfiguration."), http.StatusBadRequest)
 		return
 	}
-	result, err := s.app.ConfigureCamera(r.Context(), r.PathValue("id"), req)
+	ctx, cancel := detachedContext(r, go2rtcOperationTimeout)
+	defer cancel()
+	result, err := s.app.ConfigureCamera(ctx, r.PathValue("id"), req)
 	status := http.StatusOK
 	switch {
 	case errors.Is(err, sql.ErrNoRows):
@@ -37,6 +39,9 @@ func (s *Server) putDeviceConfiguration(w http.ResponseWriter, r *http.Request) 
 	case err != nil:
 		status = http.StatusInternalServerError
 		result.Error = "Kamera-Konfiguration konnte nicht vollständig gespeichert werden."
+	}
+	if err != nil && result.PasswordPersisted {
+		result.Error += " Das neue Kamera-Passwort wurde bereits gespeichert."
 	}
 	writeJSON(w, result, status)
 }

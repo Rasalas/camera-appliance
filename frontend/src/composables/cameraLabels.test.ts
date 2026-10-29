@@ -38,36 +38,36 @@ test('technical values get plain labels', () => {
   assert.equal(streamLabel('custom'), 'custom')
 })
 
-function fakeApi(restartFails = false) {
-  const calls: string[] = []
+function fakeApi(applyFails = false) {
+  const calls: unknown[] = []
   return {
     calls,
     api: {
-      saveBinding: async (binding: { slot_id: string; label?: string }) => { calls.push(`save ${binding.slot_id} ${binding.label}`) },
-      removeBinding: async (slot: string) => { calls.push(`remove ${slot}`) },
-      renderGo2RTC: async () => { calls.push('render') },
-      restartGo2RTC: async () => { calls.push('restart'); if (restartFails) throw new Error('docker down') }
+      configureCamera: async (id: string, body: { visible?: boolean }) => {
+        calls.push({ id, ...body })
+        return { persisted: true, password_persisted: false, applied: !applyFails, restarted: !applyFails }
+      }
     }
   }
 }
-const slots = [{ id: 'cam1', default_stream: 'stream2' }, { id: 'cam2', default_stream: 'stream2' }]
 
-test('showing a camera binds a free slot under its display name and restarts the video service', async () => {
+test('showing a camera lets the server allocate its slot and apply its configuration', async () => {
   const { api, calls } = fakeApi()
-  const result = await changeCameraVisibility(api, { deviceId: 'd2', label: 'Einfahrt', bindings: [{ slot_id: 'cam1', device_id: 'd1' }], slots })
-  assert.deepEqual(calls, ['save cam2 Einfahrt', 'render', 'restart'])
+  const result = await changeCameraVisibility(api, { deviceId: 'd2', bindings: [{ slot_id: 'cam1', device_id: 'd1' }] })
+  assert.deepEqual(calls, [{ id: 'd2', visible: true }])
   assert.equal(result.restartError, '')
 })
 
-test('hiding a camera reports a failed restart instead of ignoring it', async () => {
+test('a failed apply is retryable without toggling the desired visibility', async () => {
   const { api, calls } = fakeApi(true)
-  const result = await changeCameraVisibility(api, { deviceId: 'd1', label: 'Hof', bindings: [{ slot_id: 'cam1', device_id: 'd1' }], slots })
-  assert.deepEqual(calls, ['remove cam1', 'render', 'restart'])
-  assert.match(result.restartError, /Videodienst/)
+  const input = { deviceId: 'd1', bindings: [{ slot_id: 'cam1', device_id: 'd1' }] }
+  const result = await changeCameraVisibility(api, input)
+  assert.match(result.restartError, /gespeichert, aber noch nicht angewendet/)
+  await changeCameraVisibility(api, input)
+  assert.deepEqual(calls, [{ id: 'd1', visible: false }, { id: 'd1', visible: false }])
 })
 
-test('showing a camera without a free slot fails before changing anything', async () => {
-  const { api, calls } = fakeApi()
-  await assert.rejects(changeCameraVisibility(api, { deviceId: 'd3', label: 'Garten', bindings: [{ slot_id: 'cam1', device_id: 'd1' }, { slot_id: 'cam2', device_id: 'd2' }], slots }), /Maximal 2 Kameras/)
-  assert.deepEqual(calls, [])
+test('slot conflicts from the server are reported without a separate binding write', async () => {
+  const api = { configureCamera: async () => { throw new Error('Kein freier Kameraplatz verfügbar.') } }
+  await assert.rejects(changeCameraVisibility(api, { deviceId: 'd3', bindings: [] }), /Kein freier Kameraplatz/)
 })

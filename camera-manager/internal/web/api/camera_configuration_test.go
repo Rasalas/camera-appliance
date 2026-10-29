@@ -6,6 +6,8 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -39,5 +41,32 @@ func TestCameraConfigurationRouteValidationAndPersistence(t *testing.T) {
 		if response.Code != tc.status {
 			t.Fatalf("%+v: %d %s", tc, response.Code, response.Body.String())
 		}
+	}
+}
+
+func TestCameraConfigurationCompletesAfterClientDisconnect(t *testing.T) {
+	a := newAuthTestApp(t)
+	if err := a.Store.UpsertDevice(context.Background(), state.Device{ID: "device", LastIP: "192.0.2.1"}); err != nil {
+		t.Fatal(err)
+	}
+	client, disconnect := context.WithCancel(context.Background())
+	defer disconnect()
+	restarted := false
+	a.Go2RTCRestart = func(ctx context.Context) error {
+		restarted = true
+		disconnect()
+		return ctx.Err()
+	}
+	r := httptest.NewRequest(http.MethodPut, "/api/devices/device/configuration", strings.NewReader(`{"access":{"username":"camera","stream":"stream1"}}`)).WithContext(client)
+	r.SetPathValue("id", "device")
+	w := httptest.NewRecorder()
+	New(a).putDeviceConfiguration(w, r)
+	var result app.CameraConfigurationResult
+	if w.Code != http.StatusOK || json.Unmarshal(w.Body.Bytes(), &result) != nil || !restarted || !result.Applied {
+		t.Fatalf("configuration interrupted: %d %s", w.Code, w.Body.String())
+	}
+	settings, err := a.Store.Settings(context.Background())
+	if err != nil || settings["camera.configuration.device.pending"] != "false" {
+		t.Fatalf("apply not finalized: %+v %v", settings, err)
 	}
 }

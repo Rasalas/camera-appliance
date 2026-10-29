@@ -1,6 +1,7 @@
 import type { AuthStatus, Binding, CredentialIdentity, Device, DeviceCredentials, EventItem, FrameResult, LoginResult, ManualDeviceResult, ProbeResult, RelayStatus, ScanRun, Slot, StatusResponse, SupportBundleResult, UpdateStartResult, UpdateFlowStatus, ViewerResponse } from '../types'
 
 import type { BackupList } from '../types'
+import type { CameraConfiguration, CameraConfigurationResult } from './cameraConfiguration'
 import { backupDownloadPath } from '../composables/backupList.ts'
 import type { UploadSettings, UploadCrop, SnapshotUploadResult, UploadScheduleInput, UploadScheduleStatus, UploadNaming, UploadImageSettings } from '../types'
 
@@ -164,6 +165,8 @@ export const api = {
   runs: () => request<ScanRun[]>('/api/discovery/runs'),
   devices: () => request<Device[]>('/api/devices'),
   device: (id: string) => request<Device>(`/api/devices/${id}`),
+  configureCamera: (id: string, body: CameraConfiguration) =>
+    request<CameraConfigurationResult>(`/api/devices/${encodeURIComponent(id)}/configuration`, { method: 'PUT', body: JSON.stringify(body) }, { timeoutMs: 310_000 }),
   saveDeviceName: (id: string, name: string) => request<Device>(`/api/devices/${encodeURIComponent(id)}/name`, { method: 'PUT', body: JSON.stringify({ name }) }),
   addManualDevice: (body: { ip: string; username: string; password?: string; stream: string; label?: string }) =>
     request<ManualDeviceResult>('/api/devices/manual', { method: 'POST', body: JSON.stringify(body) }, SLOW),

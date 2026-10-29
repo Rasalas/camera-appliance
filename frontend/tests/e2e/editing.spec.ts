@@ -1,0 +1,147 @@
+import { test, expect } from '@playwright/test'
+import { appliance } from './appliance'
+
+test('camera save applies one complete configuration and retains apply failures for retry', async ({ page }) => {
+  const fixture = await appliance(page)
+  fixture.failApply(true)
+  await page.goto('/kamera/hof/bearbeiten')
+  await expect(page.getByLabel('Benutzername', { exact: true })).toHaveValue('camera-user')
+  await page.getByLabel('Benutzername', { exact: true }).fill('updated-user')
+  await page.getByLabel('Bildqualität', { exact: true }).selectOption('stream1')
+  await page.getByRole('button', { name: 'Kamera speichern' }).click()
+  await expect(page.getByRole('alert')).toContainText('gespeichert, aber noch nicht angewendet')
+  await expect(page).toHaveURL(/\/kamera\/hof\/bearbeiten$/)
+  expect(fixture.configurationWrites).toHaveLength(1)
+  expect(fixture.configurationWrites[0]).toMatchObject({ access: { username: 'updated-user', stream: 'stream1', password: '' }, display: { rotation: '0' } })
+  expect(fixture.writes).toHaveLength(0)
+  fixture.failApply(false)
+  await page.getByRole('button', { name: 'Kamera speichern' }).click()
+  await expect(page).toHaveURL(/\/kamera\/hof$/)
+  expect(fixture.configurationWrites).toHaveLength(2)
+  expect(fixture.configurationWrites[1]).toEqual(fixture.configurationWrites[0])
+})
+
+test('visibility retry keeps the requested state after persistence succeeds', async ({ page }) => {
+  const fixture = await appliance(page)
+  fixture.failApply(true)
+  await page.goto('/kamera/hof')
+  await page.getByRole('button', { name: 'Ausblenden', exact: true }).click()
+  const dialog = page.getByRole('dialog', { name: 'Kamera ausblenden?' })
+  await dialog.getByRole('button', { name: 'Ausblenden', exact: true }).click()
+  await expect(dialog.getByRole('alert')).toContainText('noch nicht angewendet')
+  fixture.failApply(false)
+  await dialog.getByRole('button', { name: 'Ausblenden', exact: true }).click()
+  await expect(dialog).not.toBeVisible()
+  await expect(page.getByRole('button', { name: 'Einblenden', exact: true })).toBeVisible()
+  expect(fixture.configurationWrites).toEqual([{ visible: false }, { visible: false }])
+})
+
+test('rapid edits to two cameras survive immediate navigation', async ({ page }) => {
+  const fixture = await appliance(page)
+  await page.goto('/?kiosk=0')
+  await page.getByRole('button', { name: 'Bearbeiten', exact: true }).click()
+  await expect(page.locator('[data-slot-alias="cam2"] button[title="90° drehen"]')).toBeVisible()
+  // One browser task guarantees both edits and navigation precede the debounce.
+  await page.evaluate(() => {
+    for (const alias of ['cam1', 'cam2']) document.querySelector<HTMLButtonElement>(`[data-slot-alias="${alias}"] button[title="90° drehen"]`)!.click()
+    document.querySelector<HTMLAnchorElement>('.viewer-controls a[href="/einrichtung"]')!.click()
+  })
+  await expect(page).toHaveURL(/\/einrichtung$/)
+  expect(fixture.settings['camera.display.hof.rotation']).toBe('90')
+  expect(fixture.settings['camera.display.garage.rotation']).toBe('90')
+})
+
+test('keyboard controls resize the mosaic, pan crops and dock cameras', async ({ page }) => {
+  const fixture = await appliance(page)
+  await page.goto('/?kiosk=0')
+  await page.getByRole('button', { name: 'Bearbeiten', exact: true }).click()
+  const gutter = page.getByRole('separator', { name: 'Breite der Kameras ändern' })
+  await gutter.focus()
+  await gutter.press('ArrowRight')
+  await expect(gutter).toHaveAttribute('aria-valuenow', '52')
+  const tile = page.locator('[data-slot-alias="cam1"]')
+  await tile.getByTitle('Hineinzoomen', { exact: true }).press('Enter')
+  await tile.getByRole('button', { name: 'Bildausschnitt rechts verschieben' }).press('Enter')
+  await tile.locator('summary').press('Enter')
+  await tile.getByLabel('Hof: Zielkamera').selectOption('cam2')
+  await tile.getByLabel('Hof: Anordnung').selectOption('bottom')
+  await tile.getByRole('button', { name: 'Anordnen', exact: true }).press('Enter')
+  await page.getByRole('link', { name: 'Verwaltung', exact: true }).click()
+  await expect(page).toHaveURL(/\/einrichtung$/)
+  const tree = JSON.parse(fixture.settings['viewer.layout.mosaic'])
+  expect(tree).toMatchObject({ type: 'split', dir: 'col', a: { slot: 'cam2' }, b: { slot: 'cam1' } })
+  expect(Number(fixture.settings['camera.display.hof.crop_x'])).toBeGreaterThan(0)
+})
+
+test('failed privacy saves block navigation and keyboard-created masks can be retried', async ({ page }) => {
+  const fixture = await appliance(page)
+  fixture.failImageSaves(true)
+  await page.goto('/kamera/hof/bild-upload')
+  const canvas = page.getByRole('img', { name: 'Kameravorschau Hof mit Privatbereichen' })
+  await expect(canvas).toBeVisible()
+  await page.getByRole('button', { name: '+ Schwärzen', exact: true }).press('Enter')
+  await page.getByText('Genaue Position', { exact: true }).press('Enter')
+  await page.locator('.mask-edit').getByLabel('Links %', { exact: true }).fill('30')
+  await page.getByRole('link', { name: '← Zur Kameradetailseite' }).click()
+  const discard = page.getByRole('dialog', { name: 'Änderungen verwerfen?' })
+  await expect(discard).toBeVisible()
+  await expect(page).toHaveURL(/\/bild-upload$/)
+  await discard.getByRole('button', { name: 'Weiter bearbeiten' }).click()
+  await expect(page.locator('.mask-edit').getByLabel('Links %', { exact: true })).toHaveValue('30')
+  fixture.failImageSaves(false)
+  await page.getByRole('button', { name: 'Erneut speichern', exact: true }).click()
+  await expect.poll(() => fixture.imageSettings['/api/devices/hof/upload-image-settings']?.masks[0]?.x).toBe(30)
+  await page.getByRole('link', { name: '← Zur Kameradetailseite' }).click()
+  await expect(page).toHaveURL(/\/kamera\/hof$/)
+})
+
+test('discarded privacy edits do not save again after leaving', async ({ page }) => {
+  const fixture = await appliance(page)
+  fixture.failImageSaves(true)
+  await page.goto('/kamera/hof/bild-upload')
+  await expect(page.getByRole('img', { name: 'Kameravorschau Hof mit Privatbereichen' })).toBeVisible()
+  await page.getByRole('button', { name: '+ Verpixeln', exact: true }).press('Enter')
+  await page.getByRole('link', { name: '← Zur Kameradetailseite' }).click()
+  await page.getByRole('dialog', { name: 'Änderungen verwerfen?' }).getByRole('button', { name: 'Verwerfen', exact: true }).click()
+  await expect(page).toHaveURL(/\/kamera\/hof$/)
+  fixture.failImageSaves(false)
+  await page.getByRole('link', { name: 'Bild-Upload bearbeiten' }).click()
+  await expect(page.getByRole('img', { name: 'Kameravorschau Hof mit Privatbereichen' })).toBeVisible()
+  expect(fixture.imageSettings).toEqual({})
+  await expect(page.locator('.mask-list')).toHaveCount(0)
+})
+
+test('camera changes wait for slow privacy saves and never write the draft to the next camera', async ({ page }) => {
+  const fixture = await appliance(page)
+  let release!: () => void
+  const pending = new Promise<void>(resolve => { release = resolve })
+  let saving = false
+  await page.route('**/api/devices/hof/upload-image-settings', async route => {
+    if (route.request().method() === 'PUT' && !saving) { saving = true; await pending }
+    await route.fallback()
+  })
+  try {
+    await page.goto('/kamera/hof/bild-upload')
+    await expect(page.getByRole('img', { name: 'Kameravorschau Hof mit Privatbereichen' })).toBeVisible()
+    await page.getByRole('button', { name: '+ Schwärzen', exact: true }).press('Enter')
+    await expect.poll(() => saving).toBe(true)
+    await page.getByText('Genaue Position', { exact: true }).press('Enter')
+    await page.locator('.mask-edit').getByLabel('Links %', { exact: true }).fill('30')
+    expect(await page.evaluate(() => {
+      const event = new Event('beforeunload', { cancelable: true })
+      window.dispatchEvent(event)
+      return event.defaultPrevented
+    })).toBe(true)
+    await page.evaluate(async () => {
+      const path = '/src/router/index.ts'
+      void (await import(/* @vite-ignore */ path)).default.push('/kamera/garage/bild-upload')
+    })
+    await expect(page).toHaveURL(/\/kamera\/hof\/bild-upload$/)
+    release()
+    await expect(page).toHaveURL(/\/kamera\/garage\/bild-upload$/)
+    await expect(page.getByRole('img', { name: 'Kameravorschau Garage mit Privatbereichen' })).toBeVisible()
+    expect(fixture.imageSettings['/api/devices/hof/upload-image-settings'].masks[0].x).toBe(30)
+    expect(fixture.imageWrites.every(write => write.path === '/api/devices/hof/upload-image-settings')).toBe(true)
+    await expect(page.locator('.mask-list')).toHaveCount(0)
+  } finally { release() }
+})

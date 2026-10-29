@@ -8,6 +8,8 @@
 
   <div v-if="error" class="notice err" role="alert"><span class="tag">FEHLER</span>{{ error }}<button v-if="!ready" class="btn" :disabled="loading" @click="loadDevice(String(route.params.id))">Erneut laden</button></div>
 
+  <div v-for="warning in configurationWarnings" :key="warning" class="notice" role="status">{{ warning }}</div>
+
   <div v-if="loading" class="empty">Wird geladen…</div>
 
   <template v-else-if="device && ready">
@@ -221,39 +223,62 @@ import EditableSection from '../components/EditableSection.vue'
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { api } from '../api/client'
+import { cameraConfigurationError, type CameraEndpoint } from '../api/cameraConfiguration'
 import { useDraftGuard } from '../composables/discardChanges'
 import SnapshotUpload from '../components/SnapshotUpload.vue'
 import CameraNameDialog from '../components/CameraNameDialog.vue'
 import CameraVisibilityDialog from '../components/CameraVisibilityDialog.vue'
 import { cameraName, changeCameraVisibility, countLabel, fitModeLabel, streamLabel } from '../composables/cameraLabels'
-import type { Binding, CredentialIdentity, Device, DeviceCredentials, FrameResult, ProbeResult, RelayStatus, Slot } from '../types'
+import type { Binding, CredentialIdentity, Device, DeviceCredentials, FrameResult, ProbeResult, RelayStatus } from '../types'
 
 const route = useRoute(), router = useRouter()
 const editing = computed(() => route.name === 'device-edit')
 const uploadEditing = computed(() => route.name === 'device-upload')
-const editBaseline = ref(''), credentialBaseline = ref(''), savingAll = ref(false)
+const editBaseline = ref(''), savingAll = ref(false), applyPending = ref(false)
 const editSnapshot = computed(() => JSON.stringify({username:username.value,password:password.value,stream:stream.value,path:pathPolicy.value,rotation:rotation.value,mirror:mirror.value,flip:flip.value,fit:fitMode.value,crop:[cropX.value,cropY.value,cropWidth.value,cropHeight.value],endpoints:Object.fromEntries(Object.entries(settings.value).filter(([key])=>key.startsWith('camera.relay_endpoint.')))}))
-const editDirty = computed(() => ready.value && editing.value && editSnapshot.value !== editBaseline.value)
+const editDirty = computed(() => ready.value && editing.value && (applyPending.value || editSnapshot.value !== editBaseline.value))
 useDraftGuard(() => editDirty.value, () => { editBaseline.value = editSnapshot.value })
 async function saveAll() {
   if (savingAll.value || !device.value) return
-  savingAll.value = true
-  try {
-    if (JSON.stringify({ username: username.value, password: password.value }) !== credentialBaseline.value) {
-      await saveCredentials()
-      if(error.value)return
-      credentialBaseline.value=JSON.stringify({username:username.value,password:password.value})
+  const id = device.value.id
+  const generation = loadGeneration
+  const crop = normalizedCrop()
+  const endpoints: Record<string, CameraEndpoint> = {}
+  for (const relayId of relayIds.value) {
+    endpoints[relayId] = {
+      host: settings.value[endpointKey(relayId, 'host')] || '',
+      port: settings.value[endpointKey(relayId, 'port')] || '',
+      target_host: settings.value[endpointKey(relayId, 'target_host')] || '',
+      target_port: settings.value[endpointKey(relayId, 'target_port')] || ''
     }
-    await saveDisplay()
-    if(error.value)return
-    if(relayIds.value.length) await saveEndpointOverrides()
-    if(error.value)return
+  }
+  savingAll.value = true
+  error.value = ''
+  configurationWarnings.value = []
+  try {
+    const result = await api.configureCamera(id, {
+      access: { username: username.value, password: password.value, stream: stream.value },
+      path_policy: pathPolicy.value,
+      display: {
+        rotation: String(rotation.value), mirror: String(mirror.value), flip: String(flip.value), fit_mode: fitMode.value,
+        crop_x: String(crop.x), crop_y: String(crop.y), crop_width: String(crop.width), crop_height: String(crop.height)
+      },
+      relay_endpoints: endpoints
+    })
+    if (generation !== loadGeneration) return
+    configurationWarnings.value = result.warnings || []
+    applyPending.value = result.persisted && !result.applied
+    error.value = cameraConfigurationError(result)
+    if (error.value) return
+    password.value = ''
+    credentials.value = { ...credentials.value!, username: username.value, stream: stream.value, password_set: credentials.value?.password_set || result.password_persisted }
     editBaseline.value = editSnapshot.value
-    await router.push(`/kamera/${device.value.id}`)
+    await router.push(`/kamera/${id}`)
+  } catch (err) {
+    if (generation === loadGeneration) error.value = err instanceof Error ? err.message : 'Kamera konnte nicht gespeichert werden.'
   } finally { savingAll.value = false }
 }
 const device = ref<Device>()
-const slots = ref<Slot[]>([])
 const busyShow = ref(false)
 const renaming = ref(false)
 const visibilityOpen = ref(false)
@@ -263,6 +288,7 @@ let stopStagePan: (() => void) | null = null
 const loading = ref(true)
 const busy = ref(false)
 const error = ref('')
+const configurationWarnings = ref<string[]>([])
 const username = ref('')
 const password = ref('')
 const stream = ref('stream2')
@@ -378,36 +404,6 @@ function autoPortFor(relayId: string) {
   return String(base + slotNumber - 1)
 }
 
-async function loadRelayStatuses() {
-  if (!relayIds.value.length) return
-  try {
-    relayStatuses.value = await api.relayStatus()
-  } catch {
-    relayStatuses.value = []
-  }
-}
-
-async function saveEndpointOverrides() {
-  if (!device.value) return
-  busy.value = true
-  error.value = ''
-  try {
-    const values: Record<string, string> = {}
-    for (const relayId of relayIds.value) {
-      for (const field of ['port', 'host', 'target_host', 'target_port']) {
-        const key = endpointKey(relayId, field)
-        if (key in settings.value) values[key] = settings.value[key]
-      }
-    }
-    await api.saveSettings(values)
-    await loadRelayStatuses()
-  } catch (err) {
-    error.value = err instanceof Error ? err.message : 'Weiterleitungen konnten nicht gespeichert werden.'
-  } finally {
-    busy.value = false
-  }
-}
-
 async function probe() {
   if (!device.value) return
   busy.value = true
@@ -416,56 +412,6 @@ async function probe() {
     probeResult.value = await api.probeDevice(device.value.id, { username: username.value, password: password.value, stream: stream.value })
   } catch (err) {
     error.value = err instanceof Error ? err.message : 'Zugang konnte nicht geprüft werden.'
-  } finally {
-    busy.value = false
-  }
-}
-
-async function saveCredentials() {
-  if (!device.value) return
-  busy.value = true
-  error.value = ''
-  try {
-    credentials.value = await api.saveDeviceCredentials(device.value.id, { username: username.value, password: password.value, stream: stream.value })
-    password.value = ''
-  } catch (err) {
-    error.value = err instanceof Error ? err.message : 'Zugangsdaten konnten nicht gespeichert werden.'
-  } finally {
-    busy.value = false
-  }
-}
-
-async function saveDisplay() {
-  if (!device.value) return
-  busy.value = true
-  error.value = ''
-  try {
-    const deviceID = device.value.id
-    const crop = normalizedCrop()
-    const values: Record<string, string> = {
-      [`camera.display.${deviceID}.rotation`]: String(rotation.value),
-      [`camera.display.${deviceID}.mirror`]: String(mirror.value),
-      [`camera.display.${deviceID}.flip`]: String(flip.value),
-      [`camera.display.${deviceID}.fit_mode`]: fitMode.value,
-      [`camera.display.${deviceID}.crop_x`]: String(crop.x),
-      [`camera.display.${deviceID}.crop_y`]: String(crop.y),
-      [`camera.display.${deviceID}.crop_width`]: String(crop.width),
-      [`camera.display.${deviceID}.crop_height`]: String(crop.height),
-      [`camera.path_policy.${deviceID}`]: pathPolicy.value,
-      [`camera.credentials.${deviceID}.stream`]: stream.value
-    }
-    await api.saveSettings(values)
-    const binding = bindings.value.find((item) => item.device_id === deviceID)
-    if (binding && binding.stream_name !== stream.value) {
-      await api.saveBinding({ ...binding, stream_name: stream.value })
-      bindings.value = await api.bindings()
-    }
-    if (credentials.value) {
-      credentials.value.stream = stream.value
-    }
-    Object.assign(settings.value, values)
-  } catch (err) {
-    error.value = err instanceof Error ? err.message : 'Anzeige konnte nicht gespeichert werden.'
   } finally {
     busy.value = false
   }
@@ -509,14 +455,11 @@ async function confirmVisibility() {
   try {
     const result = await changeCameraVisibility(api, {
       deviceId: device.value.id,
-      label: title.value,
-      bindings: bindings.value,
-      slots: slots.value,
-      username: credentials.value?.username || username.value,
-      stream: credentials.value?.stream || stream.value
+      bindings: bindings.value
     })
+    if (result.restartError) { visibilityError.value = result.restartError; return }
+    configurationWarnings.value = result.warnings
     visibilityOpen.value = false
-    error.value = result.restartError
     bindings.value = await api.bindings()
   } catch (err) {
     visibilityError.value = err instanceof Error ? err.message : 'Die Anzeige konnte nicht geändert werden.'
@@ -666,8 +609,8 @@ async function loadDevice(id: string) {
   ready.value = false
   error.value = ''
   try {
-    const [nextDevice, nextCredentials, identities, nextBindings, nextSlots, nextSettings, relays] = await Promise.all([
-      api.device(id), api.deviceCredentials(id), api.credentialIdentities(), api.bindings(), api.slots(), api.settings(),
+    const [nextDevice, nextCredentials, identities, nextBindings, nextSettings, relays] = await Promise.all([
+      api.device(id), api.deviceCredentials(id), api.credentialIdentities(), api.bindings(), api.settings(),
       api.relayStatus().catch(() => [])
     ])
     if (generation !== loadGeneration) return
@@ -675,14 +618,13 @@ async function loadDevice(id: string) {
     credentials.value = nextCredentials
     credentialIdentities.value = identities
     bindings.value = nextBindings
-    slots.value = nextSlots
     settings.value = nextSettings
     relayStatuses.value = relays
     password.value = ''
     username.value = nextCredentials.username || ''
     stream.value = nextCredentials.stream || 'stream2'
     loadDisplaySettings()
-    credentialBaseline.value=JSON.stringify({username:username.value,password:password.value})
+    applyPending.value = nextSettings[`camera.configuration.${id}.pending`] === 'true'
     editBaseline.value = editSnapshot.value
     ready.value = true
   } catch (err) {

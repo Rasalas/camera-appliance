@@ -23,7 +23,9 @@ The Makefile uses local development paths:
 make dev-hot
 ```
 
-This runs the Go backend on `127.0.0.1:8091` and Vite with API proxying.
+This runs the Go backend on `127.0.0.1:8091` and Vite with API and player proxying,
+including `/go2rtc` JavaScript modules and WebSockets. Set
+`CAMERA_APPLIANCE_DEV_API_TARGET` to use another manager address.
 
 ## Backend Tests
 
@@ -38,6 +40,20 @@ with the race detector.
 The pull request workflow runs the race detector, Go vet, frontend tests and
 the production frontend build. Viewer layout transformations live in
 `frontend/src/pages/viewerMosaic.ts` and can be tested without a browser.
+
+## Browser tests
+
+```bash
+cd frontend
+npm ci
+npx playwright install chromium
+npm run test:browser
+```
+
+The browser suite exercises the Vue UI on desktop and tablet viewports using
+local API fixtures. A local upstream also verifies player module loading and
+real WebSocket upgrades through Vite. It does not contact cameras or restart
+services. CI runs this suite separately and retains traces for failed tests.
 
 ## Build
 

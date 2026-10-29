@@ -79,7 +79,6 @@ test('device component starts independent requests concurrently and rejects stal
     api.deviceCredentials=async(id:string)=>{calls.push('credentials:'+id);return {username:id,stream:'stream2'}}
     api.credentialIdentities=async()=>{calls.push('identities');return []}
     api.bindings=async()=>{calls.push('bindings');return []}
-    api.slots=async()=>{calls.push('slots');return []}
     api.settings=async()=>{calls.push('settings');return {}}
     api.relayStatus=async()=>{calls.push('relays');return []}
     const Component={...Page,render:()=>h('div')}
@@ -90,7 +89,7 @@ test('device component starts independent requests concurrently and rejects stal
     app.provide(ssrContextKey,{modules:new Set()})
     const vm=app.mount({})
     await tick()
-    assert.deepEqual(calls,['device:one','credentials:one','identities','bindings','slots','settings','relays'])
+    assert.deepEqual(calls,['device:one','credentials:one','identities','bindings','settings','relays'])
     await router.push('/camera/two');await tick()
     const page=vm.$.subTree.component!.subTree.component!
     assert.equal(page.setupState.device.id,'two')
