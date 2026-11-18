@@ -138,7 +138,7 @@
 
         <div v-if="dockTarget" class="mosaic-dock" :style="dockOverlayStyle" aria-hidden="true" />
 
-        <div v-if="!panes.length" class="viewer-empty">
+        <div v-if="viewer && !panes.length" class="viewer-empty">
           <div>Noch keine Kamera ausgewählt.</div>
           <RouterLink v-if="canAdmin" class="btn sm" to="/einrichtung">Kameras aktivieren</RouterLink>
         </div>
@@ -194,6 +194,7 @@
 
     <transition name="hud">
       <div v-if="error" class="viewer-error" role="alert">{{ error }} <button class="btn" @click="flushViewer().then(saved => { if(saved) error = '' })">Erneut speichern</button></div>
+      <div v-else-if="loadFailed" class="viewer-error" role="status">Kameraansicht konnte nicht geladen werden. Neuer Versuch läuft.</div>
     </transition>
   </div>
 </template>
@@ -258,8 +259,8 @@ function resolveViewName() {
 }
 const viewer = ref<ViewerResponse>()
 const auth = ref<AuthStatus>()
-const loading = ref(true)
-const busy = ref(false)
+const loadFailed = ref(false)
+let loading = false
 const error = ref('')
 const performanceMode = ref<'quality' | 'balanced' | 'low' | 'diagnostic'>('quality')
 // Off until someone presses the sound control, so a single tap never starts audio.
@@ -986,7 +987,8 @@ function clamp(value: number, min: number, max: number) {
 // --- Loading -----------------------------------------------------------------
 
 async function load() {
-  busy.value = true
+  if (loading) return
+  loading = true
   try {
     const viewerData = await api.viewer()
     viewer.value = viewerData
@@ -1004,12 +1006,16 @@ async function load() {
     }
     if (spotlightAlias.value && !aliases.includes(spotlightAlias.value)) spotlightAlias.value = ''
     if (activeAudioAlias.value && !aliases.includes(activeAudioAlias.value)) muteAllAudio()
-  } catch (err) {
-    error.value = err instanceof Error ? err.message : 'Viewer konnte nicht geladen werden.'
+    loadFailed.value = false
+  } catch {
+    loadFailed.value = true
   } finally {
-    loading.value = false
-    busy.value = false
+    loading = false
   }
+}
+
+function refreshViewer() {
+  if (!playersPaused.value) void load()
 }
 
 function normalizedPerformanceMode(raw?: string): 'quality' | 'balanced' | 'low' | 'diagnostic' {
@@ -1061,6 +1067,7 @@ onMounted(() => {
     }
   }
   document.addEventListener('visibilitychange', onVisibilityChange)
+  window.addEventListener('online', refreshViewer)
   if (kioskMode) void requestScreenWakeLock()
   onMessage = (event) => handleEmbedMessage(event)
   window.addEventListener('message', onMessage)
@@ -1072,9 +1079,7 @@ onMounted(() => {
   window.addEventListener('keydown', onKey)
   void load()
   void checkVersion()
-  refreshTimer = window.setInterval(() => {
-    if (!busy.value && !playersPaused.value) void load()
-  }, 15000)
+  refreshTimer = window.setInterval(refreshViewer, 15000)
   versionTimer = window.setInterval(() => {
     if (!playersPaused.value) void checkVersion()
   }, VERSION_CHECK_MS)
@@ -1097,6 +1102,7 @@ onBeforeUnmount(() => {
   if (onAuthChanged) window.removeEventListener('auth-changed', onAuthChanged)
   if (onFullscreenChange) document.removeEventListener('fullscreenchange', onFullscreenChange)
   if (onVisibilityChange) document.removeEventListener('visibilitychange', onVisibilityChange)
+  window.removeEventListener('online', refreshViewer)
   void releaseScreenWakeLock()
   if (onMessage) window.removeEventListener('message', onMessage)
   if (onKey) window.removeEventListener('keydown', onKey)

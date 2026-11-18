@@ -1,6 +1,37 @@
 import { test, expect } from '@playwright/test'
 import { appliance } from './appliance'
 
+test('kiosk recovers its camera tiles after an interrupted viewer read', async ({ page }) => {
+  await appliance(page)
+  await page.clock.install()
+  let interrupted = true
+  await page.route('**/api/viewer', route => interrupted
+    ? route.fulfill({ status: 500, json: { error: 'interrupted (9)' } })
+    : route.fallback())
+
+  await page.goto('/?kiosk=1')
+  const loadError = page.getByRole('status').filter({ hasText: 'Kameraansicht konnte nicht geladen werden' })
+  await expect(loadError).toBeVisible({ timeout: 3000 })
+  await expect(page.getByText('Noch keine Kamera ausgewählt.')).toBeHidden()
+  await expect(page.getByText('interrupted (9)')).toBeHidden()
+
+  interrupted = false
+  await page.evaluate(() => window.dispatchEvent(new Event('online')))
+  const tiles = page.locator('[data-slot-alias]')
+  await expect(tiles).toHaveCount(2, { timeout: 3000 })
+  await expect(loadError).toBeHidden()
+
+  interrupted = true
+  await page.clock.fastForward(15_000)
+  await expect(loadError).toBeVisible()
+  await expect(tiles).toHaveCount(2)
+
+  interrupted = false
+  await page.clock.fastForward(15_000)
+  await expect(loadError).toBeHidden()
+  await expect(tiles).toHaveCount(2)
+})
+
 test('system settings become editable while service status is still pending', async ({ page }) => {
   await appliance(page)
   let release!: () => void
